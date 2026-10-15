@@ -1,0 +1,14 @@
+{
+  "name": "@rovdo/desktop",
+  "version": "0.1.0",
+  "private": true,
+  "license": "Apache-2.0",
+  "type": "module",
+  "main": "dist/main/index.cjs",
+  "dependencies": {
+    "@rovdo/agent-core": "0.1.0",
+    "@rovdo/shared": "0.1.0",
+    "react": "19.3.1",
+    "react-dom": "19.3.1"
+  }
+}
