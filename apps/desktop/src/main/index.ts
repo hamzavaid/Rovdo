@@ -22,7 +22,7 @@ protocol.registerSchemesAsPrivileged([{
 async function createWindow(): Promise<void> {
   const window = new BrowserWindow({
     width: 1160, height: 800, minWidth: 760, minHeight: 580,
-    title: 'Rovdo', backgroundColor: '#f5f6f8', show: false,
+    title: 'Rovdo', backgroundColor: '#f5f6f8', show: true,
     webPreferences: { ...WINDOW_WEB_PREFERENCES, preload: join(__dirname, '../preload/index.cjs') },
   });
   mainWindow = window;
