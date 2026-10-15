@@ -1,5 +1,12 @@
 # Rovdo
 
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="apps/desktop/src/renderer/assets/inverted_rovdo_logo.png" />
+    <img src="apps/desktop/src/renderer/assets/rovdo_logo.png" alt="Rovdo owl logo" width="240" height="240" />
+  </picture>
+</p>
+
 A local-first, open-source desktop workspace for AI-assisted browser workflows, with bring-your-own-model support.
 
 Rovdo is being built to help users discover relevant jobs, prepare fact-grounded application documents, and review browser actions before submission. Its planned discovery engine uses deterministic filters and local search without requiring an AI key. Model-assisted work will use a provider selected by the user.

@@ -1,4 +1,6 @@
 import { useEffect, useState } from 'react';
+import logo from './assets/rovdo_logo.png';
+import invertedLogo from './assets/inverted_rovdo_logo.png';
 
 export function App() {
   const [connection, setConnection] = useState('Connecting to desktop');
@@ -19,7 +21,7 @@ export function App() {
   return (
     <div className="app-shell">
       <aside className="sidebar" aria-label="Workspace">
-        <div className="brand"><span className="brand-mark" aria-hidden="true">R</span>Rovdo</div>
+        <div className="brand"><img src={logo} alt="Rovdo" width="160" height="160" /></div>
         <p className="sidebar-label">YOUR WORKSPACE</p>
         <div className="workspace-item" aria-current="page"><span aria-hidden="true">◈</span> Overview</div>
         <div className="sidebar-footer"><span className="status-dot" />Local-first by design</div>
@@ -32,7 +34,7 @@ export function App() {
           <p className="intro">A home for your work, with you in control. Rovdo is building a local-first workspace for thoughtful AI automation.</p>
 
           <section className="welcome-panel" aria-labelledby="foundation-title">
-            <div className="panel-symbol" aria-hidden="true">R</div>
+            <img className="panel-symbol" src={invertedLogo} alt="" width="112" height="112" />
             <div>
               <div className="eyebrow">PROJECT STATUS</div>
               <h2 id="foundation-title">The foundation is in place.</h2>

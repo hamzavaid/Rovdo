@@ -27,7 +27,7 @@ export function getAssetPath(requestUrl: string, rendererRoot: string): string |
       return null;
     }
     if (url.pathname === '/index.html') return resolve(rendererRoot, 'index.html');
-    if (/^\/assets\/[a-zA-Z0-9_-][a-zA-Z0-9_.-]*\.(js|css|svg|woff2)$/.test(url.pathname)) {
+    if (/^\/assets\/[a-zA-Z0-9_-][a-zA-Z0-9_.-]*\.(js|css|svg|png|woff2)$/.test(url.pathname)) {
       return resolve(rendererRoot, `.${url.pathname}`);
     }
     return null;

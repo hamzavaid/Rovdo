@@ -9,7 +9,7 @@ import { APP_URL, CONTENT_SECURITY_POLICY, getAssetPath, WINDOW_WEB_PREFERENCES 
 const log = createLogger((line) => process.stdout.write(line));
 const MIME_TYPES: Record<string, string> = {
   '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8',
-  '.css': 'text/css; charset=utf-8', '.svg': 'image/svg+xml', '.woff2': 'font/woff2',
+  '.css': 'text/css; charset=utf-8', '.svg': 'image/svg+xml', '.png': 'image/png', '.woff2': 'font/woff2',
 };
 let mainWindow: BrowserWindow | null = null;
 

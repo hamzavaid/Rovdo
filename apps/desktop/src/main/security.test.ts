@@ -27,6 +27,7 @@ describe('desktop security boundary', () => {
     const root = resolve('renderer');
     expect(getAssetPath(APP_URL, root)).toBe(resolve(root, 'index.html'));
     expect(getAssetPath('rovdo://app/assets/index-a12.js', root)).toBe(resolve(root, 'assets/index-a12.js'));
+    expect(getAssetPath('rovdo://app/assets/rovdo_logo-a12.png', root)).toBe(resolve(root, 'assets/rovdo_logo-a12.png'));
   });
 
   it.each([
@@ -35,6 +36,7 @@ describe('desktop security boundary', () => {
     'rovdo://app/assets/%2e%2e%2fsecret.js', 'rovdo://app/assets/secret%5cfile.js',
     'rovdo://user:pass@app/index.html', 'rovdo://app:3000/index.html',
     'rovdo://app/../package.json', 'rovdo://app/assets/config.json', 'not-a-url',
+    'rovdo://app/assets/%2e%2e%2fprivate.png', 'rovdo://app/assets/nested/private.png',
   ])('refuses arbitrary file requests: %s', (url) => {
     expect(getAssetPath(url, resolve('renderer'))).toBeNull();
   });

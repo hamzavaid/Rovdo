@@ -1,3 +1,4 @@
+/// <reference types="vite/client" />
 import type { DesktopApi } from '@rovdo/shared';
 
 declare global {

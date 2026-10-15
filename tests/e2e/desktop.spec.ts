@@ -13,6 +13,11 @@ test('boots the built shell with isolated preload and blocked egress', async () 
     await expect(page.getByText('Desktop connected')).toBeVisible();
     expect(page.url()).toBe('rovdo://app/index.html');
 
+    await expect(page.getByRole('img', { name: 'Rovdo', exact: true })).toBeVisible();
+    await expect.poll(() => page.locator('.brand img, .panel-symbol').evaluateAll((images) =>
+      images.length === 2 && images.every((image) => image instanceof HTMLImageElement && image.complete && image.naturalWidth > 0),
+    )).toBe(true);
+
     const isolation = await page.evaluate(async () => {
       const scope = globalThis as unknown as Record<string, unknown>;
       const api = scope.rovdo as { getAppInfo(): Promise<unknown> };
