@@ -6,8 +6,11 @@
   "type": "module",
   "main": "dist/main/index.cjs",
   "dependencies": {
+    "@napi-rs/keyring": "2.1.1",
     "@rovdo/agent-core": "0.1.0",
+    "@rovdo/providers": "0.1.0",
     "@rovdo/shared": "0.1.0",
+    "@rovdo/storage": "0.1.0",
     "react": "19.3.1",
     "react-dom": "19.3.1"
   }

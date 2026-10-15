@@ -15,10 +15,11 @@ for (const entry of ['main', 'preload']) {
   await build({
     configFile: false,
     root: desktopRoot,
+    resolve: { conditions: entry === 'main' ? ['node', 'module'] : ['browser', 'module'] },
     build: {
       outDir: `dist/${entry}`, emptyOutDir: true, target: 'node22',
       lib: { entry: resolve(desktopRoot, `src/${entry}/index.ts`), formats: ['cjs'], fileName: () => 'index.cjs' },
-      rollupOptions: { external: ['electron', /^node:/] },
+      rollupOptions: { external: ['electron', '@napi-rs/keyring', /^node:/] },
       minify: false,
     },
   });

@@ -9,7 +9,7 @@ export function getAppInfo(
 ): AppInfo {
   if (!isTrustedFrame(sender.url, sender.isMainFrame)) throw new Error('IPC_FORBIDDEN');
   if (!EmptyRequestSchema.safeParse(payload).success) throw new Error('VALIDATION_ERROR');
-  const info = AppInfoSchema.safeParse({ name: 'Rovdo', version, milestone: 'foundation', networkEnabled: false });
+  const info = AppInfoSchema.safeParse({ name: 'Rovdo', version, milestone: 'desktop-byok', networkEnabled: false });
   if (!info.success) throw new Error('INTERNAL_ERROR');
   return info.data;
 }

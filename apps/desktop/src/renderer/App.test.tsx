@@ -6,10 +6,10 @@ describe('foundation shell', () => {
   it('states the current capability without advertising unfinished features', () => {
     const html = renderToStaticMarkup(<App />);
     expect(html).toContain('Rovdo');
-    expect(html).toContain('Foundation preview');
+    expect(html).toContain('Desktop + BYOK');
     expect(html).toContain('No model connected');
     expect(html).toContain('No data leaves your device');
-    expect(html).not.toContain('<form');
-    expect(html).not.toContain('<input');
+    expect(html).toContain('Models &amp; Privacy');
+    expect(html).not.toContain('type="password"');
   });
 });

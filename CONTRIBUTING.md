@@ -1,6 +1,6 @@
 # Contributing to Rovdo
 
-Rovdo is in its foundation stage. Keep changes focused on an agreed milestone and preserve the separation between Electron main, preload, renderer, and shared contracts.
+Rovdo has completed its foundation and Desktop + BYOK implementation. Keep changes focused on an agreed milestone and preserve the separation between Electron main, preload, renderer, and shared contracts.
 
 ## Setup
 
@@ -22,6 +22,8 @@ The root is an npm workspace. Run checks from the repository root. Do not instal
 5. Describe the problem, resulting behavior, test evidence, and material limitations in the pull request. Use descriptive commits for independently working stages.
 
 Unit tests live next to source files. Desktop E2E tests live in `tests/e2e` and run against compiled bundles. Linux needs Electron system libraries and a graphical session or `xvfb-run`; see the README. Automated tests must never submit real applications, send outreach, delete mail, or create third-party accounts.
+
+Provider tests use injected fetch fixtures with the official SDKs. The desktop acceptance flow uses an explicit loopback server and a unique synthetic OS-vault entry, verifies restart persistence, and removes the credential. Never add a renderer read-key method or a test-only authentication bypass to the production app. Linux E2E needs an isolated D-Bus session and unlocked Secret Service vault as shown in the README/CI.
 
 ## Architecture boundaries
 

@@ -45,7 +45,7 @@ describe('desktop security boundary', () => {
 describe('app information IPC handler', () => {
   it('returns only public app metadata to the trusted frame', () => {
     expect(getAppInfo({}, { url: APP_URL, isMainFrame: true }, '0.1.0')).toEqual({
-      name: 'Rovdo', version: '0.1.0', milestone: 'foundation', networkEnabled: false,
+      name: 'Rovdo', version: '0.1.0', milestone: 'desktop-byok', networkEnabled: false,
     });
   });
 

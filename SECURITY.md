@@ -10,6 +10,10 @@ Include the affected commit, operating system, a minimal reproduction with synth
 
 ## Current security boundary
 
-The foundation uses a sandboxed renderer with context isolation, a narrow read-only preload bridge, validated IPC, restricted local assets, and blocked renderer egress. It does not yet implement credential storage, model providers, browser agents, or an action approval engine.
+The desktop uses a sandboxed renderer with context isolation, specific validated preload methods, sender/main-frame checks, restricted local assets, and blocked renderer egress. Main-process SDK adapters handle model requests; no provider or vault module is importable by the renderer.
+
+API keys enter through native password dialogs and persist only in the OS credential vault. The renderer receives credential status, never key values. SQLite stores nonsecret settings and numeric usage; chat stays in memory. SDK logs/tracing are disabled, errors are translated to fixed codes, and known credentials echoed across response fragments are redacted. Transient main-process/native memory necessarily holds credentials during authorized operations; no heap snapshots or raw error exports are collected by Rovdo.
+
+Network controls restrict requests to the configured base path, validate and pin DNS destinations, reject redirects, preserve TLS verification, and permit HTTP only for explicit loopback-compatible endpoints. Models can call only the built-in read-only `workspace_info` tool. Browser agents and consequential action approvals are not implemented yet.
 
 Changes that expand IPC, network access, filesystem access, dependencies, permissions, or logging require explicit tests for the expanded boundary. Live external submissions and destructive actions must not be used in automated verification.

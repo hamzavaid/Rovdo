@@ -5,11 +5,11 @@ test('boots the built shell with isolated preload and blocked egress', async () 
   const env = Object.fromEntries(Object.entries(process.env).filter((entry): entry is [string, string] => entry[1] !== undefined));
   delete env.ELECTRON_RUN_AS_NODE;
   delete env.NODE_OPTIONS;
-  const desktop = await electron.launch({ args: [resolve('apps/desktop')], env });
+  const desktop = await electron.launch({ args: [resolve('apps/desktop'), `--rovdo-data-dir=${test.info().outputPath('user-data')}`], env });
   try {
     const page = await desktop.firstWindow();
     await expect(page.getByRole('heading', { name: 'Your workspace starts here.' })).toBeVisible();
-    await expect(page.getByText('Foundation preview')).toBeVisible();
+    await expect(page.getByText('Desktop + BYOK')).toBeVisible();
     await expect(page.getByText('Desktop connected')).toBeVisible();
     expect(page.url()).toBe('rovdo://app/index.html');
 
@@ -30,8 +30,8 @@ test('boots the built shell with isolated preload and blocked egress', async () 
       };
     });
     expect(isolation).toEqual({
-      node: 'undefined', process: 'undefined', bridgeKeys: ['getAppInfo'],
-      info: { name: 'Rovdo', version: '0.1.0', milestone: 'foundation', networkEnabled: false },
+      node: 'undefined', process: 'undefined', bridgeKeys: ['getAppInfo', 'getSettings', 'saveProfile', 'removeProfile', 'enterKey', 'removeKey', 'testConnection', 'startChat', 'cancelChat', 'clearChat', 'onChatEvent'],
+      info: { name: 'Rovdo', version: '0.1.0', milestone: 'desktop-byok', networkEnabled: false },
       blocked: true,
     });
 
