@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import logo from './assets/rovdo_logo.png';
-import invertedLogo from './assets/inverted_rovdo_logo.png';
+import invertedMark from './assets/inverted_logo_nosub.png';
 
 export function App() {
   const [connection, setConnection] = useState('Connecting to desktop');
@@ -34,7 +34,7 @@ export function App() {
           <p className="intro">A home for your work, with you in control. Rovdo is building a local-first workspace for thoughtful AI automation.</p>
 
           <section className="welcome-panel" aria-labelledby="foundation-title">
-            <img className="panel-symbol" src={invertedLogo} alt="" width="112" height="112" />
+            <img className="panel-symbol" src={invertedMark} alt="" width="112" height="112" />
             <div>
               <div className="eyebrow">PROJECT STATUS</div>
               <h2 id="foundation-title">The foundation is in place.</h2>
