@@ -21,7 +21,7 @@ export function App() {
   return (
     <div className="app-shell">
       <aside className="sidebar" aria-label="Workspace">
-        <div className="brand"><img src={logo} alt="Rovdo" width="160" height="160" /></div>
+        <div className="brand"><img src={logo} alt="Rovdo" width="96" height="96" /></div>
         <p className="sidebar-label">YOUR WORKSPACE</p>
         <div className="workspace-item" aria-current="page"><span aria-hidden="true">◈</span> Overview</div>
         <div className="sidebar-footer"><span className="status-dot" />Local-first by design</div>
