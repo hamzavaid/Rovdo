@@ -2,8 +2,9 @@ import { mkdir, readFile } from 'node:fs/promises';
 import { extname, join, resolve } from 'node:path';
 import { app, BrowserWindow, ipcMain, protocol, session } from 'electron';
 import { createLogger } from '@rovdo/agent-core';
-import { APP_INFO_CHANNEL, BYOK_CHANNELS } from '@rovdo/shared';
-import { SettingsStore } from '@rovdo/storage';
+import { APP_INFO_CHANNEL, BYOK_CHANNELS, BROWSER_CHANNEL } from '@rovdo/shared';
+import { SettingsStore, RuntimeStore } from '@rovdo/storage';
+import { createBrowserService } from './browser-service';
 import { ProviderRegistry, createAdapter } from '@rovdo/providers';
 import { ByokService } from './byok-service';
 import { createNativeVault } from './native-vault';
@@ -19,6 +20,8 @@ const MIME_TYPES: Record<string, string> = {
 let mainWindow: BrowserWindow | null = null;
 let service: ByokService | null = null;
 let store: SettingsStore | null = null;
+let runStore: RuntimeStore | null = null;
+let browserService: ReturnType<typeof createBrowserService> | null = null;
 let shutdownComplete = false;
 let shutdownStarted = false;
 
@@ -42,7 +45,7 @@ async function createWindow(): Promise<void> {
   window.webContents.on('will-navigate', (event) => event.preventDefault());
   window.webContents.on('will-frame-navigate', (event) => event.preventDefault());
   window.webContents.on('will-attach-webview', (event) => event.preventDefault());
-  window.on('closed', () => { service?.reset(); if (mainWindow === window) mainWindow = null; });
+  window.on('closed', () => { service?.reset(); void browserService?.runtime.shutdown(); if (mainWindow === window) mainWindow = null; });
   await window.loadURL(APP_URL);
   window.show();
 }
@@ -52,7 +55,14 @@ async function initialize(): Promise<void> {
   store = new SettingsStore(join(app.getPath('userData'), 'rovdo.sqlite'));
   const registry = new ProviderRegistry();
   for (const kind of ['openai', 'anthropic', 'compatible'] as const) registry.register(kind, createAdapter);
-  service = new ByokService(store, createNativeVault(), (config, key) => registry.create(config, key), app.getVersion());
+  const vault = createNativeVault();
+  service = new ByokService(store, vault, (config, key) => registry.create(config, key), app.getVersion());
+  runStore = new RuntimeStore(join(app.getPath('userData'), 'rovdo.sqlite'));
+  browserService = createBrowserService(runStore, store, vault);
+  ipcMain.handle(BROWSER_CHANNEL, (event, payload: unknown) => browserService!.command(payload, {
+    url: event.senderFrame?.url ?? '', isMainFrame: event.senderFrame === event.sender.mainFrame,
+    ownsWindow: !!mainWindow && event.sender === mainWindow.webContents,
+  }));
   for (const channel of Object.values(BYOK_CHANNELS).filter((name) => name !== BYOK_CHANNELS.event)) {
     ipcMain.handle(channel, (event, payload: unknown) => handleByok(service!, channel, payload, {
       url: event.senderFrame?.url ?? '', isMainFrame: event.senderFrame === event.sender.mainFrame,
@@ -116,8 +126,8 @@ app.on('before-quit', (event) => {
   event.preventDefault();
   if (shutdownStarted) return;
   shutdownStarted = true;
-  void service?.shutdown().finally(() => {
-    store?.close(); shutdownComplete = true; app.quit();
+  void Promise.all([service?.shutdown(), browserService?.runtime.shutdown()]).finally(() => {
+    runStore?.close(); store?.close(); shutdownComplete = true; app.quit();
   });
 });
 app.on('will-quit', () => { service?.cancel(); log({ level: 'info', event: 'app.stopped', component: 'main' }); });

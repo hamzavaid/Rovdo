@@ -1,4 +1,5 @@
 import { DiagnosticEventSchema } from '@rovdo/shared';
+export * from './browser';
 
 export function createLogger(
   sink: (line: string) => void,

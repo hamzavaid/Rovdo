@@ -1,6 +1,8 @@
 import { z } from 'zod';
 import type { ByokApi } from './byok';
+import type { BrowserApi } from './browser';
 export * from './byok';
+export * from './browser';
 
 export const ErrorCodeSchema = z.enum(['VALIDATION_ERROR', 'IPC_FORBIDDEN', 'INTERNAL_ERROR']);
 export type ErrorCode = z.infer<typeof ErrorCodeSchema>;
@@ -49,7 +51,7 @@ export const AppInfoSchema = z.strictObject({
 export type AppInfo = z.infer<typeof AppInfoSchema>;
 
 export const APP_INFO_CHANNEL = 'app:get-info';
-export interface DesktopApi extends ByokApi {
+export interface DesktopApi extends ByokApi, BrowserApi {
   getAppInfo(): Promise<AppInfo>;
 }
 

@@ -7,6 +7,7 @@ import type { AgentTurn, AgentTurnRequest, CostEstimate, ModelCapabilities, Prov
 import { createSafeFetch } from './network';
 import { normalizeError, ProviderError } from './errors';
 export { ProviderError } from './errors';
+export { validateDestination } from './network';
 
 export const WORKSPACE_TOOL = { name: 'workspace_info', description: 'Read the Rovdo application version and enabled capabilities. No personal data.', inputSchema: { type: 'object' as const, properties: {}, additionalProperties: false as const } };
 export interface ModelAdapter {

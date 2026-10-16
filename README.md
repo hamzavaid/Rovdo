@@ -25,10 +25,11 @@ Prerequisites:
 git clone https://github.com/hamzavaid/Rovdo.git
 cd Rovdo
 npm ci
+npx playwright install chromium
 npm run dev
 ```
 
-The app opens the workspace overview without a Rovdo account or environment file. Configuring providers does not make a network request; connection tests and chat require explicit consent. This preview does not run browser automation.
+The app opens the workspace overview without a Rovdo account or environment file. Configuring providers does not make a network request; connection tests, chat and browser model requests require explicit consent.
 
 `npm run dev` builds the application and launches Electron. Restart it after source changes. To launch an existing build:
 
@@ -51,6 +52,14 @@ Chat supports text and bounded tool-call roundtrips. The only executable tool is
 Failed or stopped exchanges are excluded from later model context. Requests are never silently replayed; retry explicitly after resolving an error. Rate-limit `Retry-After` cooldowns are honored. Editing a destination invalidates capability results and removes its old key; enter a new key and test again.
 
 Usage distinguishes reported tokens from unavailable accounting. Cost estimates use the saved pricing version and separate cached-input rates. Missing rates, unsupported cache-write pricing, or absent provider usage produce an unavailable estimate. Budget preflight uses a conservative token estimate and bounds tool rounds; it is not a guarantee of the provider's final bill.
+
+## Browser workspace
+
+Open **Browser**, choose a tested model and enter a task, start URL, exact allowed HTTPS origins, and visible text that will verify completion. Review the model destination and consent to sharing bounded page observations. A separate Chromium window opens with a fresh session. Review each proposed click, fill or selection before approving it; use **Pause** or **Stop** from Rovdo at any time.
+
+The timeline persists verified action metadata and costs. Input values are excluded from observations and audit events. After a restart, interrupted runs pause for reconciliation; resuming opens a fresh browser without replaying past actions. CAPTCHA and MFA prompts pause for human review. The current browser worker supports public, read-only navigation and reversible DOM steps; final submissions, browser network writes, login credentials, uploads, downloads and screenshot retention are disabled. Authenticated session reuse and application submission belong to later milestones.
+
+Limits are 20 actions, 50,000 tokens, an estimated $0.50 and five minutes per UI run. Missing model accounting stops continuation. Cost estimates are subject to provider billing and cannot guarantee the final charge.
 
 ## OS credential vault requirements
 

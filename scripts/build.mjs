@@ -19,7 +19,7 @@ for (const entry of ['main', 'preload']) {
     build: {
       outDir: `dist/${entry}`, emptyOutDir: true, target: 'node22',
       lib: { entry: resolve(desktopRoot, `src/${entry}/index.ts`), formats: ['cjs'], fileName: () => 'index.cjs' },
-      rollupOptions: { external: ['electron', '@napi-rs/keyring', /^node:/] },
+      rollupOptions: { external: ['electron', '@napi-rs/keyring', 'playwright', /^node:/] },
       minify: false,
     },
   });

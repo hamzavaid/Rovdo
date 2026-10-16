@@ -4,10 +4,11 @@ import logo from './assets/rovdo_logo.png';
 import invertedMark from './assets/inverted_logo_nosub.png';
 import { Chat } from './Chat';
 import { Models } from './Models';
+import { BrowserRun } from './BrowserRun';
 
 export function App() {
   const [connection, setConnection] = useState('Connecting to desktop');
-  const [view, setView] = useState<'overview' | 'chat' | 'models'>('overview');
+  const [view, setView] = useState<'overview' | 'chat' | 'models' | 'browser'>('overview');
   const [settings, setSettings] = useState<SettingsView>({ profiles: [], usage: { inputTokens: 0, outputTokens: 0, estimatedUsd: 0, requests: 0, unpricedRequests: 0 } });
   const refresh = useCallback(async () => {
     try {
@@ -39,6 +40,7 @@ export function App() {
         <nav className="workspace-nav" aria-label="Main navigation">
           <button type="button" className={view === 'overview' ? 'workspace-item active' : 'workspace-item'} aria-current={view === 'overview' ? 'page' : undefined} onClick={() => setView('overview')}>Overview</button>
           <button type="button" className={view === 'chat' ? 'workspace-item active' : 'workspace-item'} aria-current={view === 'chat' ? 'page' : undefined} onClick={() => setView('chat')}>Chat</button>
+          <button type="button" className={view === 'browser' ? 'workspace-item active' : 'workspace-item'} aria-current={view === 'browser' ? 'page' : undefined} onClick={() => setView('browser')}>Browser</button>
           <button type="button" className={view === 'models' ? 'workspace-item active' : 'workspace-item'} aria-current={view === 'models' ? 'page' : undefined} onClick={() => setView('models')}>Models &amp; Privacy</button>
         </nav>
         <div className="sidebar-footer"><span className="status-dot" />Local-first by design</div>
@@ -56,7 +58,7 @@ export function App() {
             <div>
               <div className="eyebrow">PROJECT STATUS</div>
               <h2 id="foundation-title">Your desktop is ready.</h2>
-              <p>Connect your model, verify its capabilities, and start a conversation. Your keys stay in the OS vault. Browser automation arrives in Phase 2.</p>
+              <p>Connect your model, start a conversation, or run a scoped browser task. Your keys stay in the OS vault. Browser interactions require your approval.</p>
             </div>
           </section>
 
@@ -68,6 +70,7 @@ export function App() {
           </section>
           <section hidden={view !== 'chat'}><Chat settings={settings} refresh={refresh} /></section>
           <section hidden={view !== 'models'}><Models settings={settings} refresh={refresh} /></section>
+          <section hidden={view !== 'browser'}><BrowserRun settings={settings} /></section>
           <footer className="workspace-footer"><span role="status"><span className="status-dot" />{connection}</span><span>Your device. Your models. Your decisions.</span></footer>
         </main>
       </div>

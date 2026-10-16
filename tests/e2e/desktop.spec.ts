@@ -30,7 +30,7 @@ test('boots the built shell with isolated preload and blocked egress', async () 
       };
     });
     expect(isolation).toEqual({
-      node: 'undefined', process: 'undefined', bridgeKeys: ['getAppInfo', 'getSettings', 'saveProfile', 'removeProfile', 'enterKey', 'removeKey', 'testConnection', 'startChat', 'cancelChat', 'clearChat', 'onChatEvent'],
+      node: 'undefined', process: 'undefined', bridgeKeys: ['browserCommand', 'getAppInfo', 'getSettings', 'saveProfile', 'removeProfile', 'enterKey', 'removeKey', 'testConnection', 'startChat', 'cancelChat', 'clearChat', 'onChatEvent'],
       info: { name: 'Rovdo', version: '0.1.0', milestone: 'desktop-byok', networkEnabled: false },
       blocked: true,
     });
