@@ -1,8 +1,10 @@
 import { z } from 'zod';
 import type { ByokApi } from './byok';
 import type { BrowserApi } from './browser';
+import type { CareerApi } from './career';
 export * from './byok';
 export * from './browser';
+export * from './career';
 
 export const ErrorCodeSchema = z.enum(['VALIDATION_ERROR', 'IPC_FORBIDDEN', 'INTERNAL_ERROR']);
 export type ErrorCode = z.infer<typeof ErrorCodeSchema>;
@@ -45,13 +47,13 @@ export const EmptyRequestSchema = z.strictObject({});
 export const AppInfoSchema = z.strictObject({
   name: z.literal('Rovdo'),
   version: z.string().regex(/^\d+\.\d+\.\d+(?:-[a-zA-Z0-9.-]+)?$/),
-  milestone: z.literal('desktop-byok'),
+  milestone: z.literal('career-jobs'),
   networkEnabled: z.literal(false),
 });
 export type AppInfo = z.infer<typeof AppInfoSchema>;
 
 export const APP_INFO_CHANNEL = 'app:get-info';
-export interface DesktopApi extends ByokApi, BrowserApi {
+export interface DesktopApi extends ByokApi, BrowserApi, CareerApi {
   getAppInfo(): Promise<AppInfo>;
 }
 

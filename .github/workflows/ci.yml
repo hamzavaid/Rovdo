@@ -9,7 +9,7 @@ permissions:
 
 jobs:
   desktop:
-    name: Desktop + BYOK (${{ matrix.os }})
+    name: Browser + Jobs (${{ matrix.os }})
     strategy:
       fail-fast: false
       matrix:

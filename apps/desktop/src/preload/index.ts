@@ -2,6 +2,7 @@ import { contextBridge, ipcRenderer } from 'electron';
 import { APP_INFO_CHANNEL, AppInfoSchema, BYOK_CHANNELS, ChatEventSchema, ChatRequestSchema, EmptyRequestSchema, ProbeRequestSchema, ProfileIdSchema, ProviderConfigSchema, RequestIdSchema, ResultSchema, SettingsResultSchema } from '@rovdo/shared';
 import type { DesktopApi } from '@rovdo/shared';
 import { BROWSER_CHANNEL, BrowserCommandSchema, BrowserResultSchema } from '@rovdo/shared';
+import { CAREER_CHANNEL, CareerCommandSchema, CareerResultSchema } from '@rovdo/shared';
 
 function validated<T>(schema: { safeParse(value: unknown): { success: true; data: T } | { success: false } }, value: unknown): T {
   const parsed = schema.safeParse(value);
@@ -14,6 +15,7 @@ async function invoke<T>(channel: string, payload: unknown, schema: { safeParse(
 }
 
 const api: DesktopApi = Object.freeze<DesktopApi>({
+  careerCommand: (input) => invoke(CAREER_CHANNEL, validated(CareerCommandSchema, input), CareerResultSchema),
   browserCommand: (input) => invoke(BROWSER_CHANNEL, validated(BrowserCommandSchema, input), BrowserResultSchema),
   async getAppInfo() {
     const result: unknown = await ipcRenderer.invoke(APP_INFO_CHANNEL, {});

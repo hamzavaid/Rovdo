@@ -15,7 +15,7 @@ export default tseslint.config(
     files: ['apps/desktop/src/renderer/**/*.{ts,tsx}'],
     languageOptions: { globals: globals.browser },
     rules: {
-      'no-restricted-imports': ['error', { patterns: ['node:*', 'electron', '@rovdo/agent-core', '@rovdo/providers', '@rovdo/storage', '@napi-rs/*', 'openai', '@anthropic-ai/*'] }],
+      'no-restricted-imports': ['error', { patterns: ['node:*', 'electron', '@rovdo/agent-core', '@rovdo/providers', '@rovdo/storage', '@rovdo/shared/network', '@rovdo/browser-worker', '@rovdo/job-discovery', '@rovdo/job-sources', '@napi-rs/*', 'openai', '@anthropic-ai/*'] }],
       'no-restricted-globals': ['error', 'process', 'require', 'Buffer', '__dirname', '__filename'],
     },
   },

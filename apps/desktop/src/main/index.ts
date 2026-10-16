@@ -2,8 +2,11 @@ import { mkdir, readFile } from 'node:fs/promises';
 import { extname, join, resolve } from 'node:path';
 import { app, BrowserWindow, ipcMain, protocol, session } from 'electron';
 import { createLogger } from '@rovdo/agent-core';
-import { APP_INFO_CHANNEL, BYOK_CHANNELS, BROWSER_CHANNEL } from '@rovdo/shared';
-import { SettingsStore, RuntimeStore } from '@rovdo/storage';
+import { APP_INFO_CHANNEL, BYOK_CHANNELS, BROWSER_CHANNEL, CAREER_CHANNEL } from '@rovdo/shared';
+import { SettingsStore, RuntimeStore, CareerStore } from '@rovdo/storage';
+import { DiscoveryEngine } from '@rovdo/job-discovery';
+import { createCareerService } from './career-service';
+import { reviewShortlist } from './career-reviewer';
 import { createBrowserService } from './browser-service';
 import { ProviderRegistry, createAdapter } from '@rovdo/providers';
 import { ByokService } from './byok-service';
@@ -22,6 +25,11 @@ let service: ByokService | null = null;
 let store: SettingsStore | null = null;
 let runStore: RuntimeStore | null = null;
 let browserService: ReturnType<typeof createBrowserService> | null = null;
+let careerStore: CareerStore | null = null;
+let discovery: DiscoveryEngine | null = null;
+let careerService: ReturnType<typeof createCareerService> | null = null;
+let discoveryTimer: ReturnType<typeof setInterval> | null = null;
+const reviewController = new AbortController();
 let shutdownComplete = false;
 let shutdownStarted = false;
 
@@ -59,6 +67,15 @@ async function initialize(): Promise<void> {
   service = new ByokService(store, vault, (config, key) => registry.create(config, key), app.getVersion());
   runStore = new RuntimeStore(join(app.getPath('userData'), 'rovdo.sqlite'));
   browserService = createBrowserService(runStore, store, vault);
+  careerStore = new CareerStore(join(app.getPath('userData'), 'rovdo.sqlite'));
+  discovery = new DiscoveryEngine(careerStore);
+  careerService = createCareerService(careerStore, discovery, (request) => reviewShortlist(request, careerStore!, store!, vault, reviewController.signal));
+  ipcMain.handle(CAREER_CHANNEL, (event, payload: unknown) => careerService!.command(payload, {
+    url: event.senderFrame?.url ?? '', isMainFrame: event.senderFrame === event.sender.mainFrame,
+    ownsWindow: !!mainWindow && event.sender === mainWindow.webContents,
+  }));
+  discoveryTimer = setInterval(() => { void discovery?.pollAll().catch(() => {}); }, 60000);
+  void discovery.pollAll().catch(() => {});
   ipcMain.handle(BROWSER_CHANNEL, (event, payload: unknown) => browserService!.command(payload, {
     url: event.senderFrame?.url ?? '', isMainFrame: event.senderFrame === event.sender.mainFrame,
     ownsWindow: !!mainWindow && event.sender === mainWindow.webContents,
@@ -126,8 +143,10 @@ app.on('before-quit', (event) => {
   event.preventDefault();
   if (shutdownStarted) return;
   shutdownStarted = true;
-  void Promise.all([service?.shutdown(), browserService?.runtime.shutdown()]).finally(() => {
-    runStore?.close(); store?.close(); shutdownComplete = true; app.quit();
+  if (discoveryTimer) clearInterval(discoveryTimer);
+  reviewController.abort();
+  void Promise.all([service?.shutdown(), browserService?.runtime.shutdown(), discovery?.shutdown(), careerService?.shutdown()]).finally(() => {
+    careerStore?.close(); runStore?.close(); store?.close(); shutdownComplete = true; app.quit();
   });
 });
 app.on('will-quit', () => { service?.cancel(); log({ level: 'info', event: 'app.stopped', component: 'main' }); });

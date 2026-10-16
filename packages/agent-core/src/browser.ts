@@ -105,7 +105,7 @@ export class BrowserRuntime {
     }
     if (active.controller.signal.aborted) throw new Error('CANCELED');
     if (!result?.verified) throw new Error('POSTCONDITION_FAILED');
-    this.save(r, 'VERIFYING'); this.store.save(r, 'verified', action.tool);
+    this.save(r, 'VERIFYING'); this.store.save(r, 'verified', `${action.tool}${'target' in action ? `:${action.target.role} ${action.target.name}` : ''}`);
   }
   async approve(id: string, digest: string, allow: boolean): Promise<void> {
     await this.settled();

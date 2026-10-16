@@ -56,7 +56,7 @@ describe('read-only desktop IPC contracts', () => {
   });
 
   it('validates shell metadata and rejects secret-bearing fields', () => {
-    const info = { name: 'Rovdo', version: '0.1.0', milestone: 'desktop-byok', networkEnabled: false };
+    const info = { name: 'Rovdo', version: '0.1.0', milestone: 'career-jobs', networkEnabled: false };
     expect(AppInfoSchema.parse(info)).toEqual(info);
     expect(AppInfoSchema.safeParse({ ...info, apiKey: 'secret-canary' }).success).toBe(false);
     expect(AppInfoSchema.safeParse({ ...info, networkEnabled: true }).success).toBe(false);

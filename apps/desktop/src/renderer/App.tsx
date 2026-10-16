@@ -5,10 +5,11 @@ import invertedMark from './assets/inverted_logo_nosub.png';
 import { Chat } from './Chat';
 import { Models } from './Models';
 import { BrowserRun } from './BrowserRun';
+import { CareerWorkspace } from './CareerWorkspace';
 
 export function App() {
   const [connection, setConnection] = useState('Connecting to desktop');
-  const [view, setView] = useState<'overview' | 'chat' | 'models' | 'browser'>('overview');
+  const [view, setView] = useState<'overview' | 'chat' | 'models' | 'browser' | 'jobs' | 'profile'>('overview');
   const [settings, setSettings] = useState<SettingsView>({ profiles: [], usage: { inputTokens: 0, outputTokens: 0, estimatedUsd: 0, requests: 0, unpricedRequests: 0 } });
   const refresh = useCallback(async () => {
     try {
@@ -41,12 +42,14 @@ export function App() {
           <button type="button" className={view === 'overview' ? 'workspace-item active' : 'workspace-item'} aria-current={view === 'overview' ? 'page' : undefined} onClick={() => setView('overview')}>Overview</button>
           <button type="button" className={view === 'chat' ? 'workspace-item active' : 'workspace-item'} aria-current={view === 'chat' ? 'page' : undefined} onClick={() => setView('chat')}>Chat</button>
           <button type="button" className={view === 'browser' ? 'workspace-item active' : 'workspace-item'} aria-current={view === 'browser' ? 'page' : undefined} onClick={() => setView('browser')}>Browser</button>
+          <button type="button" className={view === 'jobs' ? 'workspace-item active' : 'workspace-item'} aria-current={view === 'jobs' ? 'page' : undefined} onClick={() => setView('jobs')}>Jobs</button>
+          <button type="button" className={view === 'profile' ? 'workspace-item active' : 'workspace-item'} aria-current={view === 'profile' ? 'page' : undefined} onClick={() => setView('profile')}>Profile</button>
           <button type="button" className={view === 'models' ? 'workspace-item active' : 'workspace-item'} aria-current={view === 'models' ? 'page' : undefined} onClick={() => setView('models')}>Models &amp; Privacy</button>
         </nav>
         <div className="sidebar-footer"><span className="status-dot" />Local-first by design</div>
       </aside>
       <div className="main-shell">
-        <header className="topbar"><span>{view === 'overview' ? 'Workspace overview' : view === 'chat' ? 'Chat workspace' : 'Model settings'}</span><span className="preview-badge">Desktop + BYOK</span></header>
+        <header className="topbar"><span>{{ overview: 'Workspace overview', chat: 'Chat workspace', models: 'Model settings', browser: 'Browser workspace', jobs: 'Job discovery', profile: 'Candidate profile' }[view]}</span><span className="preview-badge">Browser + Jobs</span></header>
         <main>
           <section hidden={view !== 'overview'}>
           <div className="eyebrow">A CONSIDERED START</div>
@@ -58,19 +61,20 @@ export function App() {
             <div>
               <div className="eyebrow">PROJECT STATUS</div>
               <h2 id="foundation-title">Your desktop is ready.</h2>
-              <p>Connect your model, start a conversation, or run a scoped browser task. Your keys stay in the OS vault. Browser interactions require your approval.</p>
+              <p>Discover jobs without AI, verify your candidate profile, or run a scoped browser task with your model. Your keys stay in the OS vault. Browser interactions require your approval.</p>
             </div>
           </section>
 
           <section className="status-grid" aria-label="Workspace status">
             <article className="status-card"><span className="card-label">MODELS</span><h2>{settings.profiles.length ? `${settings.profiles.length} model profiles` : 'No model connected'}</h2><p>Add and test providers in Models &amp; Privacy.</p></article>
-            <article className="status-card"><span className="card-label">PRIVACY</span><h2>{settings.profiles.length ? 'You control what is shared' : 'No data leaves your device'}</h2><p>Model requests require your explicit consent.</p></article>
+            <article className="status-card"><span className="card-label">PRIVACY</span><h2>{settings.profiles.length ? 'You control what is shared' : 'Your profile stays local'}</h2><p>Model requests require your explicit consent.</p></article>
             <article className="status-card"><span className="card-label">USAGE</span><h2>{settings.usage.inputTokens + settings.usage.outputTokens} reported tokens</h2><p>{settings.usage.requests} API requests · estimated ${settings.usage.estimatedUsd.toFixed(6)}{settings.usage.unpricedRequests ? ` · ${settings.usage.unpricedRequests} unpriced calls` : ''}</p></article>
           </section>
           </section>
           <section hidden={view !== 'chat'}><Chat settings={settings} refresh={refresh} /></section>
           <section hidden={view !== 'models'}><Models settings={settings} refresh={refresh} /></section>
           <section hidden={view !== 'browser'}><BrowserRun settings={settings} /></section>
+          {(view === 'jobs' || view === 'profile') && <CareerWorkspace tab={view} settings={settings} />}
           <footer className="workspace-footer"><span role="status"><span className="status-dot" />{connection}</span><span>Your device. Your models. Your decisions.</span></footer>
         </main>
       </div>

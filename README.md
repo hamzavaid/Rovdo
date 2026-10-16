@@ -11,7 +11,7 @@ A local-first, open-source desktop workspace for AI-assisted browser workflows, 
 
 Rovdo is being built to help users discover relevant jobs, prepare fact-grounded application documents, and review browser actions before submission. Its planned discovery engine uses deterministic filters and local search without requiring an AI key. Model-assisted work will use a provider selected by the user.
 
-**Status: Desktop + BYOK developer preview.** Configure OpenAI, Anthropic, or an OpenAI-compatible endpoint; store keys in the OS credential vault; verify model capabilities; and stream chat with token usage and cost estimates. Job discovery, document generation, and browser automation are planned for later milestones.
+**Status: Browser + Jobs developer preview.** Discover and rank jobs from public Greenhouse, Lever and Ashby company feeds without AI. Maintain a verified candidate profile and save opportunities. Optional BYOK models support streaming chat, advisory shortlist review and scoped browser tasks with human approvals. Document generation and application submission are planned for later milestones.
 
 ## Quick start
 
@@ -61,6 +61,18 @@ The timeline persists verified action metadata and costs. Input values are exclu
 
 Limits are 20 actions, 50,000 tokens, an estimated $0.50 and five minutes per UI run. Missing model accounting stops continuation. Cost estimates are subject to provider billing and cannot guarantee the final charge.
 
+## Candidate profile and job discovery
+
+1. Open **Profile**, add facts with an evidence reference or explicit assertion, check each fact you verify, and save. Unverified facts do not affect matching. Legal work authorization and citizenship must be your own assertions. Set roles, exclusions, locations, work modes, seniority levels and salary preferences; ranking weights are editable and must sum to one. Structured JSON fact imports stay unverified and cannot overwrite existing facts. File-based resume parsing belongs to the document milestone.
+2. Open **Jobs → Add a reviewed public company source**. Select Greenhouse, Lever or Ashby, enter the employer and its public board/tenant identifier, and confirm that you reviewed its access terms. Lever supports global and EU public endpoints. Sources default to daily polling and can be disabled or given another interval. No source directory or global job coverage is bundled.
+3. Choose **Poll due sources**. Rovdo also checks due sources each minute while running. It respects persisted deadlines, one request per second per ATS origin, Retry-After cooldowns, bounded pages and failure backoff. Public reads require no model or private recruiter credentials. Source health distinguishes failures, empty feeds and searches with zero matches.
+4. Search and filter by company, work mode or saved state. Results show a bounded score, verified skill matches, explicit gaps, tri-state eligibility evidence, provenance and scoring/profile versions. Browse in pages of 50. Hard failures are excluded by default; unknown requirements stay visible for review. Possible duplicates need review, while identical canonical targets are merged with their provenance preserved.
+5. Save opportunities independently of any model. For optional AI notes, choose **Preview optional AI review**, select a model, review the exact outbound facts/job excerpt and destination, and approve transmission. UI reviews one saved job with an estimated $0.10 cap; the service supports at most five. Advisory notes cannot alter eligibility, ranking or source facts. Reviews are cached by content, profile and model versions.
+
+Polling uses transactional page checkpoints and resumes interrupted cursors. Complete snapshots alone count toward the removal grace period; outages do not remove accepted or saved jobs. Conditional caching is used for whole-board responses when offered. Paginated Lever responses are read page by page, without assuming a page ETag validates the whole board. Source opt-out is checked again before accepting a response.
+
+Eligibility extraction is deliberately conservative and supports a versioned set of explicit phrases; unsupported legal/education terms require review. Missing facts never become invented qualifications. Match scores are deterministic preferences, not a guarantee of suitability or legal eligibility. The synthetic 1,000-job corpus measures repeatability and known fixture labels, not live coverage or real-world accuracy. Candidate data is stored locally in SQLite; whole-database encryption is not claimed.
+
 ## OS credential vault requirements
 
 - **Windows:** Windows Credential Manager; native entry uses Windows Forms through the built-in Windows PowerShell. No key is passed in process arguments or environment variables.
@@ -84,7 +96,7 @@ An optional HTTPS CONNECT proxy can be configured without embedded credentials. 
 | `npm run test:e2e` | Verify Electron isolation, native-vault use, settings restart, and mock-provider chat |
 | `npm run check` | Run lint, typecheck, unit tests, build, and desktop smoke |
 
-Build before running E2E tests directly. Playwright drives Electron itself; no additional browser download is required. Tests use synthetic credentials in the real OS vault and remove them afterward. Provider HTTP responses are mocked or served by an explicit loopback fixture; no paid provider requests are made. On headless Linux, install system libraries and run an isolated D-Bus/keyring session with a virtual display:
+Build before running E2E tests directly. Playwright drives Electron and isolated Chromium fixtures; install Chromium with `npx playwright install chromium`. Tests use synthetic credentials in the real OS vault and remove them afterward. Provider HTTP responses are mocked or served by an explicit loopback fixture; no paid provider requests are made. On headless Linux, install system libraries and run an isolated D-Bus/keyring session with a virtual display:
 
 ```sh
 npx playwright install-deps chromium
@@ -99,10 +111,14 @@ CI is configured to run these checks on Windows, macOS, and Linux, plus a depend
 ```text
 apps/desktop/         Electron main, sandboxed preload, React renderer
 packages/shared/      Zod contracts, shared types, error codes
-packages/agent-core/  Safe structured diagnostics; future runtime boundary
+packages/agent-core/  Policy, approvals, bounded browser loop, safe diagnostics
+packages/browser-worker/ Disposable Chromium sessions and semantic DOM tools
+packages/career/      Verified profile contracts, eligibility and weighted ranking
+packages/job-sources/ Greenhouse, Lever and Ashby public-feed adapters
+packages/job-discovery/ Durable polling, origin quotas and failure recovery
 packages/providers/   Provider-independent gateway and official SDK adapters
-packages/storage/     SQLite WAL migrations, provider settings, numeric usage
-tests/e2e/            Electron and native-vault checks using synthetic data
+packages/storage/     SQLite WAL settings, run checkpoints, jobs and FTS5
+tests/e2e/            Electron, vault, browser and career checks with synthetic data
 scripts/              Build and launch helpers
 .github/workflows/    Cross-platform CI
 ```
@@ -111,11 +127,11 @@ The stack is Electron, React, TypeScript, Vite, Zod, Vitest, and Playwright Test
 
 ## Privacy and security
 
-The renderer has no Node access and no direct network access. Its isolated preload exposes specific, schema-validated settings/chat methods; every privileged request checks the owning window and main frame. The local asset protocol restricts file access; navigation, new windows, and device permissions are blocked. Application diagnostics accept only predefined metadata fields and do not serialize arbitrary messages or errors.
+The renderer has no Node access and no direct network access. Its isolated preload exposes specific, schema-validated settings, chat, browser and career commands; every privileged request checks the owning window and main frame. The local asset protocol restricts file access; navigation, new windows, and device permissions are blocked. Application diagnostics accept only predefined metadata fields and do not serialize arbitrary messages or errors.
 
-Provider settings, capability results, and numeric usage/cost records persist in `rovdo.sqlite` under Electron's application user-data directory. Keys stay in the OS vault, scoped to a profile and destination. SQLite is not encrypted; it contains no key values or chat messages. Chat history stays in memory and is cleared when its window closes. Electron also creates normal local runtime/cache files.
+Provider settings, usage, profile versions, public jobs, source health, saved opportunities, advisory reviews and redacted browser checkpoints persist in `rovdo.sqlite` under Electron's application user-data directory. Keys stay in the OS vault, scoped to a profile and destination. SQLite is not encrypted; it contains no key values. Chat history stays in memory and is cleared when its window closes. Browser tasks and bounded observations are persisted for recovery; avoid including unnecessary personal information. Electron also creates normal local runtime/cache files.
 
-There is no analytics or applicant database. Hosted providers receive the conversation you explicitly approve; their own retention policies apply. Main-process requests validate destinations, pin public DNS results, reject redirects and LAN/metadata targets, and isolate explicit loopback endpoints. SDK logging and tracing are disabled; ambient credential/header settings cannot replace the selected vault key. Local-first storage does not imply local inference.
+There is no analytics or mandatory hosted applicant database. Hosted providers receive only the context you approve; their own retention policies apply. Main-process requests validate destinations, pin public DNS results and reject LAN/metadata targets. Provider and ATS requests reject redirects; browser redirects must remain inside the approved origin scope. Explicit loopback model endpoints are isolated from public browser/source permissions. SDK logging and tracing are disabled; ambient credential/header settings cannot replace the selected vault key. Local-first storage does not imply local inference.
 
 See [SECURITY.md](SECURITY.md) for vulnerability reporting and [CONTRIBUTING.md](CONTRIBUTING.md) for development practices.
 

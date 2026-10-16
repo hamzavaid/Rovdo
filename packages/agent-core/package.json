@@ -5,5 +5,5 @@
   "license": "Apache-2.0",
   "type": "module",
   "exports": "./src/index.ts",
-  "dependencies": { "@rovdo/shared": "0.1.0" }
+  "dependencies": { "@rovdo/shared": "0.1.0", "@rovdo/storage": "0.1.0" }
 }

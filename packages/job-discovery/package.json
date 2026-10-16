@@ -1,0 +1,1 @@
+{"name":"@rovdo/job-discovery","version":"0.1.0","private":true,"license":"Apache-2.0","type":"module","exports":"./src/index.ts","dependencies":{"@rovdo/shared":"0.1.0","@rovdo/job-sources":"0.1.0","@rovdo/storage":"0.1.0","@rovdo/career":"0.1.0"}}

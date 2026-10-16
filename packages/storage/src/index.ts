@@ -1,5 +1,6 @@
 import { DatabaseSync } from 'node:sqlite';
 export { RuntimeStore } from './runtime';
+export { CareerStore } from './career';
 import { ProviderConfigSchema, UsageRecordSchema, UsageSummarySchema } from '@rovdo/shared';
 import type { ProviderConfig } from '@rovdo/shared';
 
