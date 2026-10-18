@@ -19,8 +19,13 @@ for (const entry of ['main', 'preload']) {
     build: {
       outDir: `dist/${entry}`, emptyOutDir: true, target: 'node22',
       lib: { entry: resolve(desktopRoot, `src/${entry}/index.ts`), formats: ['cjs'], fileName: () => 'index.cjs' },
-      rollupOptions: { external: ['electron', '@napi-rs/keyring', 'playwright', /^node:/] },
+      rollupOptions: { external: ['electron', '@napi-rs/keyring', 'playwright', 'pdf2json', /^node:/] },
       minify: false,
     },
   });
 }
+await build({ configFile: false, root: desktopRoot, resolve: { conditions: ['node', 'module'] }, build: {
+  outDir: 'dist/main', emptyOutDir: false, target: 'node22', minify: false,
+  lib: { entry: resolve(desktopRoot, 'src/main/profile-worker.ts'), formats: ['cjs'], fileName: () => 'profile-worker.cjs' },
+  rollupOptions: { external: ['pdf2json', /^node:/] },
+} });

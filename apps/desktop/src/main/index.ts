@@ -1,6 +1,9 @@
 import { mkdir, readFile } from 'node:fs/promises';
 import { extname, join, resolve } from 'node:path';
-import { app, BrowserWindow, ipcMain, protocol, session } from 'electron';
+import { app, BrowserWindow, ipcMain, protocol, session, dialog } from 'electron';
+import { createIntelligenceService } from './intelligence-service';
+import { readProfileFile } from './profile-file';
+import { INTELLIGENCE_CHANNEL } from '@rovdo/shared';
 import { createLogger } from '@rovdo/agent-core';
 import { APP_INFO_CHANNEL, BYOK_CHANNELS, BROWSER_CHANNEL, CAREER_CHANNEL } from '@rovdo/shared';
 import { SettingsStore, RuntimeStore, CareerStore } from '@rovdo/storage';
@@ -28,6 +31,7 @@ let browserService: ReturnType<typeof createBrowserService> | null = null;
 let careerStore: CareerStore | null = null;
 let discovery: DiscoveryEngine | null = null;
 let careerService: ReturnType<typeof createCareerService> | null = null;
+let intelligenceService: ReturnType<typeof createIntelligenceService> | null = null;
 let discoveryTimer: ReturnType<typeof setInterval> | null = null;
 const reviewController = new AbortController();
 let shutdownComplete = false;
@@ -68,6 +72,15 @@ async function initialize(): Promise<void> {
   runStore = new RuntimeStore(join(app.getPath('userData'), 'rovdo.sqlite'));
   browserService = createBrowserService(runStore, store, vault);
   careerStore = new CareerStore(join(app.getPath('userData'), 'rovdo.sqlite'));
+  intelligenceService = createIntelligenceService(careerStore, async (signal) => {
+    if (!mainWindow) throw new Error('NO_WINDOW');
+    const result = await dialog.showOpenDialog(mainWindow, { title: 'Import candidate qualifications', properties: ['openFile'], filters: [{ name: 'Profile documents or LinkedIn archives', extensions: ['pdf', 'docx', 'txt', 'md', 'markdown', 'json', 'zip', 'csv'] }] });
+    if (result.canceled || !result.filePaths[0]) return null;
+    return readProfileFile(result.filePaths[0], signal);
+  });
+  ipcMain.handle(INTELLIGENCE_CHANNEL, (event, payload: unknown) => intelligenceService!.command(payload, {
+    url: event.senderFrame?.url ?? '', isMainFrame: event.senderFrame === event.sender.mainFrame, ownsWindow: !!mainWindow && event.sender === mainWindow.webContents,
+  }));
   discovery = new DiscoveryEngine(careerStore);
   careerService = createCareerService(careerStore, discovery, (request) => reviewShortlist(request, careerStore!, store!, vault, reviewController.signal));
   ipcMain.handle(CAREER_CHANNEL, (event, payload: unknown) => careerService!.command(payload, {
@@ -145,7 +158,7 @@ app.on('before-quit', (event) => {
   shutdownStarted = true;
   if (discoveryTimer) clearInterval(discoveryTimer);
   reviewController.abort();
-  void Promise.all([service?.shutdown(), browserService?.runtime.shutdown(), discovery?.shutdown(), careerService?.shutdown()]).finally(() => {
+  void Promise.all([service?.shutdown(), browserService?.runtime.shutdown(), discovery?.shutdown(), careerService?.shutdown(), intelligenceService?.shutdown()]).finally(() => {
     careerStore?.close(); runStore?.close(); store?.close(); shutdownComplete = true; app.quit();
   });
 });

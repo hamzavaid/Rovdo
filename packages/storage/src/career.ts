@@ -5,6 +5,8 @@ import type { AiReview, CandidateProfile, Job, JobMatch, ProfileFact, SourceConf
 import { RankingProfileSchema } from '@rovdo/shared';
 import type { RankingProfile } from '@rovdo/shared';
 import { BUILTIN_RANKINGS } from '@rovdo/career';
+import { ImportPreviewSchema } from '@rovdo/shared';
+import type { ImportPreview } from '@rovdo/shared';
 
 const initialState = (): SourceState => ({ status: 'NEVER_POLLED', cursor: null, pollId: null, etag: null, lastModified: null, lastPollAt: null, lastSuccessAt: null, nextPollAt: 0, failures: 0, responseStatus: null, returned: 0, parsed: 0, rejected: 0, duplicates: 0, accepted: 0, requests: 0, durationMs: 0, error: null, parserVersion: 'ats-v1' });
 const normalized = (v: string) => v.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
@@ -15,7 +17,7 @@ export class CareerStore {
     this.db = new DatabaseSync(path);
     this.db.exec('PRAGMA journal_mode=WAL; PRAGMA foreign_keys=ON; PRAGMA busy_timeout=5000; CREATE TABLE IF NOT EXISTS career_schema (version INTEGER PRIMARY KEY);');
     const version = Number(this.db.prepare('SELECT COALESCE(MAX(version),0) AS n FROM career_schema').get()!.n);
-    if (version > 2) throw new Error('DATABASE_TOO_NEW');
+    if (version > 3) throw new Error('DATABASE_TOO_NEW');
     if (!version) this.transaction(() => {
       this.db.exec(`
         CREATE TABLE candidate_profile (version INTEGER PRIMARY KEY, json TEXT NOT NULL);
@@ -41,6 +43,7 @@ export class CareerStore {
         CREATE TABLE job_requirements_v2 (job_id TEXT NOT NULL REFERENCES career_job(id), content_hash TEXT NOT NULL, parser_version TEXT NOT NULL, json TEXT NOT NULL, PRIMARY KEY(job_id,content_hash,parser_version));
         INSERT INTO career_schema VALUES(2);`);
     });
+    if (version < 3) this.transaction(() => { this.db.exec('CREATE TABLE profile_import (id TEXT PRIMARY KEY, json TEXT NOT NULL); INSERT INTO career_schema VALUES(3);'); });
     // An interrupted page keeps its cursor and completed rows; no disappearance
     // decision is made until a complete authoritative snapshot succeeds.
     for (const source of this.sources()) if (source.state.status === 'POLLING') this.setState(source.config.id, { ...source.state, status: 'INTERRUPTED', nextPollAt: 0 });
@@ -68,6 +71,14 @@ export class CareerStore {
   }
   defaultRanking(): string { return String(this.db.prepare("SELECT value FROM career_setting WHERE key='ranking-default'").get()?.value ?? 'builtin:legacy-v1'); }
   setDefaultRanking(id: string): void { if (!this.rankings().some((p) => p.id === id)) throw new Error('RANKING_NOT_FOUND'); this.db.prepare("INSERT INTO career_setting VALUES('ranking-default',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value").run(id); }
+  importPreviews(): ImportPreview[] { return this.db.prepare('SELECT json FROM profile_import ORDER BY rowid DESC LIMIT 20').all().map((r) => ImportPreviewSchema.parse(JSON.parse(String(r.json)))); }
+  importPreview(id: string): ImportPreview { const row = this.db.prepare('SELECT json FROM profile_import WHERE id=?').get(id); if (!row) throw new Error('IMPORT_NOT_FOUND'); return ImportPreviewSchema.parse(JSON.parse(String(row.json))); }
+  saveImport(input: ImportPreview): void { const preview = ImportPreviewSchema.parse(input); this.db.prepare('INSERT INTO profile_import VALUES(?,?) ON CONFLICT DO NOTHING').run(preview.id, JSON.stringify(preview)); }
+  rejectImport(id: string): void { const old = this.importPreview(id); if (old.status !== 'ready') throw new Error('IMPORT_ALREADY_REVIEWED'); this.db.prepare('UPDATE profile_import SET json=? WHERE id=?').run(JSON.stringify({ ...old, status: 'rejected' }), id); }
+  commitImport(id: string, input: CandidateProfile): void {
+    const profile = CandidateProfileSchema.parse(input);
+    this.transaction(() => { const preview = this.importPreview(id); if (preview.status !== 'ready' || profile.version !== (this.profile()?.version ?? 0) + 1) throw new Error('IMPORT_VERSION_CONFLICT'); this.db.prepare('INSERT INTO candidate_profile VALUES(?,?)').run(profile.version, JSON.stringify(profile)); this.db.prepare('UPDATE profile_import SET json=? WHERE id=?').run(JSON.stringify({ ...preview, status: 'accepted' }), id); });
+  }
   recordRanking(match: JobMatch): void {
     const data = JobMatchSchema.parse(match); if (!data.ranking) throw new Error('RANKING_METADATA_REQUIRED');
     const key = createHash('sha256').update(JSON.stringify([data.job.id, data.job.contentSha256, data.profileVersion, data.ranking])).digest('hex');

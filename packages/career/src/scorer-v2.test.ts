@@ -46,4 +46,11 @@ describe('versioned requirement-centric ranking', () => {
     const result = rankWithProfile([{ job: sampleJob('Required: TypeScript\nWork authorization: US required.'), bm25Raw: 0 }], candidate, BUILTIN_RANKINGS.find((p) => p.id === 'builtin:technical-lenient')!, AS_OF)[0]!;
     expect(result.excluded).toBe(true);
   });
+  it('does not count explicitly frontend work as backend duration or a future legacy graduation as a completed degree', () => {
+    const candidate = sampleCandidate(); candidate.intelligence!.experience[0]!.title = 'Frontend Engineer';
+    expect(score(candidate).ranking!.components.find((c) => c.name === 'experience')!.value).toBe(0);
+    delete candidate.intelligence;
+    candidate.facts = [{ id: 'degree', field: 'degree', value: 'Bachelor', verified: true, source: { kind: 'user', reference: 'Assertion', capturedAt: '2026-10-17T00:00:00.000Z' } }, { id: 'grad', field: 'graduationYear', value: '2027', verified: true, source: { kind: 'user', reference: 'Assertion', capturedAt: '2026-10-17T00:00:00.000Z' } }];
+    expect(score(candidate).checks.find((c) => c.rule === 'education')?.result).toBe('UNKNOWN');
+  });
 });

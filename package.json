@@ -5,7 +5,7 @@
   "description": "Local-first desktop and browser automation with bring-your-own-model support.",
   "license": "Apache-2.0",
   "type": "module",
-  "engines": { "node": ">=22.13.0" },
+  "engines": { "node": ">=22.23.2" },
   "packageManager": "npm@11.6.2",
   "workspaces": ["apps/*", "packages/*"],
   "scripts": {

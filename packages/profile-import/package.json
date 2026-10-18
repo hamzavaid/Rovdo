@@ -1,0 +1,5 @@
+{
+  "name": "@rovdo/profile-import", "version": "0.1.0", "private": true,
+  "license": "Apache-2.0", "type": "module", "exports": "./src/index.ts",
+  "dependencies": { "@rovdo/shared": "0.1.0", "@rovdo/career": "0.1.0", "pdf2json": "4.1.0" }
+}

@@ -24,9 +24,10 @@ export function stable(value: unknown): string {
 export function fingerprint(value: unknown): string { let hash = 14695981039346656037n; for (const c of stable(value)) hash = BigInt.asUintN(64, (hash ^ BigInt(c.charCodeAt(0))) * 1099511628211n); return hash.toString(16).padStart(16, '0'); }
 export function intelligenceOf(profile: CandidateProfile): Intelligence {
   if (profile.intelligence) return IntelligenceSchema.parse(profile.intelligence);
-  const evidence = profile.facts.map((f) => ({ id: f.id, sourceId: `legacy:${f.id}`, sourceKind: 'legacy' as const, excerpt: f.value, sha256: '0'.repeat(64), confidence: f.source.kind === 'user' ? .9 : .75, verified: f.verified }));
+  const evidence = profile.facts.filter((f) => ['skill', 'education', 'degree', 'experience', 'project', 'graduationYear'].includes(f.field)).map((f) => ({ id: f.id, sourceId: `legacy:${f.id}`, sourceKind: 'legacy' as const, excerpt: f.value, sha256: '0'.repeat(64), confidence: f.source.kind === 'user' ? .9 : .75, verified: f.verified }));
   const skills = profile.facts.flatMap((f) => { const skill = f.field === 'skill' ? resolveSkill(f.value, 'skill') : null; return skill ? [{ id: f.id, skillId: skill.id, version: null, evidenceIds: [f.id], verified: f.verified, depth: 'declared' as const }] : []; });
-  const education = profile.facts.flatMap((f) => { const level = /bachelor|master|doctorate|associate|high-school/i.exec(f.value)?.[0]?.toLowerCase(); return f.field === 'degree' && level ? [{ id: f.id, level, field: '', institution: '', status: /expected|enroll|pursu/i.test(f.value) ? 'expected' : 'completed', graduation: null, verified: f.verified, evidenceIds: [f.id] }] : []; });
+  const graduation = profile.facts.find((f) => f.field === 'graduationYear' && f.verified && /^20\d{2}$/.test(f.value));
+  const education = profile.facts.flatMap((f) => { const level = /bachelor|master|doctorate|associate|high-school/i.exec(f.value)?.[0]?.toLowerCase(); return f.field === 'degree' && level ? [{ id: f.id, level, field: '', institution: '', status: /expected|enroll|pursu/i.test(f.value) ? 'expected' : 'completed', graduation: graduation?.value ?? null, verified: f.verified, evidenceIds: [f.id, ...(graduation ? [graduation.id] : [])] }] : []; });
   return IntelligenceSchema.parse({ schemaVersion: 'intelligence-v2', evidence, skills, education, experience: [], projects: [], certifications: [] });
 }
 const clamp = (n: number) => Math.max(0, Math.min(1, n));
@@ -68,7 +69,10 @@ export function rankWithProfile(rows: { job: Job; bm25Raw: number }[], profile: 
     add('depth', weighted(matches.map((m) => ({ r: m.r, value: m.depth }))), avg(matches.map((m) => m.confidence)), 'Depth uses verified production/project/supporting/course context, not keyword frequency.');
     const experienceRequirements = parsed.items.filter((r) => r.kind === 'experience' && r.months !== null);
     const experienceValues = experienceRequirements.map((r) => {
-      const relevantWork = work.filter((w) => unionMonths([w], asOf) > 0 && relevant(w.roleFamily, r.roleFamily ?? 'unknown', config.implicationCredit) > 0 && (!r.skillId || w.skills.some((s) => matchSkill(s, r.skillId!, null, null, config.implicationCredit).strength > 0)));
+      const relevantWork = work.filter((w) => {
+        const specialty = roleOf(w.title).specialty;
+        return !(specialty && parsed.role.specialty && specialty !== parsed.role.specialty && specialty !== 'fullstack') && unionMonths([w], asOf) > 0 && relevant(w.roleFamily, r.roleFamily ?? 'unknown', config.implicationCredit) > 0 && (!r.skillId || w.skills.some((s) => matchSkill(s, r.skillId!, null, null, config.implicationCredit).strength > 0));
+      });
       const months = unionMonths(relevantWork, asOf);
       return { r, value: Math.min(1, months / Math.max(1, r.months!)), confidence: avg(relevantWork.map(confidenceOf)) * r.confidence };
     });

@@ -3,6 +3,7 @@ import { APP_INFO_CHANNEL, AppInfoSchema, BYOK_CHANNELS, ChatEventSchema, ChatRe
 import type { DesktopApi } from '@rovdo/shared';
 import { BROWSER_CHANNEL, BrowserCommandSchema, BrowserResultSchema } from '@rovdo/shared';
 import { CAREER_CHANNEL, CareerCommandSchema, CareerResultSchema } from '@rovdo/shared';
+import { INTELLIGENCE_CHANNEL, IntelligenceCommandSchema, IntelligenceResultSchema } from '@rovdo/shared';
 
 function validated<T>(schema: { safeParse(value: unknown): { success: true; data: T } | { success: false } }, value: unknown): T {
   const parsed = schema.safeParse(value);
@@ -15,6 +16,7 @@ async function invoke<T>(channel: string, payload: unknown, schema: { safeParse(
 }
 
 const api: DesktopApi = Object.freeze<DesktopApi>({
+  intelligenceCommand: (input) => invoke(INTELLIGENCE_CHANNEL, validated(IntelligenceCommandSchema, input), IntelligenceResultSchema),
   careerCommand: (input) => invoke(CAREER_CHANNEL, validated(CareerCommandSchema, input), CareerResultSchema),
   browserCommand: (input) => invoke(BROWSER_CHANNEL, validated(BrowserCommandSchema, input), BrowserResultSchema),
   async getAppInfo() {

@@ -11,6 +11,7 @@
     "@rovdo/browser-worker": "0.1.0",
     "@rovdo/career": "0.1.0",
     "@rovdo/job-discovery": "0.1.0",
+    "@rovdo/profile-import": "0.1.0",
     "@rovdo/providers": "0.1.0",
     "@rovdo/shared": "0.1.0",
     "@rovdo/storage": "0.1.0",
