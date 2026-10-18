@@ -1,13 +1,18 @@
 {
   "name": "rovdo",
-  "version": "0.1.0",
+  "version": "0.3.5-alpha.1",
   "private": true,
   "description": "Local-first desktop and browser automation with bring-your-own-model support.",
   "license": "Apache-2.0",
   "type": "module",
-  "engines": { "node": ">=22.23.2" },
+  "engines": {
+    "node": ">=22.23.2"
+  },
   "packageManager": "npm@11.6.2",
-  "workspaces": ["apps/*", "packages/*"],
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
   "scripts": {
     "dev": "npm run build && npm start",
     "start": "node scripts/start.mjs",

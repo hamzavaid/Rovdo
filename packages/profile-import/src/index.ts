@@ -16,7 +16,7 @@ function date(value: string): string | null {
   return iso ? `${iso[1]}${iso[2] ? `-${iso[2]}` : ''}` : null;
 }
 function skillsIn(text: string, context: boolean) {
-  return SKILLS.filter((s) => s.aliases.some((a) => (a.context === 'any' || context) && new RegExp(`(?:^|[^\\p{L}\\p{N}_])${a.label.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?=$|[^\\p{L}\\p{N}_])`, 'iu').test(text)));
+  return SKILLS.filter((s) => s.aliases.some((a) => (a.context === 'any' || context) && new RegExp(`(?:^|[^\\p{L}\\p{N}_.])${a.label.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?=$|[^\\p{L}\\p{N}_.]|\\.(?=\\s|$))`, 'iu').test(text)));
 }
 function resetVerification(intel: Intelligence): Intelligence {
   const result = structuredClone(intel); result.evidence.forEach((e) => { e.verified = false; });
@@ -140,8 +140,17 @@ export async function githubPreview(username: string, limit: number, at: string,
     const readme = await get(`${path}/readme`, true); const doc = readme === null ? '' : Buffer.from(z.object({ content: z.string().max(300000), encoding: z.literal('base64') }).parse(readme).content, 'base64').toString('utf8').slice(0, 16000);
     snapshots.push({ repo, languages, doc }); const excerpt = JSON.stringify({ url: repo.html_url, description: repo.description, languages, fork: repo.fork }).slice(0, 4000); const id = `github:${repo.owner.login}/${repo.name}`;
     intel.evidence.push({ id, sourceId: `github:${username}`, sourceKind: 'github', excerpt, sha256: sha(excerpt), confidence: .7, verified: false });
-    const skills = Object.keys(languages).map((s) => resolveSkill(s, 'skill')).filter((s) => s !== null).map((s) => s.id);
-    for (const skillId of skills) if (!intel.skills.some((s) => s.skillId === skillId)) intel.skills.push({ id: `github:skill:${skillId}`, skillId, version: null, evidenceIds: [id], verified: false, depth: 'project' });
+    const languageIds = Object.keys(languages).map((s) => resolveSkill(s, 'skill')).filter((s) => s !== null).map((s) => s.id);
+    const documentation = `${repo.description ?? ''}\n${doc}`.split(/\r?\n/).map((line) => ({ line, skills: skillsIn(line, /skills|technolog|stack|\buses\b|written|built/i.test(line)) }));
+    const skills = [...new Set([...languageIds, ...documentation.flatMap((d) => d.skills.map((s) => s.id))])];
+    for (const skillId of skills) if (!intel.skills.some((s) => s.skillId === skillId)) {
+      let evidenceId = id;
+      if (!languageIds.includes(skillId)) {
+        const excerpt = documentation.find((d) => d.skills.some((s) => s.id === skillId))!.line.slice(0, 4000); evidenceId = `${id}:${skillId}`;
+        intel.evidence.push({ id: evidenceId, sourceId: `github:${username}`, sourceKind: 'github', excerpt, sha256: sha(excerpt), confidence: .55, verified: false });
+      }
+      intel.skills.push({ id: `github:skill:${skillId}`, skillId, version: null, evidenceIds: [evidenceId], verified: false, depth: 'project' });
+    }
     intel.projects.push({ id, name: repo.name, description: (repo.description ?? '').slice(0, 4000), roleFamily: 'unknown', skills, start: null, end: null, production: false, url: `https://github.com/${repo.owner.login}/${repo.name}`, evidenceIds: [id], verified: false, metadata: { fork: repo.fork, stars: repo.stargazers_count, languages, documentation: doc, ownership: 'unconfirmed' } });
   }
   const hash = sha(JSON.stringify(snapshots));

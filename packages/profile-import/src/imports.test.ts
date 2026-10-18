@@ -7,6 +7,7 @@ describe('deterministic imports and review', () => {
     const text = await extractFileText(format, Buffer.from('Skills\nTypeScript, Node.js\nEducation\nExpected Bachelor of Science in Computer Science May 2027\nExperience\nBackend Engineer | Fixture | Jan 2022 - Dec 2025\nTypeScript and Node.js production services\nCitizenship: US\nGender: private\nDate of birth: 2000-01-01'));
     const draft = previewText(text, 'resume.' + format, 'file', at);
     expect(draft.intelligence.skills.some((s) => s.skillId === 'typescript')).toBe(true);
+    expect(draft.intelligence.skills.some((s) => s.skillId === 'javascript')).toBe(false);
     expect(draft.intelligence.skills.every((s) => !s.verified)).toBe(true);
     expect(draft.intelligence.education[0]!.status).toBe('expected');
     expect(draft.intelligence.experience[0]!.start).toBe('2022-01');
@@ -58,6 +59,9 @@ describe('deterministic imports and review', () => {
     });
     expect(urls).toHaveLength(3); expect(urls.every((u) => u.startsWith('https://api.github.com/'))).toBe(true);
     expect(draft.intelligence.projects[0]!.verified).toBe(false); expect(draft.intelligence.projects[0]!.metadata?.fork).toBe(true);
+    const runtime = draft.intelligence.skills.find((s) => s.skillId === 'nodejs');
+    expect(runtime).toBeDefined();
+    expect(draft.intelligence.evidence.some((e) => runtime!.evidenceIds.includes(e.id) && e.excerpt.includes('Node.js'))).toBe(true);
     await expect(githubPreview('http://localhost', 1, at, async () => { throw new Error('must not fetch'); })).rejects.toThrow();
   });
 });

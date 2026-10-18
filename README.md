@@ -9,15 +9,15 @@
 
 A local-first, open-source desktop workspace for AI-assisted browser workflows, with bring-your-own-model support.
 
-Rovdo is being built to help users discover relevant jobs, prepare fact-grounded application documents, and review browser actions before submission. Its planned discovery engine uses deterministic filters and local search without requiring an AI key. Model-assisted work will use a provider selected by the user.
+Rovdo is being built to help users discover relevant jobs, prepare fact-grounded application documents, and review browser actions before submission. Its discovery engine uses deterministic qualification matching, filters and local search without requiring an AI key. Optional model-assisted work uses a provider selected by the user.
 
-**Status: Browser + Jobs developer preview.** Discover and rank jobs from public Greenhouse, Lever and Ashby company feeds without AI. Maintain a verified candidate profile and save opportunities. Optional BYOK models support streaming chat, advisory shortlist review and scoped browser tasks with human approvals. Document generation and application submission are planned for later milestones.
+**Status: v0.3.5-alpha.1 ? Profile Intelligence & Deterministic Ranking v2.** Discover and rank jobs from public Greenhouse, Lever and Ashby company feeds without AI. Maintain a verified candidate profile and save opportunities. Optional BYOK models support streaming chat, advisory shortlist review and scoped browser tasks with human approvals. Document generation and application submission are planned for later milestones.
 
 ## Quick start
 
 Prerequisites:
 
-- Node.js 24 LTS and npm 11. The minimum supported Node version is 22.13.
+- Node.js 24 LTS and npm 11. The minimum supported Node version is 22.23.2.
 - Git and a graphical desktop session on Windows, macOS, or Linux.
 - Internet access for dependency installation and the first Electron binary download.
 
@@ -63,15 +63,35 @@ Limits are 20 actions, 50,000 tokens, an estimated $0.50 and five minutes per UI
 
 ## Candidate profile and job discovery
 
-1. Open **Profile**, add facts with an evidence reference or explicit assertion, check each fact you verify, and save. Unverified facts do not affect matching. Legal work authorization and citizenship must be your own assertions. Set roles, exclusions, locations, work modes, seniority levels and salary preferences; ranking weights are editable and must sum to one. Structured JSON fact imports stay unverified and cannot overwrite existing facts. File-based resume parsing belongs to the document milestone.
+1. Open **Profile**, add facts with an evidence reference or explicit assertion, check each fact you verify, and save. Unverified facts do not affect matching. Legal work authorization and citizenship must be your own assertions. Set roles, exclusions, locations, work modes, seniority levels and salary preferences; ranking configurations are selected in Jobs. Import a local PDF, DOCX, TXT, Markdown or structured JSON profile, paste your LinkedIn content, or choose your LinkedIn archive ZIP. Public GitHub imports read repository metadata, languages and README files only after consent. Edit the preview, select qualifications to verify, and merge; verified originals are preserved. Citizenship, authorization and clearance need separate explicit confirmation. Scanned PDFs require text or a different source; OCR is not included.
 2. Open **Jobs → Add a reviewed public company source**. Select Greenhouse, Lever or Ashby, enter the employer and its public board/tenant identifier, and confirm that you reviewed its access terms. Lever supports global and EU public endpoints. Sources default to daily polling and can be disabled or given another interval. No source directory or global job coverage is bundled.
 3. Choose **Poll due sources**. Rovdo also checks due sources each minute while running. It respects persisted deadlines, one request per second per ATS origin, Retry-After cooldowns, bounded pages and failure backoff. Public reads require no model or private recruiter credentials. Source health distinguishes failures, empty feeds and searches with zero matches.
 4. Search and filter by company, work mode or saved state. Results show a bounded score, verified skill matches, explicit gaps, tri-state eligibility evidence, provenance and scoring/profile versions. Browse in pages of 50. Hard failures are excluded by default; unknown requirements stay visible for review. Possible duplicates need review, while identical canonical targets are merged with their provenance preserved.
 5. Save opportunities independently of any model. For optional AI notes, choose **Preview optional AI review**, select a model, review the exact outbound facts/job excerpt and destination, and approve transmission. UI reviews one saved job with an estimated $0.10 cap; the service supports at most five. Advisory notes cannot alter eligibility, ranking or source facts. Reviews are cached by content, profile and model versions.
 
+### Choose a ranking method
+
+Open **Jobs ? Ranking preset**, select a method, then **Use as default ranking**. The default persists locally; selecting a preset for inspection does not change the active ranking.
+
+| Preset | Purpose |
+| --- | --- |
+| Legacy v1 | Original deterministic-v1 scoring and 35/20/15/20/10 weights |
+| Technical Balanced v2 | Requirement-centric skills/experience/projects/seniority/role/depth/education/lexical weights of 30/19/14/10/8/7/4/3, normalized over active criteria |
+| Technical Conservative v2 | Stronger verified-evidence thresholds and direct requirements |
+| Technical Lenient v2 | More project and curated transferable-skill credit; hard legal restrictions still apply |
+| Opportunity Hybrid | Separate opportunity-fit method including location, salary and company preferences |
+
+Built-in presets are immutable. Enter a **New ranking name** and **Clone selected ranking**, select the clone, and expand **Configure selected ranking**. Edit its name, valid component weights, required/preferred multipliers, evidence floor, gates and shortlist thresholds; save and optionally make it the default. Renaming preserves revision history. Deleting a custom default returns to Legacy v1. Weights for components outside the selected method must remain zero.
+
+Technical scores use job requirements and bound verified evidence, not the number of skills on a resume. Related technologies are not automatically interchangeable. Missing evidence stays unknown; missing job criteria are inactive. Job details show normalized contributions, required-skill coverage, source excerpts, evidence IDs and algorithm/configuration versions. Preference fit and eligibility remain separate from technical qualification. BM25 retrieves jobs and does not dominate qualification scoring. [Taxonomy scope and primary references](packages/career/TAXONOMY.md).
+
+Import limits are 5 MB per local file and bounded decompression/text extraction. Text heuristics currently recognize English section/date patterns; review every preview. Public GitHub imports are limited to ten repositories in the UI (twenty through the validated service), respect persisted rate limits and stop after sixty seconds. Stars, forks and timestamps do not prove authorship, proficiency or employment duration. Imports and profile review drafts are stored locally in unencrypted SQLite; no document is sent to an AI provider by importing it.
+
+Provisional hand-authored comparison fixtures measure Precision@10/NDCG@10 for regression analysis. Independent recruiter validation is pending. Research-derived weights are configurable starting points, not validated accuracy claims.
+
 Polling uses transactional page checkpoints and resumes interrupted cursors. Complete snapshots alone count toward the removal grace period; outages do not remove accepted or saved jobs. Conditional caching is used for whole-board responses when offered. Paginated Lever responses are read page by page, without assuming a page ETag validates the whole board. Source opt-out is checked again before accepting a response.
 
-Eligibility extraction is deliberately conservative and supports a versioned set of explicit phrases; unsupported legal/education terms require review. Missing facts never become invented qualifications. Match scores are deterministic preferences, not a guarantee of suitability or legal eligibility. The synthetic 1,000-job corpus measures repeatability and known fixture labels, not live coverage or real-world accuracy. Candidate data is stored locally in SQLite; whole-database encryption is not claimed.
+Eligibility extraction is deliberately conservative and supports a versioned set of explicit phrases; unsupported legal/education terms require review. Missing facts never become invented qualifications. Match scores are deterministic indicators, not a guarantee of suitability or legal eligibility. The synthetic 1,000-job corpus measures repeatability and known fixture labels, not live coverage or real-world accuracy. Candidate data is stored locally in SQLite; whole-database encryption is not claimed.
 
 ## OS credential vault requirements
 
@@ -88,7 +108,7 @@ An optional HTTPS CONNECT proxy can be configured without embedded credentials. 
 | Command | Purpose |
 | --- | --- |
 | `npm run dev` | Build and open the desktop application |
-| `npm run build` | Compile renderer, main process, and preload into `apps/desktop/dist` |
+| `npm run build` | Compile renderer, main process, preload and bounded import worker into `apps/desktop/dist` |
 | `npm run lint` | Lint source and configuration with zero warnings allowed |
 | `npm run typecheck` | Check strict TypeScript contracts |
 | `npm test` | Run Vitest unit and boundary tests |
@@ -113,7 +133,8 @@ apps/desktop/         Electron main, sandboxed preload, React renderer
 packages/shared/      Zod contracts, shared types, error codes
 packages/agent-core/  Policy, approvals, bounded browser loop, safe diagnostics
 packages/browser-worker/ Disposable Chromium sessions and semantic DOM tools
-packages/career/      Verified profile contracts, eligibility and weighted ranking
+packages/career/      Versioned requirements, eligibility, taxonomy and pure ranking
+packages/profile-import/ Bounded document, LinkedIn archive and public GitHub imports
 packages/job-sources/ Greenhouse, Lever and Ashby public-feed adapters
 packages/job-discovery/ Durable polling, origin quotas and failure recovery
 packages/providers/   Provider-independent gateway and official SDK adapters

@@ -31,7 +31,7 @@ export type Evidence = z.infer<typeof EvidenceSchema>;
 export const RequirementSchema = z.strictObject({
   id, kind: z.enum(['skill', 'experience', 'education', 'certification', 'graduation', 'legal', 'unknown']), importance: z.enum(['required', 'preferred', 'mentioned', 'ambiguous']),
   section: z.string().max(300), excerpt: text, start: z.number().int().nonnegative(), end: z.number().int().nonnegative(), confidence: z.number().min(0).max(1),
-  skillId: id.nullable(), versionRange: z.string().max(40).nullable(), months: z.number().finite().nonnegative().nullable(), roleFamily: id.nullable(), degree: z.string().max(40).nullable(), enrollmentAllowed: z.boolean(), equivalentAllowed: z.boolean(), alternatives: z.array(id).max(20), graduationStart: z.number().int().nullable(), graduationEnd: z.number().int().nullable(),
+  skillId: id.nullable(), versionRange: z.string().max(40).nullable(), months: z.number().finite().nonnegative().nullable(), roleFamily: id.nullable(), degree: z.string().max(40).nullable(), degreeField: z.string().max(300).nullable().default(null), relatedFieldsAllowed: z.boolean().default(false), enrollmentAllowed: z.boolean(), equivalentAllowed: z.boolean(), alternatives: z.array(id).max(20), graduationStart: z.number().int().nullable(), graduationEnd: z.number().int().nullable(),
 });
 export const RequirementSetSchema = z.strictObject({ parserVersion: z.literal('requirements-v2'), taxonomyVersion: z.literal('rovdo-taxonomy-1'), items: z.array(RequirementSchema).max(1000), role: z.strictObject({ family: id, specialty: z.string(), level: z.string(), track: z.enum(['ic', 'management', 'unknown']) }) });
 export type Requirement = z.infer<typeof RequirementSchema>;

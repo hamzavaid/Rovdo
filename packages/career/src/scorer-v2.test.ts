@@ -53,4 +53,20 @@ describe('versioned requirement-centric ranking', () => {
     candidate.facts = [{ id: 'degree', field: 'degree', value: 'Bachelor', verified: true, source: { kind: 'user', reference: 'Assertion', capturedAt: '2026-10-17T00:00:00.000Z' } }, { id: 'grad', field: 'graduationYear', value: '2027', verified: true, source: { kind: 'user', reference: 'Assertion', capturedAt: '2026-10-17T00:00:00.000Z' } }];
     expect(score(candidate).checks.find((c) => c.rule === 'education')?.result).toBe('UNKNOWN');
   });
+  it('leaves incomplete dates and work modality unknown and does not accept future completed education', () => {
+    const candidate = sampleCandidate(); candidate.intelligence!.experience[0]!.start = null;
+    candidate.intelligence!.education[0]!.graduation = '2026-12'; candidate.preferences.workModes = ['remote'];
+    const config = balanced(); config.gates.experience = true;
+    const result = rankWithProfile([{ job: { ...sampleJob(), location: 'London', workMode: 'unknown' }, bm25Raw: 0 }], candidate, config, AS_OF)[0]!;
+    expect(result.checks.find((c) => c.rule === 'experience')!.result).toBe('UNKNOWN');
+    expect(result.checks.find((c) => c.rule === 'location')!.result).toBe('UNKNOWN');
+    expect(result.checks.find((c) => c.rule === 'education')!.result).toBe('UNKNOWN');
+  });
+  it('does not report coverage for an unproved technology version or unrelated degree field', () => {
+    const candidate = sampleCandidate(['react']);
+    const result = score(candidate, sampleJob('Required: React >=18\nBachelor in Electrical Engineering required'));
+    expect(result.ranking!.requiredCoverage).toBe(0);
+    expect(result.gaps).toContain('react');
+    expect(result.checks.find((c) => c.rule === 'education')!.result).toBe('FAIL');
+  });
 });

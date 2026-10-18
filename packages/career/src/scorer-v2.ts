@@ -94,7 +94,7 @@ export function rankWithProfile(rows: { job: Job; bm25Raw: number }[], profile: 
     const educationValues = qualificationRequirements.map((r) => {
       let result: 'PASS' | 'FAIL' | 'UNKNOWN' = 'UNKNOWN';
       if (r.kind === 'education') {
-        const outcomes = education.map((e) => e.graduation && e.graduation.slice(0, 4) > asOf.slice(0, 4) && e.status === 'completed' ? 'UNKNOWN' : degreeGate(e, { level: r.degree ?? 'other', enrollmentAllowed: r.enrollmentAllowed, equivalentAllowed: r.equivalentAllowed }));
+        const outcomes = education.map((e) => e.graduation && e.graduation > asOf.slice(0, e.graduation.length) && e.status === 'completed' ? 'UNKNOWN' : degreeGate(e, { level: r.degree ?? 'other', field: r.degreeField, relatedFieldsAllowed: r.relatedFieldsAllowed, enrollmentAllowed: r.enrollmentAllowed, equivalentAllowed: r.equivalentAllowed }));
         result = outcomes.includes('PASS') ? 'PASS' : outcomes.length && outcomes.every((v) => v === 'FAIL') ? 'FAIL' : 'UNKNOWN';
       } else {
         const certificate = certifications.find((c) => r.excerpt.toLowerCase().includes(c.name.toLowerCase()));
@@ -113,7 +113,7 @@ export function rankWithProfile(rows: { job: Job; bm25Raw: number }[], profile: 
     add('lexical', lexical, avg(matches.map((m) => m.confidence)), 'Canonical requirement text corroboration; BM25 remains retrieval metadata, not a qualification multiplier.');
     const p = profile.preferences;
     const locationActive = p.locations.length > 0 || p.workModes.length > 0;
-    const locationKnown = job.location.length > 0 || job.workMode !== 'unknown';
+    const locationKnown = (!p.locations.length || job.location.length > 0 || job.workMode === 'remote') && (!p.workModes.length || job.workMode !== 'unknown');
     const locationPass = (!p.locations.length || p.locations.some((x) => job.location.toLowerCase().includes(x.toLowerCase()) || x.toLowerCase() === 'remote' && job.workMode === 'remote')) && (!p.workModes.length || p.workModes.includes(job.workMode as 'remote' | 'hybrid' | 'onsite'));
     add('location', locationActive && locationKnown ? Number(locationPass) : null, locationKnown ? .95 : 0, 'User-selected location/work mode is a separate preference component.');
     if (config.gates.location && locationActive) checks.push({ rule: 'location', result: !locationKnown ? 'UNKNOWN' : locationPass ? 'PASS' : 'FAIL', excerpt: `${job.location}; ${job.workMode}`, factIds: [] });
@@ -127,7 +127,7 @@ export function rankWithProfile(rows: { job: Job; bm25Raw: number }[], profile: 
     if (companyExcluded) checks.push({ rule: 'company-exclusion', result: 'FAIL', excerpt: job.company, factIds: [] });
     add('company', p.preferredCompanies?.length ? Number(p.preferredCompanies.some((name) => name.toLowerCase() === job.company.toLowerCase())) : null, p.preferredCompanies?.length ? 1 : 0, 'Only explicit company preferences apply; employer prestige is never inferred.');
     if (config.gates.requiredSkills && coverage < config.thresholds.coverage) checks.push({ rule: 'required-skills', result: 'UNKNOWN', excerpt: 'Configured essential-skill coverage lacks verified evidence; missing evidence is not a fabricated absence.', factIds: [] });
-    if (config.gates.experience && experienceValues.some((v) => v.value < 1)) checks.push({ rule: 'experience', result: work.length ? 'FAIL' : 'UNKNOWN', excerpt: 'Relevant verified employment does not establish the configured experience gate.', factIds: work.flatMap((w) => w.evidenceIds) });
+    if (config.gates.experience && experienceValues.some((v) => v.value < 1)) checks.push({ rule: 'experience', result: work.length && work.every((w) => w.start && unionMonths([w], asOf) > 0) ? 'FAIL' : 'UNKNOWN', excerpt: 'Relevant verified employment does not establish the configured experience gate.', factIds: work.flatMap((w) => w.evidenceIds) });
     const selectedNames = config.method === 'technical-v2' ? ['skills', 'experience', 'projects', 'seniority', 'role', 'depth', 'education', 'lexical'] : ['skills', 'role', 'experience', 'location', 'salary', 'education', 'lexical', 'company'];
     const activeTotal = selectedNames.reduce((sum, name) => sum + (components.get(name)?.value !== null ? config.weights[name as keyof Weights] : 0), 0);
     const details = selectedNames.map((name) => { const c = components.get(name)!; const weight = config.weights[name as keyof Weights]; const activeWeight = c.value !== null && activeTotal ? weight / activeTotal : 0; return { name, ...c, configuredWeight: weight, activeWeight, contribution: 100 * activeWeight * (c.value ?? 0) }; });

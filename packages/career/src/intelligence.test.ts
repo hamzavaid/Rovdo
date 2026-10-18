@@ -28,11 +28,19 @@ describe('requirement evidence and date rules', () => {
     const text = 'Minimum Qualifications\n- TypeScript and Node.js required\n- 3+ years of backend experience\nPreferred Qualifications\n- AWS or Azure\n- React >=18 preferred';
     const parsed = extractRequirements(text, 'Backend Engineer');
     expect(parsed.items.find((r) => r.skillId === 'typescript')?.importance).toBe('required');
+    expect(parsed.items.some((r) => r.skillId === 'javascript')).toBe(false);
     expect(parsed.items.find((r) => r.skillId === 'aws')?.importance).toBe('preferred');
     expect(parsed.items.find((r) => r.kind === 'experience')?.months).toBe(36);
     expect(parsed.items.every((r) => text.slice(r.start, r.end) === r.excerpt)).toBe(true);
     expect(parsed.items.find((r) => r.skillId === 'react')?.versionRange).toBe('>=18');
     expect(extractRequirements('Our company uses Go to market strategies.', 'Sales').items.filter((r) => r.kind === 'skill')).toHaveLength(0);
+  });
+  it('counts explicit alternatives once without relaxing separate skills on the same line', () => {
+    const parsed = extractRequirements('Required skills: TypeScript and AWS or Azure', 'Backend Engineer');
+    const skills = parsed.items.filter((r) => r.kind === 'skill');
+    expect(skills).toHaveLength(2);
+    expect(skills.find((r) => r.skillId === 'typescript')!.alternatives).toEqual([]);
+    expect(skills.find((r) => r.skillId === 'aws')!.alternatives).toEqual(['azure']);
   });
   it('treats degree alternatives, enrollment and expected graduation separately', () => {
     expect(degreeGate({ level: 'bachelor', status: 'expected', graduation: '2027' }, { level: 'bachelor', enrollmentAllowed: false, equivalentAllowed: false })).toBe('UNKNOWN');

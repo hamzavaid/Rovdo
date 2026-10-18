@@ -8,9 +8,23 @@ import { AtsAdapter } from '@rovdo/job-sources';
 import { createAdapter } from '@rovdo/providers';
 import { completion } from '../../../../packages/providers/src/fixtures';
 import type { ProviderConfig, SourceConfig } from '@rovdo/shared';
+import { sampleCandidate } from '../../../../tests/fixtures/ranking-v2';
 
 const sender = { url: 'rovdo://app/index.html', isMainFrame: true, ownsWindow: true };
 describe('career IPC and optional inference', () => {
+  it('uses the persisted ranking selection without AI and records immutable v2 explanations', async () => {
+    const store = new CareerStore(':memory:'); const engine = new DiscoveryEngine(store);
+    const source: SourceConfig = { id: '00000000-0000-4000-8000-000000000001', ats: 'greenhouse', tenant: 'fixture', company: 'Fixture', enabled: false, region: 'global', intervalMs: 86400000, termsReviewedAt: '2026-10-17T00:00:00.000Z', timezone: 'UTC', priority: 0, missingGracePolls: 3 };
+    store.saveSource(source); store.saveProfile(sampleCandidate());
+    store.batch(source, new AtsAdapter(source).normalize({ jobs: [{ id: 1, title: 'Backend Engineer', content: 'Required skills: TypeScript and Node.js', location: { name: 'Remote' }, absolute_url: 'https://boards.greenhouse.io/fixture/jobs/1' }] }), store.sources()[0]!.state, 'poll', true, 1);
+    const service = createCareerService(store, engine, async () => { throw new Error('No AI'); });
+    try {
+      store.setDefaultRanking('builtin:technical-balanced');
+      const result = await service.command({ op: 'view', search: { query: '', company: '', workMode: 'all', savedOnly: false, includeExcluded: false } }, sender);
+      expect(result.ok && result.view.matches[0]!.ranking?.method).toBe('technical-v2');
+      expect(result.ok && result.view.matches[0]!.ranking?.requiredCoverage).toBe(1);
+    } finally { await engine.shutdown(); store.close(); }
+  });
   it('supports discovery views without a model and rejects forged/invalid IPC', async () => {
     const store = new CareerStore(':memory:'); const engine = new DiscoveryEngine(store); let aiCalls = 0;
     const service = createCareerService(store, engine, async () => { aiCalls++; });

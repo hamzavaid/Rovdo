@@ -22,7 +22,7 @@ export function matchSkill(candidate: string, required: string, version: string 
     return { strength: implied && !range ? implicationCredit : 0, reason: implied ? 'curated directional implication' : 'no curated equivalence' };
   }
   if (!range) return { strength: 1, reason: 'exact canonical skill' };
-  if (!version) return { strength: .85, reason: 'version evidence missing' };
+  if (!version) return { strength: .5, reason: 'version evidence missing' };
   const v = version.split('.').map(Number); const match = /^(>=|>|<=|<|\^|~|=)?\s*(\d+)(?:\.(\d+))?(?:\.(\d+))?$/.exec(range);
   if (!match || v.some((x) => !Number.isFinite(x))) return { strength: 0, reason: 'unsupported version range' };
   const parts = [Number(match[2]), Number(match[3] ?? 0), Number(match[4] ?? 0)];

@@ -1,0 +1,80 @@
+import { useEffect, useState } from 'react';
+import { IntelligenceSchema, RankingProfileSchema } from '@rovdo/shared';
+import type { CandidateProfile, ImportPreview, Intelligence, IntelligenceCommand, IntelligenceView, RankingProfile } from '@rovdo/shared';
+
+const sections = ['skills', 'education', 'experience', 'projects', 'certifications'] as const;
+const singular = { skills: 'skill', education: 'education', experience: 'experience', projects: 'project', certifications: 'certification' };
+const choices: Record<string, string[]> = { depth: ['production', 'project', 'supporting', 'course', 'declared'], status: ['completed', 'enrolled', 'expected', 'incomplete'], level: ['high-school', 'associate', 'bachelor', 'master', 'doctorate', 'other'], track: ['ic', 'management', 'unknown'] };
+const allowedWeights = { 'technical-v2': ['skills', 'experience', 'projects', 'seniority', 'role', 'depth', 'education', 'lexical'], 'opportunity-v2': ['skills', 'role', 'experience', 'location', 'salary', 'education', 'lexical', 'company'], 'legacy-v1': ['skills', 'role', 'location', 'eligibility', 'preferences'] };
+const readable: Record<string, string> = { requiredMultiplier: 'Required requirement multiplier', preferredMultiplier: 'Preferred requirement multiplier', minimumEvidence: 'Minimum evidence confidence', implicationCredit: 'Curated transferable skill credit', requiredSkills: 'required skills' };
+const idsOf = (intel: Intelligence) => sections.flatMap((key) => intel[key].map((x) => x.id));
+
+export function ProfileIntelligence({ tab, onChanged }: { tab: 'profile' | 'jobs'; onChanged: (profile: CandidateProfile | null) => void }) {
+  const [view, setView] = useState<IntelligenceView | null>(null);
+  const [error, setError] = useState(''); const [busy, setBusy] = useState(false);
+  const [paste, setPaste] = useState(''); const [kind, setKind] = useState<'file' | 'linkedin'>('linkedin');
+  const [github, setGithub] = useState(''); const [githubConsent, setGithubConsent] = useState(false);
+  const [draft, setDraft] = useState<ImportPreview | null>(null); const [selected, setSelected] = useState<string[]>([]); const [legal, setLegal] = useState(false);
+  const [rankingId, setRankingId] = useState(''); const [ranking, setRanking] = useState<RankingProfile | null>(null); const [newName, setNewName] = useState('');
+  useEffect(() => { void window.rovdo!.intelligenceCommand({ op: 'view' }).then((r) => { if (r.ok) { setView(r.view); setRankingId(r.view.defaultRanking); setRanking(r.view.rankings.find((p) => p.id === r.view.defaultRanking)!); } else setError(r.code); }).catch(() => setError('Desktop unavailable')); }, []);
+  async function command(input: IntelligenceCommand) {
+    setBusy(true); setError('');
+    try {
+      const r = await window.rovdo!.intelligenceCommand(input); if (!r.ok) { setError(`${r.code}: check your input or try again.`); return; }
+      setView(r.view);
+      const current = r.view.rankings.find((p) => p.id === rankingId) ?? r.view.rankings.find((p) => p.id === r.view.defaultRanking)!;
+      setRankingId(current.id); setRanking(current);
+      if (['paste', 'github', 'importFile'].includes(input.op)) { const next = r.view.previews.find((p) => p.status === 'ready'); setDraft(next ?? null); setSelected([]); setLegal(false); }
+      if (input.op === 'applyImport' || input.op === 'rejectImport') { setDraft(null); setSelected([]); }
+      if (input.op === 'applyImport' || input.op === 'defaultRanking' || input.op === 'saveRanking' || input.op === 'deleteRanking') onChanged(r.view.profile);
+    } catch { setError('Invalid input or desktop unavailable. Your saved information is unchanged.'); } finally { setBusy(false); }
+  }
+  function selectRanking(id: string) { setRankingId(id); setRanking(view?.rankings.find((p) => p.id === id) ?? null); }
+  function changeItem(key: typeof sections[number], id: string, field: string, value: unknown) {
+    if (!draft) return;
+    setDraft({ ...draft, intelligence: { ...draft.intelligence, [key]: draft.intelligence[key].map((x) => x.id === id ? { ...x, [field]: value, verified: false } : x) } });
+  }
+  return <section className="intelligence-panel" aria-label={tab === 'profile' ? 'Profile intelligence' : 'Ranking configurations'}>
+    {error && <p role="alert">{error}</p>}
+    {tab === 'profile' ? <>
+      <h2>Import qualifications</h2><p>Review proposed facts before they affect matching. Documents stay local. GitHub imports read public repositories; LinkedIn accepts only your archive or pasted content.</p>
+      <div className="button-row"><button disabled={busy} onClick={() => void command({ op: 'importFile' })}>Choose profile file</button><span>PDF, DOCX, TXT, Markdown, JSON or LinkedIn archive ZIP · up to 5 MB</span></div>
+      <details><summary>Paste a profile</summary><label>Content source<select value={kind} onChange={(e) => setKind(e.target.value as typeof kind)}><option value="linkedin">My LinkedIn profile</option><option value="file">Resume or profile text</option></select></label><label>Pasted profile content<textarea rows={7} value={paste} onChange={(e) => setPaste(e.target.value)} /></label><button disabled={busy || !paste.trim()} onClick={() => void command({ op: 'paste', text: paste, kind })}>Preview pasted profile</button></details>
+      <details><summary>Import public GitHub projects</summary><label>GitHub username<input value={github} onChange={(e) => { setGithub(e.target.value); setGithubConsent(false); }} /></label><label><input type="checkbox" checked={githubConsent} onChange={(e) => setGithubConsent(e.target.checked)} />I approve reading up to 10 public repositories, languages and README files from api.github.com</label><button disabled={busy || !github || !githubConsent} onClick={() => void command({ op: 'github', username: github, limit: 10, consent: true })}>Preview GitHub projects</button></details>
+      {busy && <p role="status">Preparing your review…</p>}
+      {!draft && view?.previews.filter((p) => p.status === 'ready').map((p) => <button key={p.id} onClick={() => { setDraft(p); setSelected([]); setLegal(false); }}>Review {p.source.name}</button>)}
+      {draft && <div className="import-preview"><h3>Review import</h3><p>{draft.source.name} · {draft.source.kind} · {draft.parserVersion}</p><small>Source SHA-256: {draft.source.sha256}</small>{draft.warnings.map((w) => <p key={w} className="help-text">{w}</p>)}
+        <div className="button-row"><button onClick={() => setSelected(idsOf(draft.intelligence))}>Select all qualifications</button><button onClick={() => setSelected([])}>Clear selection</button></div>
+        {sections.map((key) => <div key={key}><h4>{key}</h4>{draft.intelligence[key].map((item, i) => <article className="qualification" key={item.id}>
+          <label><input type="checkbox" checked={selected.includes(item.id)} onChange={(e) => setSelected(e.target.checked ? [...selected, item.id] : selected.filter((id) => id !== item.id))} />Verify {singular[key]} {i + 1}</label>
+          <div className="career-fields">{Object.entries(item).filter(([field]) => !['id', 'evidenceIds', 'verified', 'metadata'].includes(field)).map(([field, value]) => {
+            const label = `Review ${singular[key]} ${i + 1} ${field}`;
+            const options = field === 'level' && key === 'experience' ? ['unknown', 'intern', 'entry', 'junior', 'mid', 'senior', 'staff', 'principal', 'lead'] : choices[field];
+            return <label key={field}>{field}{typeof value === 'boolean' ? <input aria-label={label} type="checkbox" checked={value} onChange={(e) => changeItem(key, item.id, field, e.target.checked)} /> : options ? <select aria-label={label} value={String(value ?? '')} onChange={(e) => changeItem(key, item.id, field, e.target.value)}>{options.map((o) => <option key={o}>{o}</option>)}</select> : <input aria-label={label} value={Array.isArray(value) ? value.join(', ') : String(value ?? '')} onChange={(e) => changeItem(key, item.id, field, Array.isArray(value) ? e.target.value.split(',').map((s) => s.trim()).filter(Boolean) : e.target.value || (value === null ? null : ''))} />}</label>;
+          })}</div>
+          <details><summary>Supporting source evidence</summary>{item.evidenceIds.map((id) => { const e = draft.intelligence.evidence.find((e) => e.id === id); return e ? <blockquote key={id}>{e.excerpt}<small> · extraction confidence {Math.round(e.confidence * 100)}%</small></blockquote> : null; })}{'metadata' in item && <pre>{JSON.stringify(item.metadata, null, 2)}</pre>}</details>
+        </article>)}</div>)}
+        {draft.facts.map((f) => <label key={f.id}><input type="checkbox" checked={selected.includes(f.id)} onChange={(e) => setSelected(e.target.checked ? [...selected, f.id] : selected.filter((id) => id !== f.id))} />Include {f.field}: {f.value}</label>)}
+        <label><input type="checkbox" checked={legal} onChange={(e) => setLegal(e.target.checked)} />I explicitly confirm selected citizenship, work authorization and clearance assertions as my own</label>
+        <div className="button-row"><button disabled={busy || !selected.length} className="primary-button" onClick={() => { const parsed = IntelligenceSchema.safeParse(draft.intelligence); if (!parsed.success) { setError('Check canonical skill IDs, dates, evidence and required fields.'); return; } void command({ op: 'applyImport', id: draft.id, intelligence: parsed.data, facts: draft.facts, selectedIds: selected, confirmSensitive: legal }); }}>Verify selected and merge</button><button disabled={busy} onClick={() => void command({ op: 'rejectImport', id: draft.id })}>Reject import</button></div>
+      </div>}
+      {view?.profile?.intelligence && <details><summary>Verified structured qualifications</summary><p>{view.profile.intelligence.skills.filter((s) => s.verified).length} verified skills · {view.profile.intelligence.experience.filter((s) => s.verified).length} verified employment records</p><pre>{JSON.stringify(view.profile.intelligence, null, 2)}</pre></details>}
+    </> : <>
+      <h2>Ranking method</h2><p>Technical methods score verified qualifications. Opportunity Hybrid also includes personal preferences. Built-in presets are immutable; clone one to customize it.</p>
+      <label>Ranking preset<select value={rankingId} onChange={(e) => selectRanking(e.target.value)}>{view?.rankings.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}</select></label>
+      <p>Default: {view?.rankings.find((p) => p.id === view.defaultRanking)?.name}</p>
+      {ranking && <><button disabled={busy || view?.defaultRanking === ranking.id} onClick={() => void command({ op: 'defaultRanking', id: ranking.id })}>Use as default ranking</button>
+        <details><summary>Configure selected ranking</summary><p>{ranking.method} · revision {ranking.revision}. Positive active weights normalize automatically. Missing job criteria are inactive.</p><fieldset disabled={ranking.id.startsWith('builtin:') || busy}>
+          <label>Ranking name<input value={ranking.name} onChange={(e) => setRanking({ ...ranking, name: e.target.value })} /></label>
+          <div className="career-fields">{Object.entries(ranking.weights).filter(([key]) => allowedWeights[ranking.method].includes(key)).map(([key, value]) => <label key={key}>{key} weight<input type="number" aria-label={`${key} weight`} min="0" max="100" step="1" value={value} onChange={(e) => setRanking({ ...ranking, weights: { ...ranking.weights, [key]: Number(e.target.value) } })} /></label>)}</div>
+          <div className="career-fields">{(['requiredMultiplier', 'preferredMultiplier', 'minimumEvidence', 'implicationCredit'] as const).map((key) => <label key={key}>{readable[key] ?? key}<input type="number" min="0" max={key.includes('Multiplier') ? 10 : 1} step="0.05" value={ranking[key]} onChange={(e) => setRanking({ ...ranking, [key]: Number(e.target.value) })} /></label>)}</div>
+          <div className="career-fields">{Object.entries(ranking.thresholds).map(([key, value]) => <label key={key}>{key} threshold<input type="number" min="0" max={key === 'score' ? 100 : 1} step={key === 'score' ? 1 : .05} value={value} onChange={(e) => setRanking({ ...ranking, thresholds: { ...ranking.thresholds, [key]: Number(e.target.value) } })} /></label>)}</div>
+          {Object.entries(ranking.gates).map(([key, value]) => <label key={key}><input type="checkbox" checked={value} onChange={(e) => setRanking({ ...ranking, gates: { ...ranking.gates, [key]: e.target.checked } })} />Enforce {readable[key] ?? key} gate</label>)}
+          <button onClick={() => { const parsed = RankingProfileSchema.safeParse({ ...ranking, revision: ranking.revision + 1 }); if (!parsed.success) { setError('Invalid configuration: use positive weights for this method only and valid thresholds.'); return; } void command({ op: 'saveRanking', profile: parsed.data }); }}>Save ranking configuration</button>
+        </fieldset></details>
+        {!ranking.id.startsWith('builtin:') && <button disabled={busy} onClick={() => void command({ op: 'deleteRanking', id: ranking.id })}>Delete custom ranking</button>}
+        <label>New ranking name<input value={newName} onChange={(e) => setNewName(e.target.value)} maxLength={100} /></label><button disabled={busy || !newName.trim()} onClick={() => void command({ op: 'cloneRanking', id: ranking.id, name: newName.trim() })}>Clone selected ranking</button>
+      </>}
+    </>}
+  </section>;
+}

@@ -4,7 +4,7 @@ import { AiReviewSchema, CandidateProfileSchema, JobMatchSchema, JobSchema, Sour
 import type { AiReview, CandidateProfile, Job, JobMatch, ProfileFact, SourceConfig, SourceState, SourceView } from '@rovdo/shared';
 import { RankingProfileSchema } from '@rovdo/shared';
 import type { RankingProfile } from '@rovdo/shared';
-import { BUILTIN_RANKINGS } from '@rovdo/career';
+import { BUILTIN_RANKINGS, extractRequirements } from '@rovdo/career';
 import { ImportPreviewSchema } from '@rovdo/shared';
 import type { ImportPreview } from '@rovdo/shared';
 
@@ -83,6 +83,10 @@ export class CareerStore {
     const data = JobMatchSchema.parse(match); if (!data.ranking) throw new Error('RANKING_METADATA_REQUIRED');
     const key = createHash('sha256').update(JSON.stringify([data.job.id, data.job.contentSha256, data.profileVersion, data.ranking])).digest('hex');
     this.db.prepare('INSERT INTO ranking_snapshot VALUES(?,?,?) ON CONFLICT DO NOTHING').run(key, data.job.id, JSON.stringify(data));
+    if (data.ranking.method !== 'legacy-v1') {
+      const requirements = extractRequirements(data.job.descriptionText, data.job.title);
+      this.db.prepare('INSERT INTO job_requirements_v2 VALUES(?,?,?,?) ON CONFLICT DO NOTHING').run(data.job.id, data.job.contentSha256, requirements.parserVersion, JSON.stringify(requirements));
+    }
   }
   saveProfile(input: unknown): void {
     const profile = CandidateProfileSchema.parse(input);
