@@ -7,6 +7,7 @@
   "exports": "./src/index.ts",
   "dependencies": {
     "@rovdo/shared": "0.3.5-alpha.1",
-    "zod": "4.6.7"
+    "zod": "4.6.7",
+    "@rovdo/career": "0.3.5-alpha.1"
   }
 }

@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { IntelligenceSchema, RankingDetailsSchema } from './intelligence';
+import { IntelligenceSchema, RankingDetailsSchema, RequirementSetSchema } from './intelligence';
 const bounded = z.string().trim().min(1).max(4000);
 export const ProvenanceSchema = z.strictObject({ kind: z.enum(['user', 'document']), reference: bounded, capturedAt: z.iso.datetime() });
 export const ProfileFactSchema = z.strictObject({ id: z.string().min(1).max(200), field: z.enum(['name', 'email', 'phone', 'education', 'experience', 'project', 'skill', 'link', 'citizenship', 'workAuthorization', 'degree', 'graduationYear', 'returnToSchool', 'clearance']), value: bounded, verified: z.boolean(), source: ProvenanceSchema }).refine((v) => !['citizenship', 'workAuthorization'].includes(v.field) || v.source.kind === 'user');
@@ -11,8 +11,11 @@ export const PreferencesSchema = z.strictObject({
 export const CandidateProfileSchema = z.strictObject({ version: z.number().int().positive(), facts: z.array(ProfileFactSchema).max(500), preferences: PreferencesSchema, intelligence: IntelligenceSchema.optional() }).refine((v) => new Set(v.facts.map((f) => f.id)).size === v.facts.length);
 export type CandidateProfile = z.infer<typeof CandidateProfileSchema>;
 export type ProfileFact = z.infer<typeof ProfileFactSchema>;
+export const AtsKindSchema = z.enum(['greenhouse', 'lever', 'ashby', 'smartrecruiters', 'jsonld']);
+export const EmployerSchema = z.strictObject({ id: z.string().max(200), company: z.string().min(1).max(200), aliases: z.array(z.string().max(200)).max(20), ats: AtsKindSchema, tenant: z.string().max(120), region: z.enum(['global', 'eu']), reference: z.string().url().max(2048), policyReference: z.string().url().max(2048), policy: z.enum(['approved', 'review', 'blocked']), verifiedAt: z.iso.datetime(), refreshAfter: z.iso.datetime(), responseHash: z.string().length(64), pageUrl: z.string().url().max(2048).optional() });
+export type Employer = z.infer<typeof EmployerSchema>;
 export const SourceConfigSchema = z.strictObject({
-  id: z.uuid(), ats: z.enum(['greenhouse', 'lever', 'ashby']), tenant: z.string().regex(/^[a-zA-Z0-9_-]{1,120}$/), company: z.string().trim().min(1).max(200), enabled: z.boolean(), region: z.enum(['global', 'eu']), intervalMs: z.number().int().min(60000).max(2592000000), termsReviewedAt: z.iso.datetime(), timezone: z.string().max(80).refine((v) => { try { new Intl.DateTimeFormat('en', { timeZone: v }); return true; } catch { return false; } }), priority: z.number().int().min(0).max(100), missingGracePolls: z.number().int().min(2).max(30),
+  id: z.uuid(), ats: AtsKindSchema, tenant: z.string().regex(/^[a-zA-Z0-9_-]{1,120}$/), company: z.string().trim().min(1).max(200), enabled: z.boolean(), region: z.enum(['global', 'eu']), intervalMs: z.number().int().min(60000).max(2592000000), termsReviewedAt: z.iso.datetime(), timezone: z.string().max(80).refine((v) => { try { new Intl.DateTimeFormat('en', { timeZone: v }); return true; } catch { return false; } }), priority: z.number().int().min(0).max(100), missingGracePolls: z.number().int().min(2).max(30), directoryId: z.string().max(200).optional(), companyId: z.string().max(200).optional(), pageUrl: z.string().url().max(2048).optional(),
 });
 export type SourceConfig = z.infer<typeof SourceConfigSchema>;
 export const SourceStateSchema = z.strictObject({
@@ -23,6 +26,7 @@ export const SourceViewSchema = z.strictObject({ config: SourceConfigSchema, sta
 export type SourceView = z.infer<typeof SourceViewSchema>;
 export const JobSchema = z.strictObject({
   id: z.string().min(1).max(300), source: SourceConfigSchema.shape.ats, tenant: z.string(), sourceJobId: z.string().max(200), requisitionId: z.string().max(200).nullable(), canonicalUrl: z.string().url().max(2048), company: z.string().min(1).max(200), title: z.string().min(1).max(500), location: z.string().max(500), workMode: z.enum(['remote', 'hybrid', 'onsite', 'unknown']), level: z.enum(['internship', 'new-grad', 'junior', 'mid', 'senior', 'unknown']), descriptionText: z.string().max(100000), postedAt: z.string().nullable(), updatedAt: z.string().nullable(), firstSeenAt: z.number(), lastSeenAt: z.number(), activeStatus: z.enum(['open', 'closed', 'unknown']),
+  details: z.strictObject({ employmentType: z.enum(['full-time', 'part-time', 'contract', 'temporary', 'internship', 'unknown']), roleFamily: z.string(), remoteJurisdiction: z.array(z.string().max(300)).max(20), season: z.enum(['spring', 'summer', 'fall', 'winter', 'unknown']), country: z.string().max(100), requirements: RequirementSetSchema }).optional(),
   salary: z.strictObject({ min: z.number().finite().nonnegative().nullable(), max: z.number().finite().nonnegative().nullable(), currency: z.string().max(10), interval: z.string().max(40), source: z.literal('explicit') }).nullable(), contentSha256: z.string().length(64), rawSha256: z.string().length(64), parserVersion: z.literal('ats-v1'), duplicateGroup: z.string().nullable(),
   provenance: z.array(z.strictObject({ sourceId: z.uuid(), sourceKey: z.string(), url: z.string().url(), collectedAt: z.number(), rawSha256: z.string().length(64), fields: z.record(z.string(), z.string()) })).max(100),
 });

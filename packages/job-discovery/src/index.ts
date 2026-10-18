@@ -32,25 +32,30 @@ export class DiscoveryEngine {
     if (!state.cursor) state = { ...state, pollId: randomUUID(), returned: 0, parsed: 0, rejected: 0, duplicates: 0, accepted: 0, requests: 0 };
     state.status = 'POLLING'; state.lastPollAt = start; state.error = null; this.store.setState(id, state);
     const adapter = this.adapter(config);
+    const gate = async (url: string, signal: AbortSignal) => {
+      if (new URL(url).origin !== origin) throw new Error('SOURCE_ORIGIN_BLOCKED');
+      const at = this.store.reserveOrigin(origin, this.now());
+      if (at - this.now() > 60000) { state.nextPollAt = at; throw new Error('ORIGIN_COOLDOWN'); }
+      if (at > this.now()) await this.sleep(at - this.now(), signal);
+      if (!this.store.sources().find((s) => s.config.id === id)?.config.enabled) throw new Error('SOURCE_REVOKED');
+      state.requests++;
+    };
+    adapter.setReadGate?.(gate);
     try {
       for (let pageIndex = 0; pageIndex < 100; pageIndex++) {
         if (this.stopping) throw new Error('INTERRUPTED');
-        const at = this.store.reserveOrigin(origin, this.now());
-        if (at - this.now() > 60000) { state.nextPollAt = at; throw new Error('ORIGIN_COOLDOWN'); }
-        if (at > this.now()) await this.sleep(at - this.now(), this.controller.signal);
-        const current = this.store.sources().find((s) => s.config.id === id); if (!current?.config.enabled) return;
-        state.requests++;
+        if (!adapter.setReadGate) await gate(sourceEndpoint(config), this.controller.signal);
         const page = await adapter.fetchPage(state, this.controller.signal); state.responseStatus = page.status;
         if (page.status === 304 && state.lastSuccessAt === null) throw new SourceError(304, 0, 'CACHE_MISS');
         if (!this.store.sources().find((s) => s.config.id === id)?.config.enabled) return; // Revoked during fetch: no writes.
-        state.returned += page.returned; state.parsed += page.jobs.length; state.cursor = page.nextCursor;
+        state.returned += page.returned; state.rejected += page.quarantine?.length ?? 0; state.parsed += page.jobs.length; state.cursor = page.nextCursor;
         const complete = page.nextCursor === null;
         if (complete) {
           state.status = page.status === 304 || state.parsed > 0 ? 'OK' : 'EMPTY_SOURCE'; state.lastSuccessAt = this.now(); state.failures = 0; state.durationMs = this.now() - start;
           state.nextPollAt = this.now() + config.intervalMs + Math.floor(this.random() * Math.min(30000, config.intervalMs / 20));
-          state.etag = config.ats === 'lever' ? null : page.headers.etag?.slice(0, 1000) ?? (page.status === 304 ? state.etag : null); state.lastModified = config.ats === 'lever' ? null : page.headers['last-modified']?.slice(0, 1000) ?? (page.status === 304 ? state.lastModified : null);
+          state.etag = ['lever', 'smartrecruiters', 'jsonld'].includes(config.ats) ? null : page.headers.etag?.slice(0, 1000) ?? (page.status === 304 ? state.etag : null); state.lastModified = ['lever', 'smartrecruiters', 'jsonld'].includes(config.ats) ? null : page.headers['last-modified']?.slice(0, 1000) ?? (page.status === 304 ? state.lastModified : null);
         }
-        this.store.batch(config, page.jobs, state, state.pollId!, complete && page.status !== 304, this.now());
+        this.store.batch(config, page.jobs, state, state.pollId!, complete && page.status !== 304 && state.rejected === 0, this.now());
         if (complete) { this.store.audit(id, state); return; }
       }
       throw new Error('PAGE_BUDGET_EXCEEDED');
