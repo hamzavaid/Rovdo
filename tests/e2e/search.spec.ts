@@ -26,9 +26,10 @@ test('filters and pages cached jobs, saves searches, tracks feedback and compare
     await page.getByRole('button', { name: 'Relevant', exact: true }).first().click();
     await page.getByRole('button', { name: 'Compare ranking methods' }).first().click();
     await expect(page.getByRole('heading', { name: 'Ranking comparison' })).toBeVisible();
+    await page.getByText('Manage ranking profiles', { exact: true }).click();
     await page.getByRole('button', { name: 'Export selected configuration' }).click();
     await expect(page.getByLabel('Ranking configuration JSON')).toHaveValue(/technical-v2/);
-    await page.screenshot({ path: test.info().outputPath('advanced-search.png'), fullPage: true });
+    for (const mode of ['light', 'dark'] as const) { await page.getByLabel('Appearance', { exact: true }).selectOption(mode); await expect(page.locator('html')).toHaveAttribute('data-theme', mode); await page.locator('.job-card').first().screenshot({ path: test.info().outputPath(`job-card-${mode}.png`) }); }
   } finally { await app.close(); }
   const persisted = new CareerStore(resolve(dir, 'rovdo.sqlite')); try { expect(persisted.savedSearches()).toHaveLength(1); expect(persisted.markers().some((m) => m.applied && m.feedback === 'relevant')).toBe(true); } finally { persisted.close(); }
 });

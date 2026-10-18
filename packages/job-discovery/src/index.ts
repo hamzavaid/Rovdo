@@ -5,7 +5,7 @@ import type { JobSourceAdapter } from '@rovdo/job-sources';
 import type { SourceConfig } from '@rovdo/shared';
 import type { CareerStore } from '@rovdo/storage';
 export { EMPLOYERS } from '@rovdo/job-sources';
-export { discoverEmployers } from './employers';
+export { discoverEmployers, refreshEmployers } from './employers';
 
 export class DiscoveryEngine {
   private active = false; private stopping = false;
@@ -49,6 +49,7 @@ export class DiscoveryEngine {
       const at = this.store.reserveOrigin(origin, this.now());
       if (at - this.now() > 60000) { state.nextPollAt = at; throw new Error('ORIGIN_COOLDOWN'); }
       if (at > this.now()) await this.sleep(at - this.now(), signal);
+      const blocked = this.store.originBlockedUntil(origin); if (blocked > this.now()) { state.nextPollAt = Math.max(state.nextPollAt, blocked); throw new Error('ORIGIN_COOLDOWN'); }
       if (signal.aborted || !this.store.directoryAllowed(config, this.now()) || !this.store.sources().find((s) => s.config.id === id)?.config.enabled) throw new Error('SOURCE_REVOKED');
       state.requests++;
     };

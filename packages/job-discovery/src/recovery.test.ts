@@ -13,6 +13,13 @@ const response = (data: unknown, status = 200) => ({ status, headers: {}, body: 
 const directories: string[] = [];
 afterEach(() => { for (const path of directories.splice(0)) { const target = resolve(path); if (!target.startsWith(resolve(tmpdir()) + sep) || !basename(target).startsWith('rovdo-poll-')) throw new Error('Unsafe fixture cleanup path'); rmSync(target, { recursive: true, force: true }); } });
 describe('durable source recovery and quotas', () => {
+  it('honors a Retry-After imposed by another collector while a quota ticket is waiting', async () => {
+    const store = new CareerStore(':memory:'); let time = 1000000000000; let calls = 0; const origin = 'https://api.lever.co';
+    store.saveSource(config); store.reserveOrigin(origin, time + 1000);
+    const engine = new DiscoveryEngine(store, (s) => new AtsAdapter(s, async () => { calls++; return response([]); }), { now: () => time, sleep: async (ms) => { time += ms; store.deferOrigin(origin, time + 120000); } });
+    try { await engine.poll(config.id); expect(calls).toBe(0); expect(store.sources()[0]!.state.status).toBe('FAILED_SOURCE'); }
+    finally { await engine.shutdown(); store.close(); }
+  });
   it('resumes an interrupted paginated feed from its committed cursor after restart', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'rovdo-poll-')); directories.push(dir); const path = join(dir, 'state.sqlite');
     let time = 1000000000000; let store = new CareerStore(path); store.saveSource(config);

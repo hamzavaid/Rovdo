@@ -1,5 +1,9 @@
 import { useCallback, useEffect, useState } from 'react';
 import type { SettingsView } from '@rovdo/shared';
+import darkLogo from './assets/inverted_rovdo_logo.png';
+import lightMark from './assets/logo_nosub.png';
+import { useAppearance } from './appearance';
+import type { Appearance } from '@rovdo/shared';
 import logo from './assets/rovdo_logo.png';
 import invertedMark from './assets/inverted_logo_nosub.png';
 import { Chat } from './Chat';
@@ -8,6 +12,7 @@ import { BrowserRun } from './BrowserRun';
 import { CareerWorkspace } from './CareerWorkspace';
 
 export function App() {
+  const { appearance, resolved, setAppearance, error: appearanceError } = useAppearance();
   const [connection, setConnection] = useState('Connecting to desktop');
   const [view, setView] = useState<'overview' | 'chat' | 'models' | 'browser' | 'jobs' | 'profile'>('overview');
   const [settings, setSettings] = useState<SettingsView>({ profiles: [], usage: { inputTokens: 0, outputTokens: 0, estimatedUsd: 0, requests: 0, unpricedRequests: 0 } });
@@ -34,9 +39,9 @@ export function App() {
   }, [refresh]);
 
   return (
-    <div className="app-shell">
+    <div className="app-shell"><a className="skip-link" href="#main-content">Skip to content</a>
       <aside className="sidebar" aria-label="Workspace">
-        <div className="brand"><img src={logo} alt="Rovdo" width="96" height="96" /></div>
+        <div className="brand"><img src={resolved === 'dark' ? darkLogo : logo} alt="Rovdo" width="96" height="96" /></div>
         <p className="sidebar-label">YOUR WORKSPACE</p>
         <nav className="workspace-nav" aria-label="Main navigation">
           <button type="button" className={view === 'overview' ? 'workspace-item active' : 'workspace-item'} aria-current={view === 'overview' ? 'page' : undefined} onClick={() => setView('overview')}>Overview</button>
@@ -49,15 +54,15 @@ export function App() {
         <div className="sidebar-footer"><span className="status-dot" />Local-first by design</div>
       </aside>
       <div className="main-shell">
-        <header className="topbar"><span>{{ overview: 'Workspace overview', chat: 'Chat workspace', models: 'Model settings', browser: 'Browser workspace', jobs: 'Job discovery', profile: 'Candidate profile' }[view]}</span><span className="preview-badge">Browser + Jobs</span></header>
-        <main>
+        <header className="topbar"><span>{{ overview: 'Workspace overview', chat: 'Chat workspace', models: 'Model settings', browser: 'Browser workspace', jobs: 'Job discovery', profile: 'Candidate profile' }[view]}</span><div className="topbar-controls"><label className="appearance-control">Appearance<select aria-label="Appearance" value={appearance} onChange={(e) => void setAppearance(e.target.value as Appearance)}><option value="light">Light</option><option value="dark">Dark</option><option value="system">System</option></select></label><span className="preview-badge">Browser + Jobs</span></div></header>
+        <main id="main-content">{appearanceError && <p role="alert">{appearanceError}</p>}
           <section hidden={view !== 'overview'}>
           <div className="eyebrow">A CONSIDERED START</div>
           <h1>Your workspace starts here.</h1>
           <p className="intro">A home for your work, with you in control. Rovdo is building a local-first workspace for thoughtful AI automation.</p>
 
           <section className="welcome-panel" aria-labelledby="foundation-title">
-            <img className="panel-symbol" src={invertedMark} alt="" width="112" height="112" />
+            <img className="panel-symbol" src={resolved === 'dark' ? invertedMark : lightMark} alt="" width="112" height="112" />
             <div>
               <div className="eyebrow">PROJECT STATUS</div>
               <h2 id="foundation-title">Your desktop is ready.</h2>

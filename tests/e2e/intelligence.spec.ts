@@ -21,6 +21,7 @@ test('reviews imported qualifications and manages persisted custom ranking profi
     await expect(page.getByText('2 verified skills', { exact: false })).toBeVisible();
     await page.getByRole('button', { name: 'Jobs', exact: true }).click();
     await page.getByLabel('Ranking preset').selectOption('builtin:technical-balanced');
+    await page.getByText('Manage ranking profiles', { exact: true }).click();
     await page.getByLabel('New ranking name').fill('My backend ranking');
     await page.getByRole('button', { name: 'Clone selected ranking' }).click();
     await page.getByLabel('Ranking preset').selectOption({ label: 'My backend ranking' });

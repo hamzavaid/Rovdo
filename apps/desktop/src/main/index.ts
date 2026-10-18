@@ -1,6 +1,6 @@
 import { mkdir, readFile } from 'node:fs/promises';
 import { extname, join, resolve } from 'node:path';
-import { app, BrowserWindow, ipcMain, protocol, session, dialog } from 'electron';
+import { app, nativeTheme, BrowserWindow, ipcMain, protocol, session, dialog } from 'electron';
 import { createIntelligenceService } from './intelligence-service';
 import { readProfileFile } from './profile-file';
 import { INTELLIGENCE_CHANNEL } from '@rovdo/shared';
@@ -48,7 +48,7 @@ protocol.registerSchemesAsPrivileged([{
 async function createWindow(): Promise<void> {
   const window = new BrowserWindow({
     width: 1160, height: 800, minWidth: 760, minHeight: 580,
-    title: 'Rovdo', backgroundColor: '#f5f6f8', show: true,
+    title: 'Rovdo', backgroundColor: nativeTheme.shouldUseDarkColors ? '#101725' : '#f5f6f8', show: true,
     webPreferences: { ...WINDOW_WEB_PREFERENCES, preload: join(__dirname, '../preload/index.cjs') },
   });
   mainWindow = window;
@@ -67,17 +67,19 @@ async function initialize(): Promise<void> {
   store = new SettingsStore(join(app.getPath('userData'), 'rovdo.sqlite'));
   const registry = new ProviderRegistry();
   for (const kind of ['openai', 'anthropic', 'compatible'] as const) registry.register(kind, createAdapter);
-  const vault = createNativeVault();
+  const vault = createNativeVault(() => nativeTheme.shouldUseDarkColors);
   service = new ByokService(store, vault, (config, key) => registry.create(config, key), app.getVersion());
   runStore = new RuntimeStore(join(app.getPath('userData'), 'rovdo.sqlite'));
   browserService = createBrowserService(runStore, store, vault);
   careerStore = new CareerStore(join(app.getPath('userData'), 'rovdo.sqlite'));
+  const appearance = careerStore.setting('appearance');
+  nativeTheme.themeSource = appearance === 'dark' || appearance === 'light' ? appearance : 'system';
   intelligenceService = createIntelligenceService(careerStore, async (signal) => {
     if (!mainWindow) throw new Error('NO_WINDOW');
     const result = await dialog.showOpenDialog(mainWindow, { title: 'Import candidate qualifications', properties: ['openFile'], filters: [{ name: 'Profile documents or LinkedIn archives', extensions: ['pdf', 'docx', 'txt', 'md', 'markdown', 'json', 'zip', 'csv'] }] });
     if (result.canceled || !result.filePaths[0]) return null;
     return readProfileFile(result.filePaths[0], signal);
-  });
+  }, (mode) => { nativeTheme.themeSource = mode; });
   ipcMain.handle(INTELLIGENCE_CHANNEL, (event, payload: unknown) => intelligenceService!.command(payload, {
     url: event.senderFrame?.url ?? '', isMainFrame: event.senderFrame === event.sender.mainFrame, ownsWindow: !!mainWindow && event.sender === mainWindow.webContents,
   }));

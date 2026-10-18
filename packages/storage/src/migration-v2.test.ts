@@ -22,7 +22,7 @@ it('migrates a real v1 schema without rewriting profiles, jobs, rankings or save
     const custom = store.cloneRanking('builtin:technical-balanced', 'Persisted'); store.setDefaultRanking(custom.id); store.close();
     store = new CareerStore(path); expect(store.defaultRanking()).toBe(custom.id); expect(store.rankings().some((r) => r.id === custom.id)).toBe(true); store.close();
     const check = new DatabaseSync(path);
-    try { expect(check.prepare('SELECT json FROM job_match').get()!.json).toBe(JSON.stringify(match)); expect(check.prepare('SELECT json FROM candidate_profile').get()!.json).toBe(JSON.stringify(profile)); expect(check.prepare('SELECT MAX(version) AS v FROM career_schema').get()!.v).toBe(4); } finally { check.close(); }
+    try { expect(check.prepare('SELECT json FROM job_match').get()!.json).toBe(JSON.stringify(match)); expect(check.prepare('SELECT json FROM candidate_profile').get()!.json).toBe(JSON.stringify(profile)); expect(check.prepare('SELECT MAX(version) AS v FROM career_schema').get()!.v).toBe(5); } finally { check.close(); }
   } finally { rmSync(target, { recursive: true, force: true }); }
 });
 

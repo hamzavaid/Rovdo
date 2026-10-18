@@ -3,6 +3,17 @@ import { CareerStore } from '@rovdo/storage';
 import { previewText } from '@rovdo/profile-import';
 import { createIntelligenceService } from './intelligence-service';
 const sender = { url: 'rovdo://app/index.html', isMainFrame: true, ownsWindow: true };
+it('validates and persists appearance independently of provider and profile data', async () => {
+  const store = new CareerStore(':memory:'); const changes: string[] = [];
+  const service = createIntelligenceService(store, async () => null, (mode) => changes.push(mode));
+  try {
+    expect(await service.command({ op: 'appearance', mode: 'invalid' }, sender)).toEqual({ ok: false, code: 'VALIDATION_ERROR' });
+    expect(await service.command({ op: 'appearance', mode: 'dark' }, { ...sender, ownsWindow: false })).toEqual({ ok: false, code: 'IPC_FORBIDDEN' });
+    const result = await service.command({ op: 'appearance', mode: 'dark' }, sender);
+    expect(result.ok && result.view.appearance).toBe('dark'); expect(changes).toEqual(['dark']);
+    expect(store.setting('appearance')).toBe('dark'); expect(store.profile()).toBeNull();
+  } finally { await service.shutdown(); store.close(); }
+});
 it('guards import capabilities, saves previews and explicitly confirms sensitive facts', async () => {
   const store = new CareerStore(':memory:'); let choices = 0;
   const service = createIntelligenceService(store, async () => { choices++; return previewText('Skills\nPython\nCitizenship: US', 'resume.txt', 'file', '2026-10-17T00:00:00.000Z'); });

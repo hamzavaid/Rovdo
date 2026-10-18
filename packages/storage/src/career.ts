@@ -4,7 +4,7 @@ import { AiReviewSchema, CandidateProfileSchema, JobMatchSchema, JobSchema, Sour
 import type { AiReview, CandidateProfile, Job, JobMatch, ProfileFact, SourceConfig, SourceState, SourceView } from '@rovdo/shared';
 import { RankingProfileSchema } from '@rovdo/shared';
 import type { RankingProfile } from '@rovdo/shared';
-import { BUILTIN_RANKINGS, extractRequirements, fingerprint, intelligenceOf, rankWithProfile, roleOf } from '@rovdo/career';
+import { BUILTIN_RANKINGS, extractRequirements, stable, intelligenceOf, rankWithProfile, roleOf } from '@rovdo/career';
 import { EmployerSchema, JobSearchSchema, JobMarkerSchema, SavedSearchSchema } from '@rovdo/shared';
 import type { Employer, JobSearch, JobMarker, SavedSearch } from '@rovdo/shared';
 import { ImportPreviewSchema } from '@rovdo/shared';
@@ -19,7 +19,7 @@ export class CareerStore {
     this.db = new DatabaseSync(path);
     this.db.exec('PRAGMA journal_mode=WAL; PRAGMA foreign_keys=ON; PRAGMA busy_timeout=5000; CREATE TABLE IF NOT EXISTS career_schema (version INTEGER PRIMARY KEY);');
     const version = Number(this.db.prepare('SELECT COALESCE(MAX(version),0) AS n FROM career_schema').get()!.n);
-    if (version > 4) throw new Error('DATABASE_TOO_NEW');
+    if (version > 5) throw new Error('DATABASE_TOO_NEW');
     if (!version) this.transaction(() => {
       this.db.exec(`
         CREATE TABLE candidate_profile (version INTEGER PRIMARY KEY, json TEXT NOT NULL);
@@ -60,6 +60,7 @@ export class CareerStore {
         INSERT INTO career_schema VALUES(4);`);
       for (const job of this.jobs()) this.indexMetadata(job);
     });
+    if (version < 5) this.transaction(() => { this.db.exec('CREATE TABLE source_origin_block(origin TEXT PRIMARY KEY,until_at INTEGER NOT NULL); INSERT INTO career_schema VALUES(5);'); });
     // An interrupted page keeps its cursor and completed rows; no disappearance
     // decision is made until a complete authoritative snapshot succeeds.
     for (const source of this.sources()) if (source.state.status === 'POLLING') this.setState(source.config.id, { ...source.state, status: 'INTERRUPTED', nextPollAt: 0 });
@@ -124,7 +125,11 @@ export class CareerStore {
   setState(id: string, input: SourceState): void { const state = SourceStateSchema.parse(input); this.db.prepare('UPDATE job_source SET state=? WHERE id=?').run(JSON.stringify(state), id); }
   originReady(origin: string): number { return Number(this.db.prepare('SELECT next_at FROM source_origin_quota WHERE origin=?').get(origin)?.next_at ?? 0); }
   reserveOrigin(origin: string, now: number): number { return this.transaction(() => { const at = Math.max(now, this.originReady(origin)); this.db.prepare('INSERT INTO source_origin_quota VALUES(?,?) ON CONFLICT(origin) DO UPDATE SET next_at=excluded.next_at').run(origin, at + 1000); return at; }); }
-  deferOrigin(origin: string, until: number): void { this.db.prepare('INSERT INTO source_origin_quota VALUES(?,?) ON CONFLICT(origin) DO UPDATE SET next_at=MAX(next_at,excluded.next_at)').run(origin, until); }
+  originBlockedUntil(origin: string): number { return Number(this.db.prepare('SELECT until_at FROM source_origin_block WHERE origin=?').get(origin)?.until_at ?? 0); }
+  deferOrigin(origin: string, until: number): void { this.transaction(() => {
+    this.db.prepare('INSERT INTO source_origin_quota VALUES(?,?) ON CONFLICT(origin) DO UPDATE SET next_at=MAX(next_at,excluded.next_at)').run(origin, until);
+    this.db.prepare('INSERT INTO source_origin_block VALUES(?,?) ON CONFLICT(origin) DO UPDATE SET until_at=MAX(until_at,excluded.until_at)').run(origin, until);
+  }); }
   private writeJob(job: Job): void {
     JobSchema.parse(job);
     const previous = this.db.prepare('SELECT json FROM career_job WHERE id=?').get(job.id);
@@ -187,11 +192,11 @@ export class CareerStore {
     return this.db.prepare('SELECT value FROM career_setting WHERE key=?').get(key)?.value as string ?? null;
   }
   seedDirectory(entries: readonly Employer[]): void {
-    this.transaction(() => { for (const input of entries) {
+    this.transaction(() => { let changed = false; for (const input of entries) {
       const entry = EmployerSchema.parse(input);
-      this.db.prepare('INSERT INTO employer_directory VALUES(?,?) ON CONFLICT DO NOTHING').run(entry.id, JSON.stringify(entry));
+      if (this.db.prepare('INSERT INTO employer_directory VALUES(?,?) ON CONFLICT DO NOTHING').run(entry.id, JSON.stringify(entry)).changes) changed = true;
       for (const alias of [entry.company, ...entry.aliases]) this.db.prepare('INSERT INTO employer_alias VALUES(?,?) ON CONFLICT DO NOTHING').run(normalized(alias), entry.id);
-    } });
+    } if (changed) for (const job of this.jobs()) this.indexMetadata(job); });
   }
   directory(): Employer[] { return this.db.prepare('SELECT json FROM employer_directory ORDER BY id').all().map((r) => EmployerSchema.parse(JSON.parse(String(r.json)))); }
   reviewDirectory(input: Employer): void { const e = EmployerSchema.parse(input); this.seedDirectory([e]); this.db.prepare('UPDATE employer_directory SET json=? WHERE id=?').run(JSON.stringify(e), e.id); }
@@ -199,7 +204,7 @@ export class CareerStore {
   directoryAllowed(config: SourceConfig, now = Date.now()): boolean {
     if (!config.directoryId) return config.ats !== 'jsonld';
     const entry = this.directory().find((e) => e.id === config.directoryId);
-    return !!entry && entry.policy === 'approved' && Date.parse(entry.refreshAfter) > now && entry.ats === config.ats && entry.tenant === config.tenant && entry.pageUrl === config.pageUrl;
+    return !!entry && entry.policy === 'approved' && Date.parse(entry.refreshAfter) > now && entry.ats === config.ats && entry.tenant === config.tenant && entry.region === config.region && this.companyIdentity(config.company) === this.companyIdentity(entry.company) && entry.pageUrl === config.pageUrl;
   }
   enableDirectory(now = Date.now()): void {
     for (const entry of this.directory()) {
@@ -241,7 +246,7 @@ export class CareerStore {
   private cacheKey(row: { job: Job; bm25Raw: number }, profile: CandidateProfile, config: RankingProfile, asOf: string): string {
     const intel = intelligenceOf(profile);
     const dynamic = intel.experience.some((w) => !w.end || w.end >= asOf) || intel.education.some((e) => e.graduation && e.graduation >= asOf.slice(0, e.graduation.length)) || intel.certifications.some((c) => c.expires);
-    return fingerprint({ job: [row.job.id, row.job.contentSha256, row.job.title, row.job.location, row.job.workMode, row.job.salary, row.job.activeStatus, row.job.duplicateGroup], evidence: intel, facts: profile.facts.filter((f) => !['name', 'email', 'phone', 'link'].includes(f.field)), preferences: profile.preferences, config, scorer: 'deterministic-v2', taxonomy: 'rovdo-taxonomy-1', parser: 'requirements-v2', date: dynamic ? asOf : 'static', lexical: config.method === 'legacy-v1' ? row.bm25Raw : 0 });
+    return createHash('sha256').update(stable({ job: [row.job.id, row.job.company, row.job.level, row.job.contentSha256, row.job.title, row.job.location, row.job.workMode, row.job.salary, row.job.activeStatus, row.job.duplicateGroup], evidence: intel, facts: profile.facts.filter((f) => !['name', 'email', 'phone', 'link'].includes(f.field)), preferences: profile.preferences, config, scorer: 'deterministic-v2', taxonomy: 'rovdo-taxonomy-1', parser: 'requirements-v2', date: dynamic ? asOf : 'static', lexical: config.method === 'legacy-v1' ? row.bm25Raw : 0 })).digest('hex');
   }
   cacheStats = { hits: 0, misses: 0 };
   cachedRanking(row: { job: Job; bm25Raw: number }, profile: CandidateProfile, config: RankingProfile, asOf: string, ranker: typeof rankWithProfile = rankWithProfile): JobMatch {
@@ -266,7 +271,7 @@ export class CareerStore {
     if (search.eligibility === 'fail') conditions.push('r.excluded=1');
     const base = `FROM rank_cache r JOIN current_search s ON s.cache_key=r.cache_key WHERE ${conditions.join(' AND ')}`;
     const total = Number(this.db.prepare(`SELECT COUNT(*) AS n ${base}`).get(...params)!.n);
-    const page = this.db.prepare(`SELECT s.job_id,s.bm25 ${base} ORDER BY r.excluded,r.score DESC,r.confidence DESC,${config.method === 'legacy-v1' ? 's.bm25,' : ''}s.job_id LIMIT 50 OFFSET ?`).all(...params, search.offset ?? 0);
+    const page = this.db.prepare(`SELECT s.job_id,s.bm25 ${base} ORDER BY r.excluded,r.score DESC,${config.method === 'legacy-v1' ? 's.bm25,' : 'r.confidence DESC,'}s.job_id LIMIT 50 OFFSET ?`).all(...params, search.offset ?? 0);
     const byId = new Map(rows.map((r) => [r.job.id, r]));
     return { total, matches: page.map((r) => this.cachedRanking(byId.get(String(r.job_id))!, profile, config, asOf)) };
   }

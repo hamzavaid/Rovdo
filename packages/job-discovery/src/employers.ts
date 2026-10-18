@@ -6,12 +6,24 @@ import { readPublic } from '@rovdo/shared/network';
 import type { PublicResponse, ReadOptions } from '@rovdo/shared/network';
 import { AtsAdapter, feedFromUrl, inspectCareerPage, permittedPage, robotsAllow, sourceEndpoint } from '@rovdo/job-sources';
 const hash = (body: Buffer | string) => createHash('sha256').update(body).digest('hex');
+export async function refreshEmployers(store: CareerStore, signal: AbortSignal, transport: (url: string, options?: ReadOptions) => Promise<PublicResponse> = readPublic): Promise<void> {
+  // Refresh verification freshness under an existing approved collection grant;
+  // review/blocked policy states and persistent user opt-outs are never elevated.
+  for (const entry of store.directory().filter((e) => e.policy === 'approved' && Date.parse(e.refreshAfter) <= Date.now()).slice(0, 20)) {
+    if (signal.aborted) break;
+    const source = store.sources().find((s) => s.config.directoryId === entry.id);
+    if (source && !source.config.enabled) continue;
+    try { await discoverEmployers(store, { url: entry.reference, company: entry.company, policyUrl: entry.policyReference, permitted: true }, signal, transport); }
+    catch { /* Keep existing results and stale metadata; isolate this source. */ }
+  }
+}
 export async function discoverEmployers(store: CareerStore, request: { url: string; company: string; policyUrl: string; permitted: true }, parent: AbortSignal, transport: (url: string, options?: ReadOptions) => Promise<PublicResponse> = readPublic): Promise<void> {
   if (!request.permitted || !permittedPage(request.url) || !permittedPage(request.policyUrl)) throw new Error('SOURCE_BLOCKED');
   const signal = AbortSignal.any([parent, AbortSignal.timeout(60000)]);
   const get = async (url: string) => {
     const origin = new URL(url).origin; const now = Date.now(); const at = store.reserveOrigin(origin, now); if (at - now > 30000) throw new Error('SOURCE_COOLDOWN');
     if (at > now) await delay(at - now, undefined, { signal });
+    if (store.originBlockedUntil(origin) > Date.now()) throw new Error('SOURCE_COOLDOWN');
     const response = await transport(url, { signal });
     if (response.status === 429) { const retry = response.headers['retry-after']; const ms = retry && Number.isFinite(Number(retry)) ? Number(retry) * 1000 : retry ? Date.parse(retry) - Date.now() : 60000; store.deferOrigin(origin, Date.now() + Math.max(1000, Number.isFinite(ms) ? ms : 60000)); }
     if (response.status >= 300 && response.status !== 404) throw new Error('SOURCE_UNAVAILABLE_OR_REDIRECT');
@@ -36,6 +48,7 @@ export async function discoverEmployers(store: CareerStore, request: { url: stri
     if (feed.ats !== 'jsonld') { const response = await get(sourceEndpoint(source)); if (response.status !== 200) throw new Error('FEED_UNAVAILABLE'); body = response.body; payload = JSON.parse(body.toString('utf8')) as unknown; }
     new AtsAdapter(source).normalize(payload);
     store.reviewDirectory({ ...feed, id, company: source.company, aliases: existing?.aliases ?? [], reference: request.url, policyReference: request.policyUrl, policy: 'approved', verifiedAt: at.toISOString(), refreshAfter: new Date(at.getTime() + 30 * 86400000).toISOString(), responseHash: hash(body), ...(source.pageUrl ? { pageUrl: source.pageUrl } : {}) });
+    const current = store.sources().find((s) => s.config.directoryId === id); if (current?.state.error === 'POLICY_REVIEW_REQUIRED') store.setState(current.config.id, { ...current.state, status: current.state.cursor ? 'INTERRUPTED' : 'NEVER_POLLED', nextPollAt: 0, error: null });
   }
 }
 

@@ -7,7 +7,10 @@ export const ImportPreviewSchema = z.strictObject({
   intelligence: IntelligenceSchema, facts: z.array(ProfileFactSchema).max(500), warnings: z.array(z.string().max(500)).max(50),
 });
 export type ImportPreview = z.infer<typeof ImportPreviewSchema>;
+export const AppearanceSchema = z.enum(['light', 'dark', 'system']);
+export type Appearance = z.infer<typeof AppearanceSchema>;
 export const IntelligenceCommandSchema = z.discriminatedUnion('op', [
+  z.strictObject({ op: z.literal('appearance'), mode: AppearanceSchema }),
   z.strictObject({ op: z.literal('view') }), z.strictObject({ op: z.literal('importFile') }),
   z.strictObject({ op: z.literal('paste'), text: z.string().min(1).max(200000), kind: z.enum(['linkedin', 'file']) }),
   z.strictObject({ op: z.literal('github'), username: z.string().regex(/^[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,37}[a-zA-Z0-9])?$/), limit: z.number().int().min(1).max(20), consent: z.literal(true) }),
@@ -21,7 +24,7 @@ export const IntelligenceCommandSchema = z.discriminatedUnion('op', [
   z.strictObject({ op: z.literal('defaultRanking'), id: z.string().max(200) }),
 ]);
 export type IntelligenceCommand = z.infer<typeof IntelligenceCommandSchema>;
-export const IntelligenceViewSchema = z.strictObject({ profile: CandidateProfileSchema.nullable(), rankings: z.array(RankingProfileSchema), defaultRanking: z.string(), previews: z.array(ImportPreviewSchema) });
+export const IntelligenceViewSchema = z.strictObject({ profile: CandidateProfileSchema.nullable(), rankings: z.array(RankingProfileSchema), defaultRanking: z.string(), appearance: AppearanceSchema.default('system'), previews: z.array(ImportPreviewSchema) });
 export type IntelligenceView = z.infer<typeof IntelligenceViewSchema>;
 export const IntelligenceResultSchema = z.discriminatedUnion('ok', [z.strictObject({ ok: z.literal(true), view: IntelligenceViewSchema }), z.strictObject({ ok: z.literal(false), code: z.enum(['VALIDATION_ERROR', 'IPC_FORBIDDEN', 'IMPORT_ERROR', 'BUSY']) })]);
 export const INTELLIGENCE_CHANNEL = 'profile:intelligence';

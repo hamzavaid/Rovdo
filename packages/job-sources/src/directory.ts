@@ -10,7 +10,7 @@ export const EMPLOYERS: readonly Employer[] = [
   { id: 'smartrecruiters', company: 'SmartRecruiters', aliases: [], ats: 'smartrecruiters', tenant: 'smartrecruiters', reference: 'https://careers.smartrecruiters.com/SmartRecruiters', policyReference: 'https://developers.smartrecruiters.com/docs/endpoints', responseHash: 'dd343c33c470fed1e87299640e449a7c124a75f563e0d8052bb781ea88e74b46' },
 ].map((e) => ({ ...e, region: 'global', verifiedAt, refreshAfter, policy: 'approved' })) as Employer[];
 export function permittedPage(value: string): boolean {
-  try { const u = new URL(value); return u.protocol === 'https:' && !u.username && !u.password && !u.port && u.hostname.includes('.') && !/^(\d|\[)/.test(u.hostname) && !/(^|\.)(?:linkedin|indeed|glassdoor|facebook|x|twitter|ziprecruiter)\.(?:com|co)$/.test(u.hostname); } catch { return false; }
+  try { const u = new URL(value); return u.protocol === 'https:' && !u.username && !u.password && !u.port && u.hostname.includes('.') && !/^(\d|\[)/.test(u.hostname) && !/(^|\.)(?:linkedin|indeed|glassdoor|facebook|x|twitter|ziprecruiter)\.[a-z.]+$/.test(u.hostname); } catch { return false; }
 }
 export function feedFromUrl(value: string): Pick<SourceConfig, 'ats' | 'tenant' | 'region'> | null {
   if (!permittedPage(value)) return null;

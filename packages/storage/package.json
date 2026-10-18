@@ -1,12 +1,12 @@
 {
   "name": "@rovdo/storage",
-  "version": "0.3.5-alpha.1",
+  "version": "0.3.5",
   "private": true,
   "license": "Apache-2.0",
   "type": "module",
   "exports": "./src/index.ts",
   "dependencies": {
-    "@rovdo/shared": "0.3.5-alpha.1",
-    "@rovdo/career": "0.3.5-alpha.1"
+    "@rovdo/shared": "0.3.5",
+    "@rovdo/career": "0.3.5"
   }
 }

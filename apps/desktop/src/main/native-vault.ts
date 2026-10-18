@@ -28,12 +28,22 @@ if ($dialog.ShowDialog() -eq 'OK') {
 $entry.Clear(); $dialog.Dispose()
 `;
 
+function windowsPrompt(dark: boolean): string {
+  const palette = dark ? ['#101725', '#edf2fa', '#182132'] : ['#f5f6f8', '#202633', '#ffffff'];
+  const theme = `$dialog.BackColor = [System.Drawing.ColorTranslator]::FromHtml('${palette[0]}')
+$dialog.ForeColor = [System.Drawing.ColorTranslator]::FromHtml('${palette[1]}')
+foreach ($control in @($label,$entry,$ok,$cancel)) { $control.ForeColor = $dialog.ForeColor; $control.BackColor = [System.Drawing.ColorTranslator]::FromHtml('${palette[2]}') }
+$ok.UseVisualStyleBackColor = $false; $cancel.UseVisualStyleBackColor = $false
+`;
+  return WINDOWS_PROMPT.replace('$dialog.AcceptButton', theme + '$dialog.AcceptButton');
+}
+
 // Only main process owns this pipe. Secrets never enter command arguments,
 // environment variables, shell history, renderer fields or persisted files.
 export type PromptRunner = (file: string, args: string[], options: ExecFileOptionsWithStringEncoding, callback: (error: ExecFileException | null, stdout: string, stderr: string) => void) => ChildProcess;
-export async function promptForApiKey(platform: NodeJS.Platform = process.platform, execute: PromptRunner = execFile): Promise<string | null> {
+export async function promptForApiKey(platform: NodeJS.Platform = process.platform, execute: PromptRunner = execFile, dark = false): Promise<string | null> {
   const [executable, args]: [string, string[]] = platform === 'win32'
-    ? [join(process.env.SystemRoot ?? 'C:/Windows', 'System32/WindowsPowerShell/v1.0/powershell.exe'), ['-NoProfile', '-STA', '-NonInteractive', '-EncodedCommand', Buffer.from(WINDOWS_PROMPT, 'utf16le').toString('base64')]]
+    ? [join(process.env.SystemRoot ?? 'C:/Windows', 'System32/WindowsPowerShell/v1.0/powershell.exe'), ['-NoProfile', '-STA', '-NonInteractive', '-EncodedCommand', Buffer.from(windowsPrompt(dark), 'utf16le').toString('base64')]]
     : platform === 'darwin'
       ? ['/usr/bin/osascript', ['-e', 'text returned of (display dialog "Enter the API key for the profile selected in Rovdo." default answer "" with hidden answer with title "Rovdo API key" buttons {"Cancel", "Store in OS vault"} default button "Store in OS vault")']]
       : ['/usr/bin/zenity', ['--password', '--title=Rovdo API key']];
@@ -49,7 +59,7 @@ export async function promptForApiKey(platform: NodeJS.Platform = process.platfo
   });
 }
 
-export function createNativeVault(): CredentialVault {
+export function createNativeVault(isDark: () => boolean = () => false): CredentialVault {
   return new CredentialVault((account) => {
     const load = async () => {
       const { AsyncEntry } = await import('@napi-rs/keyring');
@@ -60,5 +70,5 @@ export function createNativeVault(): CredentialVault {
       setPassword: async (value) => (await load()).setPassword(value),
       deleteCredential: async () => (await load()).deleteCredential(),
     };
-  }, promptForApiKey);
+  }, () => promptForApiKey(process.platform, execFile, isDark()));
 }

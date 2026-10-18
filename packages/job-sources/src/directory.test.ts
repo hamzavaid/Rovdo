@@ -31,6 +31,15 @@ it('quarantines individual invalid records without losing the valid portion or c
   expect(result.jobs[0]!.details?.requirements.items.length).toBeGreaterThan(0);
   expect(() => adapter.normalize({ notJobs: [] })).toThrow();
 });
+it('does not confuse International or Senior Living with career levels, and retains explicit secondary locations', () => {
+  const adapter = new AtsAdapter(source('greenhouse'));
+  const jobs = ['International Software Engineer', 'Senior Living Software Engineer', 'Mid Backend Engineer'].map((title, id) => ({ id, title, absolute_url: `https://employer.test/${id}`, location: { name: 'Remote' }, content: 'TypeScript required', metadata: [{ name: 'Employment Type', value: 'Full-time' }] }));
+  const normalized = adapter.normalize({ jobs });
+  expect(normalized.map((j) => j.level)).toEqual(['unknown', 'unknown', 'mid']);
+  expect(normalized[0]!.details!.employmentType).toBe('full-time');
+  const remote = new AtsAdapter(source('ashby')).normalize({ jobs: [{ id: '1', title: 'Engineer', jobUrl: 'https://employer.test/1', descriptionPlain: 'TypeScript', location: 'New York', isRemote: true, address: { postalAddress: { addressCountry: 'US' } }, secondaryLocations: [{ location: 'Toronto', address: { addressCountry: 'CA' } }] }] })[0]!;
+  expect(remote.location).toContain('Toronto'); expect(remote.details!.remoteJurisdiction).toContain('US');
+});
 it('uses documented SmartRecruiters paging and fixed detail endpoints rather than response ref URLs', async () => {
   const urls: string[] = []; const adapter = new AtsAdapter(source('smartrecruiters'), async (url) => {
     urls.push(url); const body = url.includes('/postings/1') ? { id: '1', name: 'Engineer', company: { identifier: 'fixture' }, location: { city: 'Paris', country: 'FR', remote: true }, jobAd: { sections: { jobDescription: { text: 'TypeScript required' } } }, releasedDate: '2026-10-01' } : { totalFound: 101, content: [{ id: '1', name: 'Engineer', ref: 'http://127.0.0.1/private' }] };

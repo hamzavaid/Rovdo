@@ -25,7 +25,7 @@ export async function readPublic(url: string, options: ReadOptions = {}): Promis
   return new Promise((resolve, reject) => {
     const send = target.protocol === 'https:' ? httpsRequest : httpRequest;
     if (Object.keys(options.headers ?? {}).some((h) => /authorization|cookie|proxy/i.test(h))) throw new Error('DESTINATION_BLOCKED');
-    const req = send(target, { method: 'GET', headers: { 'user-agent': 'Rovdo/0.1.0 (public-source reader)', 'accept-encoding': 'identity', ...options.headers }, signal, family: address.family,
+    const req = send(target, { method: 'GET', headers: { 'user-agent': 'Rovdo/0.3.5 (public-source reader)', 'accept-encoding': 'identity', ...options.headers }, signal, family: address.family,
       lookup: (_h, _o, cb) => cb(null, address.address, address.family) }, (res) => {
       const chunks: Buffer[] = []; let size = 0;
       res.on('data', (chunk: Buffer) => { size += chunk.length; if (size > 8_000_000) { req.destroy(new Error('RESPONSE_TOO_LARGE')); } else chunks.push(chunk); });

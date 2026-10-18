@@ -25,9 +25,11 @@ it('filters in SQL, caches scores without stale evidence and pages after score o
     store.batch(src, jobs, store.sources()[0]!.state, 'one', true, 1);
     const rows = store.searchFiltered({ ...search, roleFamily: 'software' }); expect(rows).toHaveLength(55);
     rows.forEach((r) => store.cachedRanking(r, profile, config, AS_OF, ranker)); expect(calls).toBe(55);
-    rows.forEach((r) => store.cachedRanking(r, profile, config, AS_OF, ranker)); expect(calls).toBe(55);
+    store.cachedRanking(rows[0]!, profile, { ...config, revision: 2, requiredMultiplier: 4 }, AS_OF, ranker); expect(calls).toBe(56);
+    store.cachedRanking({ ...rows[0]!, job: { ...rows[0]!.job, company: 'Different company' } }, profile, config, AS_OF, ranker); expect(calls).toBe(57);
+    rows.forEach((r) => store.cachedRanking(r, profile, config, AS_OF, ranker)); expect(calls).toBe(57);
     const changed = structuredClone(profile); changed.intelligence!.skills = [];
-    store.cachedRanking(rows[0]!, changed, config, AS_OF, ranker); expect(calls).toBe(56);
+    store.cachedRanking(rows[0]!, changed, config, AS_OF, ranker); expect(calls).toBe(58);
     const page = store.rankedPage(rows, profile, config, AS_OF, { ...search, offset: 50 });
     expect(page.total).toBe(55); expect(page.matches).toHaveLength(5);
     expect(store.searchFiltered({ ...search, location: 'Nowhere' })).toHaveLength(0);

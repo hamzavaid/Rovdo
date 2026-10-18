@@ -12,6 +12,12 @@ function result(error: ExecFileException | null, stdout = '', stderr = '') {
 }
 beforeEach(() => { execute.mockReset(); });
 describe('native credential entry', () => {
+  it('themes the native Windows credential body without passing credentials through arguments', async () => {
+    result(null, 'secret-canary'); await promptForApiKey('win32', execute, true);
+    const encoded = execute.mock.calls[0]![1].at(-1)!;
+    expect(Buffer.from(encoded, 'base64').toString('utf16le')).toContain('#101725');
+    expect(Buffer.from(encoded, 'base64').toString('utf16le')).not.toContain('secret-canary');
+  });
   it('returns only the pipe result to main without putting the key in process arguments', async () => {
     result(null, 'secret-canary');
     expect(await promptForApiKey('win32', execute)).toBe('secret-canary');
