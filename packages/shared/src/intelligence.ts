@@ -43,6 +43,9 @@ export const RankingProfileSchema = z.strictObject({
   requiredMultiplier: z.number().finite().min(.1).max(10), preferredMultiplier: z.number().finite().min(.1).max(10), implicationCredit: z.number().min(0).max(1), minimumEvidence: z.number().min(0).max(1),
   gates: z.strictObject({ education: z.boolean(), location: z.boolean(), salary: z.boolean(), requiredSkills: z.boolean(), experience: z.boolean() }),
   thresholds: z.strictObject({ score: z.number().min(0).max(100), confidence: z.number().min(0).max(1), coverage: z.number().min(0).max(1) }),
+}).superRefine((v, ctx) => {
+  const allowed = v.method === 'technical-v2' ? ['skills', 'experience', 'projects', 'seniority', 'role', 'depth', 'education', 'lexical'] : v.method === 'legacy-v1' ? ['skills', 'role', 'location', 'eligibility', 'preferences'] : ['skills', 'role', 'experience', 'location', 'salary', 'education', 'lexical', 'company'];
+  if (Object.entries(v.weights).some(([key, weight]) => weight > 0 && !allowed.includes(key))) ctx.addIssue({ code: 'custom', message: 'Weight does not belong to this ranking method' });
 });
 export type RankingProfile = z.infer<typeof RankingProfileSchema>;
 export const RankingDetailsSchema = z.strictObject({

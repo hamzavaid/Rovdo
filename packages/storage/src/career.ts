@@ -2,6 +2,9 @@ import { DatabaseSync } from 'node:sqlite';
 import { createHash, randomUUID } from 'node:crypto';
 import { AiReviewSchema, CandidateProfileSchema, JobMatchSchema, JobSchema, SourceConfigSchema, SourceStateSchema } from '@rovdo/shared';
 import type { AiReview, CandidateProfile, Job, JobMatch, ProfileFact, SourceConfig, SourceState, SourceView } from '@rovdo/shared';
+import { RankingProfileSchema } from '@rovdo/shared';
+import type { RankingProfile } from '@rovdo/shared';
+import { BUILTIN_RANKINGS } from '@rovdo/career';
 
 const initialState = (): SourceState => ({ status: 'NEVER_POLLED', cursor: null, pollId: null, etag: null, lastModified: null, lastPollAt: null, lastSuccessAt: null, nextPollAt: 0, failures: 0, responseStatus: null, returned: 0, parsed: 0, rejected: 0, duplicates: 0, accepted: 0, requests: 0, durationMs: 0, error: null, parserVersion: 'ats-v1' });
 const normalized = (v: string) => v.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
@@ -12,7 +15,7 @@ export class CareerStore {
     this.db = new DatabaseSync(path);
     this.db.exec('PRAGMA journal_mode=WAL; PRAGMA foreign_keys=ON; PRAGMA busy_timeout=5000; CREATE TABLE IF NOT EXISTS career_schema (version INTEGER PRIMARY KEY);');
     const version = Number(this.db.prepare('SELECT COALESCE(MAX(version),0) AS n FROM career_schema').get()!.n);
-    if (version > 1) throw new Error('DATABASE_TOO_NEW');
+    if (version > 2) throw new Error('DATABASE_TOO_NEW');
     if (!version) this.transaction(() => {
       this.db.exec(`
         CREATE TABLE candidate_profile (version INTEGER PRIMARY KEY, json TEXT NOT NULL);
@@ -29,6 +32,15 @@ export class CareerStore {
         CREATE TABLE job_ai_review (cache_key TEXT PRIMARY KEY, json TEXT NOT NULL);
         INSERT INTO career_schema VALUES(1);`);
     });
+    if (version < 2) this.transaction(() => {
+      this.db.exec(`
+        CREATE TABLE ranking_profile (id TEXT NOT NULL, revision INTEGER NOT NULL, json TEXT NOT NULL, PRIMARY KEY(id,revision));
+        CREATE TABLE ranking_profile_deleted (id TEXT PRIMARY KEY);
+        CREATE TABLE career_setting (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+        CREATE TABLE ranking_snapshot (cache_key TEXT PRIMARY KEY, job_id TEXT NOT NULL REFERENCES career_job(id), json TEXT NOT NULL);
+        CREATE TABLE job_requirements_v2 (job_id TEXT NOT NULL REFERENCES career_job(id), content_hash TEXT NOT NULL, parser_version TEXT NOT NULL, json TEXT NOT NULL, PRIMARY KEY(job_id,content_hash,parser_version));
+        INSERT INTO career_schema VALUES(2);`);
+    });
     // An interrupted page keeps its cursor and completed rows; no disappearance
     // decision is made until a complete authoritative snapshot succeeds.
     for (const source of this.sources()) if (source.state.status === 'POLLING') this.setState(source.config.id, { ...source.state, status: 'INTERRUPTED', nextPollAt: 0 });
@@ -37,6 +49,30 @@ export class CareerStore {
     this.db.exec('BEGIN IMMEDIATE'); try { const value = work(); this.db.exec('COMMIT'); return value; } catch (error) { this.db.exec('ROLLBACK'); throw error; }
   }
   profile(): CandidateProfile | null { const row = this.db.prepare('SELECT json FROM candidate_profile ORDER BY version DESC LIMIT 1').get(); return row ? CandidateProfileSchema.parse(JSON.parse(String(row.json))) : null; }
+  rankings(): RankingProfile[] {
+    const custom = this.db.prepare('SELECT p.json FROM ranking_profile p WHERE p.revision=(SELECT MAX(q.revision) FROM ranking_profile q WHERE q.id=p.id) AND NOT EXISTS(SELECT 1 FROM ranking_profile_deleted d WHERE d.id=p.id) ORDER BY p.id').all().map((r) => RankingProfileSchema.parse(JSON.parse(String(r.json))));
+    return [...BUILTIN_RANKINGS, ...custom];
+  }
+  cloneRanking(id: string, name: string): RankingProfile {
+    const base = this.rankings().find((p) => p.id === id); if (!base) throw new Error('RANKING_NOT_FOUND');
+    const clone = RankingProfileSchema.parse({ ...base, id: randomUUID(), name, revision: 1 });
+    this.db.prepare('INSERT INTO ranking_profile VALUES(?,?,?)').run(clone.id, clone.revision, JSON.stringify(clone)); return clone;
+  }
+  saveRanking(input: unknown): void {
+    const parsed = RankingProfileSchema.parse(input); if (parsed.id.startsWith('builtin:')) throw new Error('BUILTIN_IMMUTABLE');
+    this.transaction(() => { const old = this.rankings().find((p) => p.id === parsed.id); if (!old || parsed.revision !== old.revision + 1) throw new Error('RANKING_REVISION_CONFLICT'); this.db.prepare('INSERT INTO ranking_profile VALUES(?,?,?)').run(parsed.id, parsed.revision, JSON.stringify(parsed)); });
+  }
+  deleteRanking(id: string): void {
+    if (id.startsWith('builtin:') || !this.rankings().some((p) => p.id === id)) throw new Error('RANKING_NOT_FOUND');
+    this.transaction(() => { this.db.prepare('INSERT INTO ranking_profile_deleted VALUES(?)').run(id); if (this.defaultRanking() === id) this.setDefaultRanking('builtin:legacy-v1'); });
+  }
+  defaultRanking(): string { return String(this.db.prepare("SELECT value FROM career_setting WHERE key='ranking-default'").get()?.value ?? 'builtin:legacy-v1'); }
+  setDefaultRanking(id: string): void { if (!this.rankings().some((p) => p.id === id)) throw new Error('RANKING_NOT_FOUND'); this.db.prepare("INSERT INTO career_setting VALUES('ranking-default',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value").run(id); }
+  recordRanking(match: JobMatch): void {
+    const data = JobMatchSchema.parse(match); if (!data.ranking) throw new Error('RANKING_METADATA_REQUIRED');
+    const key = createHash('sha256').update(JSON.stringify([data.job.id, data.job.contentSha256, data.profileVersion, data.ranking])).digest('hex');
+    this.db.prepare('INSERT INTO ranking_snapshot VALUES(?,?,?) ON CONFLICT DO NOTHING').run(key, data.job.id, JSON.stringify(data));
+  }
   saveProfile(input: unknown): void {
     const profile = CandidateProfileSchema.parse(input);
     this.transaction(() => { const previous = this.profile(); if (profile.version !== (previous?.version ?? 0) + 1) throw new Error('PROFILE_VERSION_CONFLICT'); this.db.prepare('INSERT INTO candidate_profile VALUES (?,?)').run(profile.version, JSON.stringify(profile)); });

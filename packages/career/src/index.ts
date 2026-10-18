@@ -1,6 +1,7 @@
 import { CandidateProfileSchema, JobMatchSchema } from '@rovdo/shared';
 export * from './taxonomy';
 export * from './requirements';
+export * from './scorer-v2';
 import type { CandidateProfile, EligibilityCheck, Job, JobMatch } from '@rovdo/shared';
 const lower = (v: string) => v.trim().toLowerCase();
 export function expandSearch(query: string): string {

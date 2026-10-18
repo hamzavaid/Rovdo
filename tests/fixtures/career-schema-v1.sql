@@ -1,0 +1,14 @@
+CREATE TABLE career_schema (version INTEGER PRIMARY KEY);
+CREATE TABLE candidate_profile (version INTEGER PRIMARY KEY, json TEXT NOT NULL);
+        CREATE TABLE job_source (id TEXT PRIMARY KEY, config TEXT NOT NULL, state TEXT NOT NULL);
+        CREATE TABLE career_job (id TEXT PRIMARY KEY, canonical TEXT NOT NULL UNIQUE, company TEXT NOT NULL, requisition TEXT, signature TEXT NOT NULL, json TEXT NOT NULL);
+        CREATE INDEX job_requisition ON career_job(company,requisition);
+        CREATE INDEX job_signature ON career_job(signature);
+        CREATE VIRTUAL TABLE job_fts USING fts5(title,keywords,description,tokenize='unicode61');
+        CREATE TABLE job_source_snapshot (source_id TEXT NOT NULL REFERENCES job_source(id), source_key TEXT NOT NULL, job_id TEXT NOT NULL REFERENCES career_job(id), poll_id TEXT NOT NULL, missing INTEGER NOT NULL DEFAULT 0, raw_hash TEXT NOT NULL, PRIMARY KEY(source_id,source_key));
+        CREATE TABLE job_match (job_id TEXT NOT NULL REFERENCES career_job(id), profile_version INTEGER NOT NULL, scorer_version TEXT NOT NULL, json TEXT NOT NULL, PRIMARY KEY(job_id,profile_version,scorer_version));
+        CREATE TABLE saved_opportunity (job_id TEXT PRIMARY KEY REFERENCES career_job(id), saved_at INTEGER NOT NULL);
+        CREATE TABLE source_origin_quota (origin TEXT PRIMARY KEY, next_at INTEGER NOT NULL);
+        CREATE TABLE job_search_run (id TEXT PRIMARY KEY, source_id TEXT NOT NULL, metrics TEXT NOT NULL);
+        CREATE TABLE job_ai_review (cache_key TEXT PRIMARY KEY, json TEXT NOT NULL);
+        INSERT INTO career_schema VALUES(1);
