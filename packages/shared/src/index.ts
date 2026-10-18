@@ -5,6 +5,7 @@ import type { CareerApi } from './career';
 export * from './byok';
 export * from './browser';
 export * from './career';
+export * from './intelligence';
 
 export const ErrorCodeSchema = z.enum(['VALIDATION_ERROR', 'IPC_FORBIDDEN', 'INTERNAL_ERROR']);
 export type ErrorCode = z.infer<typeof ErrorCodeSchema>;

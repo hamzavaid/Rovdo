@@ -20,7 +20,7 @@ export function plain(value: string): string {
   // Greenhouse's entity-encoded descriptions. Never render source HTML.
   let out = value;
   for (let i = 0; i < 2; i++) out = out.replace(/&(?:amp|lt|gt|quot|apos|nbsp);/g, (e) => ({ '&amp;': '&', '&lt;': '<', '&gt;': '>', '&quot;': '"', '&apos;': "'", '&nbsp;': ' ' })[e]!);
-  return out.replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, ' ').replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 100000);
+  return out.replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, ' ').replace(/<\/?(?:p|div|li|h[1-6]|br|section)\b[^>]*>/gi, '\n').replace(/<[^>]*>/g, ' ').split(/\r?\n/).map((line) => line.replace(/[\t ]+/g, ' ').trim()).filter(Boolean).join('\n').slice(0, 100000);
 }
 export function sourceEndpoint(s: SourceConfig): string {
   SourceConfigSchema.parse(s);

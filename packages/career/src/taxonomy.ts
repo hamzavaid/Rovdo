@@ -1,0 +1,39 @@
+export const TAXONOMY_VERSION = 'rovdo-taxonomy-1' as const;
+export const TAXONOMY_REFERENCES = ['https://www.onetcenter.org/database.html', 'https://esco.ec.europa.eu/en/classification'];
+type SkillType = 'language' | 'framework' | 'runtime' | 'database' | 'cloud' | 'tool' | 'library' | 'methodology';
+export type Skill = { id: string; name: string; type: SkillType; aliases: { label: string; context: 'any' | 'skill' }[] };
+const seeds: [string, string, SkillType, string[]][] = [
+  ['typescript', 'TypeScript', 'language', ['ts']], ['javascript', 'JavaScript', 'language', ['js', 'ecmascript']], ['java', 'Java', 'language', []], ['python', 'Python', 'language', ['python3']], ['cpp', 'C++', 'language', ['cpp']], ['csharp', 'C#', 'language', ['csharp']], ['c', 'C', 'language', []], ['go', 'Go', 'language', ['golang']], ['r', 'R', 'language', []], ['rust', 'Rust', 'language', []], ['sql', 'SQL', 'language', []],
+  ['react', 'React', 'framework', ['react.js', 'reactjs']], ['angular', 'Angular', 'framework', []], ['vue', 'Vue', 'framework', ['vue.js']], ['nextjs', 'Next.js', 'framework', ['nextjs']], ['dotnet', '.NET', 'framework', ['dotnet']], ['django', 'Django', 'framework', []], ['spring', 'Spring', 'framework', ['spring boot']], ['express', 'Express', 'framework', ['express.js']],
+  ['nodejs', 'Node.js', 'runtime', ['node', 'nodejs']], ['postgresql', 'PostgreSQL', 'database', ['postgres']], ['mysql', 'MySQL', 'database', []], ['mongodb', 'MongoDB', 'database', ['mongo']], ['redis', 'Redis', 'database', []],
+  ['aws', 'AWS', 'cloud', ['amazon web services']], ['azure', 'Azure', 'cloud', ['microsoft azure']], ['gcp', 'Google Cloud', 'cloud', ['gcp', 'google cloud platform']],
+  ['docker', 'Docker', 'tool', []], ['kubernetes', 'Kubernetes', 'tool', ['k8s']], ['git', 'Git', 'tool', []], ['terraform', 'Terraform', 'tool', []], ['linux', 'Linux', 'tool', []], ['html', 'HTML', 'language', ['html5']], ['css', 'CSS', 'language', ['css3']], ['pytorch', 'PyTorch', 'library', []], ['tensorflow', 'TensorFlow', 'library', []], ['pandas', 'pandas', 'library', []], ['agile', 'Agile', 'methodology', []],
+];
+const norm = (s: string) => s.normalize('NFKC').toLowerCase().trim().replace(/\s+/g, ' ');
+const ambiguous = new Set(['ts', 'js', 'node', 'go', 'r', 'c']);
+export const SKILLS: readonly Skill[] = Object.freeze(seeds.map(([id, name, type, aliases]) => Object.freeze({ id, name, type, aliases: [name, id, ...aliases].map((label) => ({ label, context: ambiguous.has(norm(label)) ? 'skill' as const : 'any' as const })) })));
+export function resolveSkill(value: string, context: 'any' | 'skill' = 'any'): Skill | null {
+  return SKILLS.find((s) => s.aliases.some((a) => norm(a.label) === norm(value) && (a.context === 'any' || context === 'skill'))) ?? null;
+}
+export const SKILL_RELATIONS = Object.freeze([{ from: 'typescript', to: 'javascript', type: 'implies' as const }, { from: 'postgresql', to: 'sql', type: 'implies' as const }, { from: 'mysql', to: 'sql', type: 'implies' as const }, { from: 'react', to: 'angular', type: 'related' as const }, { from: 'aws', to: 'azure', type: 'related' as const }]);
+export function matchSkill(candidate: string, required: string, version: string | null = null, range: string | null = null, implicationCredit = .85) {
+  if (candidate !== required) {
+    const implied = SKILL_RELATIONS.some((r) => r.from === candidate && r.to === required && r.type === 'implies');
+    return { strength: implied && !range ? implicationCredit : 0, reason: implied ? 'curated directional implication' : 'no curated equivalence' };
+  }
+  if (!range) return { strength: 1, reason: 'exact canonical skill' };
+  if (!version) return { strength: .85, reason: 'version evidence missing' };
+  const v = version.split('.').map(Number); const match = /^(>=|>|<=|<|\^|~|=)?\s*(\d+)(?:\.(\d+))?(?:\.(\d+))?$/.exec(range);
+  if (!match || v.some((x) => !Number.isFinite(x))) return { strength: 0, reason: 'unsupported version range' };
+  const parts = [Number(match[2]), Number(match[3] ?? 0), Number(match[4] ?? 0)];
+  const delta = (v[0]! - parts[0]!) || ((v[1] ?? 0) - parts[1]!) || ((v[2] ?? 0) - parts[2]!);
+  const op = match[1] ?? '=';
+  const pass = op === '>=' ? delta >= 0 : op === '>' ? delta > 0 : op === '<=' ? delta <= 0 : op === '<' ? delta < 0 : op === '^' ? delta >= 0 && v[0] === parts[0] : op === '~' ? delta >= 0 && v[0] === parts[0] && (v[1] ?? 0) === parts[1] : v.slice(0, match[4] ? 3 : match[3] ? 2 : 1).every((x, i) => x === parts[i]);
+  return { strength: pass ? 1 : 0, reason: pass ? 'compatible explicit version' : 'incompatible explicit version' };
+}
+export function roleOf(title: string) {
+  const t = title.toLowerCase();
+  const family = /data scientist|machine learning|\bml engineer/.test(t) ? 'data-science' : /security|cyber/.test(t) ? 'security' : /devops|site reliability|platform engineer/.test(t) ? 'platform' : /engineer|developer|\bswe\b/.test(t) ? 'software' : /data analyst/.test(t) ? 'analytics' : 'unknown';
+  const level = /^\s*(?:sr\.?|senior)\s+(?!living\b)/.test(t) ? 'senior' : /^(?:staff|principal|junior|jr\.?|intern|entry|mid|lead)\b/.exec(t)?.[0]?.replace('jr.', 'junior') ?? 'unknown';
+  return { family, specialty: /backend|back.end/.test(t) ? 'backend' : /front.end|frontend/.test(t) ? 'frontend' : /full.stack/.test(t) ? 'fullstack' : '', level, track: /manager|director|\bvp\b/.test(t) ? 'management' as const : family !== 'unknown' ? 'ic' as const : 'unknown' as const };
+}

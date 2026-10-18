@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { IntelligenceSchema, RankingDetailsSchema } from './intelligence';
 const bounded = z.string().trim().min(1).max(4000);
 export const ProvenanceSchema = z.strictObject({ kind: z.enum(['user', 'document']), reference: bounded, capturedAt: z.iso.datetime() });
 export const ProfileFactSchema = z.strictObject({ id: z.string().min(1).max(200), field: z.enum(['name', 'email', 'phone', 'education', 'experience', 'project', 'skill', 'link', 'citizenship', 'workAuthorization', 'degree', 'graduationYear', 'returnToSchool', 'clearance']), value: bounded, verified: z.boolean(), source: ProvenanceSchema }).refine((v) => !['citizenship', 'workAuthorization'].includes(v.field) || v.source.kind === 'user');
@@ -6,7 +7,7 @@ export const PreferencesSchema = z.strictObject({
   roles: z.array(bounded).max(30), excludedRoles: z.array(bounded).max(30), locations: z.array(bounded).max(30), workModes: z.array(z.enum(['remote', 'hybrid', 'onsite'])).max(3), levels: z.array(z.enum(['internship', 'new-grad', 'junior', 'mid', 'senior'])).max(5), minimumSalary: z.number().finite().nonnegative().nullable(), currency: z.string().regex(/^[A-Z]{3}$/),
   weights: z.strictObject({ skills: z.number().min(0).max(1), role: z.number().min(0).max(1), location: z.number().min(0).max(1), eligibility: z.number().min(0).max(1), preferences: z.number().min(0).max(1) }).refine((v) => Math.abs(Object.values(v).reduce((a, b) => a + b, 0) - 1) < 1e-9),
 });
-export const CandidateProfileSchema = z.strictObject({ version: z.number().int().positive(), facts: z.array(ProfileFactSchema).max(500), preferences: PreferencesSchema }).refine((v) => new Set(v.facts.map((f) => f.id)).size === v.facts.length);
+export const CandidateProfileSchema = z.strictObject({ version: z.number().int().positive(), facts: z.array(ProfileFactSchema).max(500), preferences: PreferencesSchema, intelligence: IntelligenceSchema.optional() }).refine((v) => new Set(v.facts.map((f) => f.id)).size === v.facts.length);
 export type CandidateProfile = z.infer<typeof CandidateProfileSchema>;
 export type ProfileFact = z.infer<typeof ProfileFactSchema>;
 export const SourceConfigSchema = z.strictObject({
@@ -27,7 +28,7 @@ export const JobSchema = z.strictObject({
 export type Job = z.infer<typeof JobSchema>;
 export const EligibilityCheckSchema = z.strictObject({ rule: z.string(), result: z.enum(['PASS', 'FAIL', 'UNKNOWN']), excerpt: z.string(), factIds: z.array(z.string()) });
 export type EligibilityCheck = z.infer<typeof EligibilityCheckSchema>;
-export const JobMatchSchema = z.strictObject({ job: JobSchema, score: z.number().min(0).max(100), bm25Raw: z.number(), excluded: z.boolean(), review: z.boolean(), confidence: z.number().min(0).max(1), checks: z.array(EligibilityCheckSchema), matchedSkills: z.array(z.string()), gaps: z.array(z.string()), reasons: z.array(z.string()), profileVersion: z.number().int(), scorerVersion: z.literal('deterministic-v1'), features: z.record(z.string(), z.number()) });
+export const JobMatchSchema = z.strictObject({ job: JobSchema, score: z.number().min(0).max(100), bm25Raw: z.number(), excluded: z.boolean(), review: z.boolean(), confidence: z.number().min(0).max(1), checks: z.array(EligibilityCheckSchema), matchedSkills: z.array(z.string()), gaps: z.array(z.string()), reasons: z.array(z.string()), profileVersion: z.number().int(), scorerVersion: z.enum(['deterministic-v1', 'deterministic-v2']), features: z.record(z.string(), z.number()), ranking: RankingDetailsSchema.optional() });
 export type JobMatch = z.infer<typeof JobMatchSchema>;
 export const JobSearchSchema = z.strictObject({ query: z.string().max(500), company: z.string().max(200), workMode: z.enum(['all', 'remote', 'hybrid', 'onsite']), savedOnly: z.boolean(), includeExcluded: z.boolean(), offset: z.number().int().min(0).max(100000).optional() });
 export type JobSearch = z.infer<typeof JobSearchSchema>;
