@@ -167,6 +167,7 @@ export class CareerStore {
     });
   }
   audit(sourceId: string, state: SourceState): void { this.db.prepare('INSERT INTO job_search_run VALUES(?,?,?)').run(randomUUID(), sourceId, JSON.stringify(state)); this.db.exec('DELETE FROM job_search_run WHERE rowid NOT IN (SELECT rowid FROM job_search_run ORDER BY rowid DESC LIMIT 1000)'); }
+  jobCount(): number { return Number(this.db.prepare('SELECT COUNT(*) AS n FROM career_job').get()!.n); }
   jobs(): Job[] { return this.db.prepare('SELECT json FROM career_job ORDER BY id').all().map((r) => JobSchema.parse(JSON.parse(String(r.json)))); }
   job(id: string): Job { const row = this.db.prepare('SELECT json FROM career_job WHERE id=?').get(id); if (!row) throw new Error('JOB_NOT_FOUND'); return JobSchema.parse(JSON.parse(String(row.json))); }
   search(query: string): { job: Job; bm25Raw: number }[] {
@@ -193,6 +194,7 @@ export class CareerStore {
     } });
   }
   directory(): Employer[] { return this.db.prepare('SELECT json FROM employer_directory ORDER BY id').all().map((r) => EmployerSchema.parse(JSON.parse(String(r.json)))); }
+  reviewDirectory(input: Employer): void { const e = EmployerSchema.parse(input); this.seedDirectory([e]); this.db.prepare('UPDATE employer_directory SET json=? WHERE id=?').run(JSON.stringify(e), e.id); }
   companyIdentity(name: string): string { return String(this.db.prepare('SELECT company_id FROM employer_alias WHERE alias=?').get(normalized(name))?.company_id ?? normalized(name)); }
   directoryAllowed(config: SourceConfig, now = Date.now()): boolean {
     if (!config.directoryId) return config.ats !== 'jsonld';

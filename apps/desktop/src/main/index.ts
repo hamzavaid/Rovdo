@@ -7,7 +7,7 @@ import { INTELLIGENCE_CHANNEL } from '@rovdo/shared';
 import { createLogger } from '@rovdo/agent-core';
 import { APP_INFO_CHANNEL, BYOK_CHANNELS, BROWSER_CHANNEL, CAREER_CHANNEL } from '@rovdo/shared';
 import { SettingsStore, RuntimeStore, CareerStore } from '@rovdo/storage';
-import { DiscoveryEngine } from '@rovdo/job-discovery';
+import { DiscoveryEngine, EMPLOYERS } from '@rovdo/job-discovery';
 import { createCareerService } from './career-service';
 import { reviewShortlist } from './career-reviewer';
 import { createBrowserService } from './browser-service';
@@ -81,6 +81,7 @@ async function initialize(): Promise<void> {
   ipcMain.handle(INTELLIGENCE_CHANNEL, (event, payload: unknown) => intelligenceService!.command(payload, {
     url: event.senderFrame?.url ?? '', isMainFrame: event.senderFrame === event.sender.mainFrame, ownsWindow: !!mainWindow && event.sender === mainWindow.webContents,
   }));
+  careerStore.seedDirectory(EMPLOYERS);
   discovery = new DiscoveryEngine(careerStore);
   careerService = createCareerService(careerStore, discovery, (request) => reviewShortlist(request, careerStore!, store!, vault, reviewController.signal));
   ipcMain.handle(CAREER_CHANNEL, (event, payload: unknown) => careerService!.command(payload, {

@@ -39,6 +39,8 @@ export function createIntelligenceService(store: CareerStore, chooseFile: (signa
             store.commitImport(original.id, mergeReviewed(store.profile(), edited, command.selectedIds, command.confirmSensitive));
           }
           if (command.op === 'rejectImport') store.rejectImport(command.id);
+          if (command.op === 'importRanking') store.importRanking(command.json);
+          if (command.op === 'resetRanking') store.resetRanking(command.id, command.presetId);
           if (command.op === 'cloneRanking') store.cloneRanking(command.id, command.name);
           if (command.op === 'saveRanking') store.saveRanking(command.profile);
           if (command.op === 'deleteRanking') store.deleteRanking(command.id);

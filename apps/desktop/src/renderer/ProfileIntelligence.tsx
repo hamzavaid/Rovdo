@@ -15,7 +15,7 @@ export function ProfileIntelligence({ tab, onChanged }: { tab: 'profile' | 'jobs
   const [paste, setPaste] = useState(''); const [kind, setKind] = useState<'file' | 'linkedin'>('linkedin');
   const [github, setGithub] = useState(''); const [githubConsent, setGithubConsent] = useState(false);
   const [draft, setDraft] = useState<ImportPreview | null>(null); const [selected, setSelected] = useState<string[]>([]); const [legal, setLegal] = useState(false);
-  const [rankingId, setRankingId] = useState(''); const [ranking, setRanking] = useState<RankingProfile | null>(null); const [newName, setNewName] = useState('');
+  const [rankingId, setRankingId] = useState(''); const [ranking, setRanking] = useState<RankingProfile | null>(null); const [newName, setNewName] = useState(''); const [transfer, setTransfer] = useState(''); const [resetPreset, setResetPreset] = useState('builtin:technical-balanced');
   useEffect(() => { void window.rovdo!.intelligenceCommand({ op: 'view' }).then((r) => { if (r.ok) { setView(r.view); setRankingId(r.view.defaultRanking); setRanking(r.view.rankings.find((p) => p.id === r.view.defaultRanking)!); } else setError(r.code); }).catch(() => setError('Desktop unavailable')); }, []);
   async function command(input: IntelligenceCommand) {
     setBusy(true); setError('');
@@ -26,7 +26,7 @@ export function ProfileIntelligence({ tab, onChanged }: { tab: 'profile' | 'jobs
       setRankingId(current.id); setRanking(current);
       if (['paste', 'github', 'importFile'].includes(input.op)) { const next = r.view.previews.find((p) => p.status === 'ready'); setDraft(next ?? null); setSelected([]); setLegal(false); }
       if (input.op === 'applyImport' || input.op === 'rejectImport') { setDraft(null); setSelected([]); }
-      if (input.op === 'applyImport' || input.op === 'defaultRanking' || input.op === 'saveRanking' || input.op === 'deleteRanking') onChanged(r.view.profile);
+      if (input.op === 'applyImport' || input.op === 'defaultRanking' || input.op === 'saveRanking' || input.op === 'resetRanking' || input.op === 'deleteRanking') onChanged(r.view.profile);
     } catch { setError('Invalid input or desktop unavailable. Your saved information is unchanged.'); } finally { setBusy(false); }
   }
   function selectRanking(id: string) { setRankingId(id); setRanking(view?.rankings.find((p) => p.id === id) ?? null); }
@@ -37,7 +37,7 @@ export function ProfileIntelligence({ tab, onChanged }: { tab: 'profile' | 'jobs
   return <section className="intelligence-panel" aria-label={tab === 'profile' ? 'Profile intelligence' : 'Ranking configurations'}>
     {error && <p role="alert">{error}</p>}
     {tab === 'profile' ? <>
-      <h2>Import qualifications</h2><p>Review proposed facts before they affect matching. Documents stay local. GitHub imports read public repositories; LinkedIn accepts only your archive or pasted content.</p>
+      <h2>Build your verified profile</h2><p>1. Import a source. 2. Review the proposed qualifications. 3. Verify only facts you can support.</p><h3>Import qualifications</h3><p>Review proposed facts before they affect matching. Documents stay local. GitHub imports read public repositories; LinkedIn accepts only your archive or pasted content.</p>
       <div className="button-row"><button disabled={busy} onClick={() => void command({ op: 'importFile' })}>Choose profile file</button><span>PDF, DOCX, TXT, Markdown, JSON or LinkedIn archive ZIP · up to 5 MB</span></div>
       <details><summary>Paste a profile</summary><label>Content source<select value={kind} onChange={(e) => setKind(e.target.value as typeof kind)}><option value="linkedin">My LinkedIn profile</option><option value="file">Resume or profile text</option></select></label><label>Pasted profile content<textarea rows={7} value={paste} onChange={(e) => setPaste(e.target.value)} /></label><button disabled={busy || !paste.trim()} onClick={() => void command({ op: 'paste', text: paste, kind })}>Preview pasted profile</button></details>
       <details><summary>Import public GitHub projects</summary><label>GitHub username<input value={github} onChange={(e) => { setGithub(e.target.value); setGithubConsent(false); }} /></label><label><input type="checkbox" checked={githubConsent} onChange={(e) => setGithubConsent(e.target.checked)} />I approve reading up to 10 public repositories, languages and README files from api.github.com</label><button disabled={busy || !github || !githubConsent} onClick={() => void command({ op: 'github', username: github, limit: 10, consent: true })}>Preview GitHub projects</button></details>
@@ -73,7 +73,10 @@ export function ProfileIntelligence({ tab, onChanged }: { tab: 'profile' | 'jobs
           <button onClick={() => { const parsed = RankingProfileSchema.safeParse({ ...ranking, revision: ranking.revision + 1 }); if (!parsed.success) { setError('Invalid configuration: use positive weights for this method only and valid thresholds.'); return; } void command({ op: 'saveRanking', profile: parsed.data }); }}>Save ranking configuration</button>
         </fieldset></details>
         {!ranking.id.startsWith('builtin:') && <button disabled={busy} onClick={() => void command({ op: 'deleteRanking', id: ranking.id })}>Delete custom ranking</button>}
-        <label>New ranking name<input value={newName} onChange={(e) => setNewName(e.target.value)} maxLength={100} /></label><button disabled={busy || !newName.trim()} onClick={() => void command({ op: 'cloneRanking', id: ranking.id, name: newName.trim() })}>Clone selected ranking</button>
+        <button disabled={busy} onClick={() => setTransfer(JSON.stringify(ranking, null, 2))}>Export selected configuration</button>
+        {!ranking.id.startsWith('builtin:') && <><label>Reset from preset<select value={resetPreset} onChange={(e) => setResetPreset(e.target.value)}>{view?.rankings.filter((p) => p.id.startsWith('builtin:')).map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}</select></label><button disabled={busy} onClick={() => void command({ op: 'resetRanking', id: ranking.id, presetId: resetPreset })}>Reset custom configuration to preset</button></>}
+        <details open={!!transfer}><summary>Import or export ranking JSON</summary><p>Copy the JSON to export. Imported configurations always create a new local identity and never overwrite a saved profile.</p><label>Ranking configuration JSON<textarea rows={8} value={transfer} onChange={(e) => setTransfer(e.target.value)} /></label><button disabled={busy || !transfer.trim()} onClick={() => void command({ op: 'importRanking', json: transfer })}>Import as new configuration</button></details>
+        <label>New ranking name<input value={newName} onChange={(e) => setNewName(e.target.value)} maxLength={100} /></label><button disabled={busy || !newName.trim()} onClick={() => void command({ op: 'cloneRanking', id: ranking.id, name: newName.trim() })}>Clone selected ranking</button><button disabled={busy || !newName.trim()} onClick={() => void command({ op: 'cloneRanking', id: 'builtin:technical-balanced', name: newName.trim() })}>Create technical ranking</button>
       </>}
     </>}
   </section>;

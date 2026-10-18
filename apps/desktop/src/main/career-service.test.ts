@@ -9,9 +9,26 @@ import { createAdapter } from '@rovdo/providers';
 import { completion } from '../../../../packages/providers/src/fixtures';
 import type { ProviderConfig, SourceConfig } from '@rovdo/shared';
 import { sampleCandidate } from '../../../../tests/fixtures/ranking-v2';
+import { EMPLOYERS } from '@rovdo/job-sources';
 
 const sender = { url: 'rovdo://app/index.html', isMainFrame: true, ownsWindow: true };
 describe('career IPC and optional inference', () => {
+  it('searches the verified directory without tenant entry and compares cached methods without AI', async () => {
+    const store = new CareerStore(':memory:'); store.seedDirectory(EMPLOYERS);
+    const engine = new DiscoveryEngine(store, (s) => new AtsAdapter(s, async () => ({ status: 200, headers: {}, body: Buffer.from(s.ats === 'lever' ? '[]' : s.ats === 'smartrecruiters' ? '{"content":[],"totalFound":0}' : '{"jobs":[]}') })));
+    const service = createCareerService(store, engine, async () => { throw new Error('No AI'); });
+    try {
+      expect((await service.command({ op: 'searchAll' }, sender)).ok).toBe(true); await engine.pollAll(); expect(store.sources()).toHaveLength(4);
+      const source = store.sources().find((s) => s.config.ats === 'greenhouse')!;
+      store.batch(source.config, new AtsAdapter(source.config).normalize({ jobs: [{ id: 1, title: 'Backend Engineer', content: 'Required: TypeScript', location: { name: 'Remote' }, absolute_url: 'https://employer.test/1' }] }), source.state, 'mock', true, 1); store.saveProfile(sampleCandidate());
+      const jobId = store.jobs()[0]!.id;
+      const comparison = await service.command({ op: 'compare', jobId, rankingIds: ['builtin:technical-balanced', 'builtin:legacy-v1'] }, sender);
+      expect(comparison.ok && comparison.view.comparisons.length).toBe(2);
+      expect((await service.command({ op: 'markJob', jobId, applied: true, feedback: 'relevant' }, sender)).ok).toBe(true);
+      expect(store.markers()[0]!.applied).toBe(true);
+      const before = store.cacheStats.misses; await service.command({ op: 'compare', jobId, rankingIds: ['builtin:technical-balanced', 'builtin:legacy-v1'] }, sender); expect(store.cacheStats.misses).toBe(before);
+    } finally { await engine.shutdown(); store.close(); }
+  });
   it('uses the persisted ranking selection without AI and records immutable v2 explanations', async () => {
     const store = new CareerStore(':memory:'); const engine = new DiscoveryEngine(store);
     const source: SourceConfig = { id: '00000000-0000-4000-8000-000000000001', ats: 'greenhouse', tenant: 'fixture', company: 'Fixture', enabled: false, region: 'global', intervalMs: 86400000, termsReviewedAt: '2026-10-17T00:00:00.000Z', timezone: 'UTC', priority: 0, missingGracePolls: 3 };

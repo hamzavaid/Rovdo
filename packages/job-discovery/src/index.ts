@@ -4,6 +4,8 @@ import { AtsAdapter, SourceError, sourceEndpoint } from '@rovdo/job-sources';
 import type { JobSourceAdapter } from '@rovdo/job-sources';
 import type { SourceConfig } from '@rovdo/shared';
 import type { CareerStore } from '@rovdo/storage';
+export { EMPLOYERS } from '@rovdo/job-sources';
+export { discoverEmployers } from './employers';
 
 export class DiscoveryEngine {
   private active = false; private stopping = false;
