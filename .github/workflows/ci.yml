@@ -35,7 +35,23 @@ jobs:
         run: |
           npx playwright install-deps chromium
           sudo apt-get update
-          sudo apt-get install -y gnome-keyring zenity dbus-x11 libdbus-1-3
+          sudo apt-get install -y gnome-keyring zenity dbus-x11 libdbus-1-3 apparmor
+      - name: Allow installed Chromium sandboxes (Linux)
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ ! -f /proc/sys/kernel/apparmor_restrict_unprivileged_userns ]] ||
+             [[ "$(cat /proc/sys/kernel/apparmor_restrict_unprivileged_userns)" != "1" ]]; then
+            echo "AppArmor user namespace restriction is not enabled; no policy needed."
+            exit 0
+          fi
+          # Ubuntu restricts user namespaces for downloaded browsers. Grant only
+          # the exact installed Playwright Chromium/headless-shell executables:
+          # https://chromium.googlesource.com/chromium/src/+/main/docs/security/apparmor-userns-restrictions.md
+          node scripts/linux-sandbox.ts > "$RUNNER_TEMP/rovdo-playwright.apparmor"
+          sudo install -o root -g root -m 644 "$RUNNER_TEMP/rovdo-playwright.apparmor" /etc/apparmor.d/rovdo-playwright
+          sudo apparmor_parser --replace /etc/apparmor.d/rovdo-playwright
       - name: Electron and native vault (Linux)
         if: runner.os == 'Linux'
         run: dbus-run-session -- sh -c 'printf "rovdo-ci-fixture\n" | gnome-keyring-daemon --unlock --components=secrets; xvfb-run --auto-servernum npm run test:e2e'
