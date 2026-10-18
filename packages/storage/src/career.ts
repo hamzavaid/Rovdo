@@ -4,7 +4,9 @@ import { AiReviewSchema, CandidateProfileSchema, JobMatchSchema, JobSchema, Sour
 import type { AiReview, CandidateProfile, Job, JobMatch, ProfileFact, SourceConfig, SourceState, SourceView } from '@rovdo/shared';
 import { RankingProfileSchema } from '@rovdo/shared';
 import type { RankingProfile } from '@rovdo/shared';
-import { BUILTIN_RANKINGS, extractRequirements } from '@rovdo/career';
+import { BUILTIN_RANKINGS, extractRequirements, fingerprint, intelligenceOf, rankWithProfile, roleOf } from '@rovdo/career';
+import { EmployerSchema, JobSearchSchema, JobMarkerSchema, SavedSearchSchema } from '@rovdo/shared';
+import type { Employer, JobSearch, JobMarker, SavedSearch } from '@rovdo/shared';
 import { ImportPreviewSchema } from '@rovdo/shared';
 import type { ImportPreview } from '@rovdo/shared';
 
@@ -17,7 +19,7 @@ export class CareerStore {
     this.db = new DatabaseSync(path);
     this.db.exec('PRAGMA journal_mode=WAL; PRAGMA foreign_keys=ON; PRAGMA busy_timeout=5000; CREATE TABLE IF NOT EXISTS career_schema (version INTEGER PRIMARY KEY);');
     const version = Number(this.db.prepare('SELECT COALESCE(MAX(version),0) AS n FROM career_schema').get()!.n);
-    if (version > 3) throw new Error('DATABASE_TOO_NEW');
+    if (version > 4) throw new Error('DATABASE_TOO_NEW');
     if (!version) this.transaction(() => {
       this.db.exec(`
         CREATE TABLE candidate_profile (version INTEGER PRIMARY KEY, json TEXT NOT NULL);
@@ -44,6 +46,20 @@ export class CareerStore {
         INSERT INTO career_schema VALUES(2);`);
     });
     if (version < 3) this.transaction(() => { this.db.exec('CREATE TABLE profile_import (id TEXT PRIMARY KEY, json TEXT NOT NULL); INSERT INTO career_schema VALUES(3);'); });
+    if (version < 4) this.transaction(() => {
+      this.db.exec(`CREATE TABLE employer_directory(id TEXT PRIMARY KEY,json TEXT NOT NULL);
+        CREATE TABLE employer_alias(alias TEXT PRIMARY KEY,company_id TEXT NOT NULL);
+        CREATE TABLE source_record(source_id TEXT NOT NULL,source_key TEXT NOT NULL,job_id TEXT NOT NULL REFERENCES career_job(id),json TEXT NOT NULL,PRIMARY KEY(source_id,source_key));
+        CREATE TABLE source_quarantine(source_id TEXT NOT NULL,hash TEXT NOT NULL,code TEXT NOT NULL,observed_at INTEGER NOT NULL,PRIMARY KEY(source_id,hash));
+        CREATE TABLE saved_search(id TEXT PRIMARY KEY,json TEXT NOT NULL);
+        CREATE TABLE job_marker(job_id TEXT PRIMARY KEY REFERENCES career_job(id),json TEXT NOT NULL);
+        CREATE TABLE rank_cache(cache_key TEXT PRIMARY KEY,job_id TEXT NOT NULL REFERENCES career_job(id),score REAL NOT NULL,excluded INTEGER NOT NULL,confidence REAL NOT NULL,json TEXT NOT NULL);
+        CREATE INDEX rank_cache_order ON rank_cache(score DESC,confidence DESC,job_id);
+        CREATE TABLE job_search_metadata(job_id TEXT PRIMARY KEY REFERENCES career_job(id),company_id TEXT NOT NULL,role TEXT NOT NULL,season TEXT NOT NULL,level TEXT NOT NULL,location TEXT NOT NULL,mode TEXT NOT NULL,salary REAL,currency TEXT,posted INTEGER,grad_min INTEGER,grad_max INTEGER);
+        CREATE INDEX job_filter ON job_search_metadata(role,level,mode,posted);
+        INSERT INTO career_schema VALUES(4);`);
+      for (const job of this.jobs()) this.indexMetadata(job);
+    });
     // An interrupted page keeps its cursor and completed rows; no disappearance
     // decision is made until a complete authoritative snapshot succeeds.
     for (const source of this.sources()) if (source.state.status === 'POLLING') this.setState(source.config.id, { ...source.state, status: 'INTERRUPTED', nextPollAt: 0 });
@@ -111,7 +127,10 @@ export class CareerStore {
   deferOrigin(origin: string, until: number): void { this.db.prepare('INSERT INTO source_origin_quota VALUES(?,?) ON CONFLICT(origin) DO UPDATE SET next_at=MAX(next_at,excluded.next_at)').run(origin, until); }
   private writeJob(job: Job): void {
     JobSchema.parse(job);
+    const previous = this.db.prepare('SELECT json FROM career_job WHERE id=?').get(job.id);
     this.db.prepare('INSERT INTO career_job VALUES(?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET canonical=excluded.canonical,company=excluded.company,requisition=excluded.requisition,signature=excluded.signature,json=excluded.json').run(job.id, job.canonicalUrl, normalized(job.company), job.requisitionId, signature(job), JSON.stringify(job));
+    this.indexMetadata(job);
+    if (previous) { const old = JobSchema.parse(JSON.parse(String(previous.json))); if (old.title === job.title && old.descriptionText === job.descriptionText) return; }
     const rowid = Number(this.db.prepare('SELECT rowid FROM career_job WHERE id=?').get(job.id)!.rowid);
     this.db.prepare('DELETE FROM job_fts WHERE rowid=?').run(rowid);
     this.db.prepare('INSERT INTO job_fts(rowid,title,keywords,description) VALUES(?,?,?,?)').run(rowid, job.title, job.descriptionText.match(/\b(?:TypeScript|JavaScript|Python|Rust|SQL|Java|React|Go|C\+\+)\b/gi)?.join(' ') ?? '', job.descriptionText);
@@ -121,14 +140,16 @@ export class CareerStore {
       for (const raw of jobs) {
         const key = raw.id;
         const membership = this.db.prepare('SELECT job_id FROM job_source_snapshot WHERE source_id=? AND source_key=?').get(source.id, key);
-        const row = membership ? this.db.prepare('SELECT json FROM career_job WHERE id=?').get(String(membership.job_id)) : this.db.prepare('SELECT json FROM career_job WHERE canonical=? OR (company=? AND requisition IS NOT NULL AND requisition=?) LIMIT 1').get(raw.canonicalUrl, normalized(raw.company), raw.requisitionId);
+        const companyKey = this.companyIdentity(raw.company);
+        const row = membership ? this.db.prepare('SELECT json FROM career_job WHERE id=?').get(String(membership.job_id)) : this.db.prepare('SELECT j.json FROM career_job j LEFT JOIN job_search_metadata m ON m.job_id=j.id WHERE j.canonical=? OR (m.company_id=? AND j.requisition IS NOT NULL AND j.requisition=?) LIMIT 1').get(raw.canonicalUrl, companyKey, raw.requisitionId);
         const old = row ? JobSchema.parse(JSON.parse(String(row.json))) : null;
         const provenance = { ...raw.provenance[0]!, collectedAt: now };
         let job: Job = { ...raw, firstSeenAt: old?.firstSeenAt ?? now, lastSeenAt: now, provenance: old ? [...old.provenance.filter((p) => p.sourceKey !== key), provenance].slice(-100) : [provenance], id: old?.id ?? raw.id };
-        if (old && normalized(old.company) !== normalized(raw.company)) job = { ...old, duplicateGroup: 'EMPLOYER_CONFLICT', provenance: job.provenance };
+        if (old && this.companyIdentity(old.company) !== companyKey) job = { ...old, duplicateGroup: 'EMPLOYER_CONFLICT', provenance: job.provenance };
         else if (old && old.source !== raw.source) job = { ...old, lastSeenAt: now, activeStatus: 'open', provenance: job.provenance }; // Never overwrite first-party fields with a second source.
         if (old) state.duplicates++; else state.accepted++;
         this.writeJob(job);
+        this.db.prepare('INSERT INTO source_record VALUES(?,?,?,?) ON CONFLICT(source_id,source_key) DO UPDATE SET job_id=excluded.job_id,json=excluded.json').run(source.id, key, job.id, JSON.stringify(raw));
         this.db.prepare('INSERT INTO job_source_snapshot VALUES(?,?,?,?,0,?) ON CONFLICT(source_id,source_key) DO UPDATE SET job_id=excluded.job_id,poll_id=excluded.poll_id,missing=0,raw_hash=excluded.raw_hash').run(source.id, key, job.id, pollId, raw.rawSha256);
         const possible = this.db.prepare('SELECT json FROM career_job WHERE signature=? AND id<>?').all(signature(job), job.id);
         for (const r of possible) { const other = JobSchema.parse(JSON.parse(String(r.json))); this.writeJob({ ...other, duplicateGroup: signature(job) }); job.duplicateGroup = signature(job); }
@@ -160,5 +181,102 @@ export class CareerStore {
   review(key: string): AiReview | null { const r = this.db.prepare('SELECT json FROM job_ai_review WHERE cache_key=?').get(key); return r ? AiReviewSchema.parse(JSON.parse(String(r.json))) : null; }
   saveReview(key: string, review: AiReview): void { AiReviewSchema.parse(review); this.db.prepare('INSERT INTO job_ai_review VALUES(?,?) ON CONFLICT(cache_key) DO UPDATE SET json=excluded.json').run(key, JSON.stringify(review)); }
   reviews(): AiReview[] { return this.db.prepare('SELECT json FROM job_ai_review ORDER BY rowid DESC LIMIT 100').all().map((r) => AiReviewSchema.parse(JSON.parse(String(r.json)))); }
+  setting(key: string, value?: string): string | null {
+    if (value !== undefined) this.db.prepare('INSERT INTO career_setting VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value').run(key, value);
+    return this.db.prepare('SELECT value FROM career_setting WHERE key=?').get(key)?.value as string ?? null;
+  }
+  seedDirectory(entries: readonly Employer[]): void {
+    this.transaction(() => { for (const input of entries) {
+      const entry = EmployerSchema.parse(input);
+      this.db.prepare('INSERT INTO employer_directory VALUES(?,?) ON CONFLICT DO NOTHING').run(entry.id, JSON.stringify(entry));
+      for (const alias of [entry.company, ...entry.aliases]) this.db.prepare('INSERT INTO employer_alias VALUES(?,?) ON CONFLICT DO NOTHING').run(normalized(alias), entry.id);
+    } });
+  }
+  directory(): Employer[] { return this.db.prepare('SELECT json FROM employer_directory ORDER BY id').all().map((r) => EmployerSchema.parse(JSON.parse(String(r.json)))); }
+  companyIdentity(name: string): string { return String(this.db.prepare('SELECT company_id FROM employer_alias WHERE alias=?').get(normalized(name))?.company_id ?? normalized(name)); }
+  directoryAllowed(config: SourceConfig, now = Date.now()): boolean {
+    if (!config.directoryId) return config.ats !== 'jsonld';
+    const entry = this.directory().find((e) => e.id === config.directoryId);
+    return !!entry && entry.policy === 'approved' && Date.parse(entry.refreshAfter) > now && entry.ats === config.ats && entry.tenant === config.tenant && entry.pageUrl === config.pageUrl;
+  }
+  enableDirectory(now = Date.now()): void {
+    for (const entry of this.directory()) {
+      if (entry.policy !== 'approved' || Date.parse(entry.refreshAfter) <= now || this.sources().some((s) => s.config.directoryId === entry.id || s.config.ats === entry.ats && s.config.tenant === entry.tenant && s.config.region === entry.region)) continue;
+      this.saveSource({ id: randomUUID(), ats: entry.ats, tenant: entry.tenant, company: entry.company, enabled: true, region: entry.region, intervalMs: 86400000, termsReviewedAt: entry.verifiedAt, timezone: 'UTC', priority: 0, missingGracePolls: 3, directoryId: entry.id, companyId: entry.id, ...(entry.pageUrl ? { pageUrl: entry.pageUrl } : {}) });
+    }
+    this.setting('search-all', 'true');
+  }
+  quarantine(sourceId: string, records: { hash: string; code: string }[], now: number): void {
+    for (const r of records) this.db.prepare('INSERT INTO source_quarantine VALUES(?,?,?,?) ON CONFLICT(source_id,hash) DO UPDATE SET observed_at=excluded.observed_at').run(sourceId, r.hash, r.code, now);
+  }
+  sourceRecords(jobId: string): Job[] { return this.db.prepare('SELECT json FROM source_record WHERE job_id=? ORDER BY source_id,source_key').all(jobId).map((r) => JobSchema.parse(JSON.parse(String(r.json)))); }
+  private indexMetadata(job: Job): void {
+    const requirements = job.details?.requirements ?? extractRequirements(job.descriptionText, job.title);
+    const graduation = requirements.items.filter((r) => r.kind === 'graduation');
+    this.db.prepare('INSERT OR REPLACE INTO job_search_metadata VALUES(?,?,?,?,?,?,?,?,?,?,?,?)').run(job.id, this.companyIdentity(job.company), job.details?.roleFamily ?? roleOf(job.title).family, job.details?.season ?? 'unknown', job.level, job.location.toLowerCase(), job.workMode, job.salary && /year|annual/i.test(job.salary.interval) ? job.salary.max ?? job.salary.min : null, job.salary?.currency ?? null, job.postedAt ? Date.parse(job.postedAt) || null : null, graduation[0]?.graduationStart ?? null, graduation[0]?.graduationEnd ?? null);
+  }
+  searchFiltered(input: JobSearch): { job: Job; bm25Raw: number }[] {
+    const s = JobSearchSchema.parse(input); const params: (string | number)[] = []; const where: string[] = [];
+    const add = (sql: string, value: string | number) => { where.push(sql); params.push(value); };
+    const words = s.query.match(/[\p{L}\p{N}_+#.-]+/gu)?.slice(0, 30) ?? [];
+    if (words.length) add('job_fts MATCH ?', words.map((w) => `"${w.replaceAll('"', '""')}"`).join(' OR '));
+    if (s.company) add('instr(lower(json_extract(j.json,\'$.company\')),lower(?))>0', s.company);
+    if (s.workMode !== 'all') add('m.mode=?', s.workMode);
+    if (s.roleFamily && s.roleFamily !== 'all') add('m.role=?', s.roleFamily);
+    if (s.season && s.season !== 'all') add('m.season=?', s.season);
+    if (s.experienceLevel && s.experienceLevel !== 'all') add('m.level=?', s.experienceLevel);
+    if (s.location) add('instr(m.location,lower(?))>0', s.location);
+    if (s.minimumSalary !== undefined) { add('m.salary>=?', s.minimumSalary); add('m.currency=?', s.salaryCurrency ?? 'USD'); }
+    if (s.freshnessDays) add('m.posted>=?', Date.now() - s.freshnessDays * 86400000);
+    if (s.graduationYear) { add('(m.grad_min IS NULL OR m.grad_min<=?)', s.graduationYear); add('(m.grad_max IS NULL OR m.grad_max>=?)', s.graduationYear); }
+    if (s.savedOnly) where.push('EXISTS(SELECT 1 FROM saved_opportunity x WHERE x.job_id=j.id)');
+    if (s.hideApplied) where.push("COALESCE(json_extract(t.json,'$.applied'),0)=0");
+    if (s.feedback && s.feedback !== 'all') add("json_extract(t.json,'$.feedback')=?", s.feedback);
+    if (s.newOnly) where.push("COALESCE(json_extract(t.json,'$.seenAt'),0)<json_extract(j.json,'$.firstSeenAt')");
+    const from = `career_job j JOIN job_search_metadata m ON m.job_id=j.id LEFT JOIN job_marker t ON t.job_id=j.id ${words.length ? 'JOIN job_fts ON job_fts.rowid=j.rowid' : ''}`;
+    return this.db.prepare(`SELECT j.json,${words.length ? 'bm25(job_fts,4,2,1)' : '0'} AS rank FROM ${from} ${where.length ? `WHERE ${where.join(' AND ')}` : ''} ORDER BY ${words.length ? 'rank,' : ''}j.id`).all(...params).map((r) => ({ job: JobSchema.parse(JSON.parse(String(r.json))), bm25Raw: Number(r.rank) }));
+  }
+  private cacheKey(row: { job: Job; bm25Raw: number }, profile: CandidateProfile, config: RankingProfile, asOf: string): string {
+    const intel = intelligenceOf(profile);
+    const dynamic = intel.experience.some((w) => !w.end || w.end >= asOf) || intel.education.some((e) => e.graduation && e.graduation >= asOf.slice(0, e.graduation.length)) || intel.certifications.some((c) => c.expires);
+    return fingerprint({ job: [row.job.id, row.job.contentSha256, row.job.title, row.job.location, row.job.workMode, row.job.salary, row.job.activeStatus, row.job.duplicateGroup], evidence: intel, facts: profile.facts.filter((f) => !['name', 'email', 'phone', 'link'].includes(f.field)), preferences: profile.preferences, config, scorer: 'deterministic-v2', taxonomy: 'rovdo-taxonomy-1', parser: 'requirements-v2', date: dynamic ? asOf : 'static', lexical: config.method === 'legacy-v1' ? row.bm25Raw : 0 });
+  }
+  cacheStats = { hits: 0, misses: 0 };
+  cachedRanking(row: { job: Job; bm25Raw: number }, profile: CandidateProfile, config: RankingProfile, asOf: string, ranker: typeof rankWithProfile = rankWithProfile): JobMatch {
+    const key = this.cacheKey(row, profile, config, asOf); const cached = this.db.prepare('SELECT json FROM rank_cache WHERE cache_key=?').get(key);
+    let match: JobMatch;
+    if (cached) { this.cacheStats.hits++; match = JobMatchSchema.parse(JSON.parse(String(cached.json))); }
+    else {
+      this.cacheStats.misses++; match = ranker([row], profile, config, asOf)[0]!;
+      this.db.prepare('INSERT INTO rank_cache VALUES(?,?,?,?,?,?) ON CONFLICT DO NOTHING').run(key, row.job.id, match.score, Number(match.excluded), match.confidence, JSON.stringify(match));
+      this.recordRanking(match);
+    }
+    return { ...match, job: row.job, profileVersion: profile.version, bm25Raw: row.bm25Raw, ...(match.ranking ? { ranking: { ...match.ranking, asOf } } : {}) };
+  }
+  rankedPage(rows: { job: Job; bm25Raw: number }[], profile: CandidateProfile, config: RankingProfile, asOf: string, search: JobSearch): { matches: JobMatch[]; total: number } {
+    this.db.exec('CREATE TEMP TABLE IF NOT EXISTS current_search(job_id TEXT PRIMARY KEY,cache_key TEXT,bm25 REAL); DELETE FROM current_search;');
+    const insert = this.db.prepare('INSERT INTO current_search VALUES(?,?,?)');
+    this.transaction(() => { for (const row of rows) insert.run(row.job.id, this.cacheKey(row, profile, config, asOf), row.bm25Raw); });
+    const conditions = [search.includeExcluded ? '1' : 'r.excluded=0', 'r.score>=?'];
+    const params: (string | number)[] = [search.minimumScore ?? 0];
+    if (search.eligibility === 'pass') conditions.push("r.excluded=0 AND NOT EXISTS(SELECT 1 FROM json_each(r.json,'$.checks') c WHERE json_extract(c.value,'$.result')='UNKNOWN')");
+    if (search.eligibility === 'review') conditions.push("EXISTS(SELECT 1 FROM json_each(r.json,'$.checks') c WHERE json_extract(c.value,'$.result')='UNKNOWN')");
+    if (search.eligibility === 'fail') conditions.push('r.excluded=1');
+    const base = `FROM rank_cache r JOIN current_search s ON s.cache_key=r.cache_key WHERE ${conditions.join(' AND ')}`;
+    const total = Number(this.db.prepare(`SELECT COUNT(*) AS n ${base}`).get(...params)!.n);
+    const page = this.db.prepare(`SELECT s.job_id,s.bm25 ${base} ORDER BY r.excluded,r.score DESC,r.confidence DESC,${config.method === 'legacy-v1' ? 's.bm25,' : ''}s.job_id LIMIT 50 OFFSET ?`).all(...params, search.offset ?? 0);
+    const byId = new Map(rows.map((r) => [r.job.id, r]));
+    return { total, matches: page.map((r) => this.cachedRanking(byId.get(String(r.job_id))!, profile, config, asOf)) };
+  }
+  markers(): JobMarker[] { return this.db.prepare('SELECT json FROM job_marker ORDER BY job_id').all().map((r) => JobMarkerSchema.parse(JSON.parse(String(r.json)))); }
+  markJob(jobId: string, change: Partial<Omit<JobMarker, 'jobId'>>): void {
+    this.job(jobId); const old = this.markers().find((m) => m.jobId === jobId) ?? { jobId, feedback: 'none', applied: false, seenAt: 0 };
+    const next = JobMarkerSchema.parse({ ...old, ...change }); this.db.prepare('INSERT INTO job_marker VALUES(?,?) ON CONFLICT(job_id) DO UPDATE SET json=excluded.json').run(jobId, JSON.stringify(next));
+  }
+  savedSearches(): SavedSearch[] { return this.db.prepare('SELECT json FROM saved_search ORDER BY id').all().map((r) => SavedSearchSchema.parse(JSON.parse(String(r.json)))); }
+  saveSearch(name: string, search: JobSearch): SavedSearch { const saved = SavedSearchSchema.parse({ id: randomUUID(), name, search: { ...search, offset: 0 } }); this.db.prepare('INSERT INTO saved_search VALUES(?,?)').run(saved.id, JSON.stringify(saved)); return saved; }
+  deleteSearch(id: string): void { this.db.prepare('DELETE FROM saved_search WHERE id=?').run(id); }
+  importRanking(json: string): RankingProfile { if (json.length > 20000) throw new Error('CONFIG_LIMIT'); const input = RankingProfileSchema.parse(JSON.parse(json)); const clone = RankingProfileSchema.parse({ ...input, id: randomUUID(), revision: 1 }); this.db.prepare('INSERT INTO ranking_profile VALUES(?,?,?)').run(clone.id, clone.revision, JSON.stringify(clone)); return clone; }
+  resetRanking(id: string, presetId: string): void { const old = this.rankings().find((p) => p.id === id); const preset = BUILTIN_RANKINGS.find((p) => p.id === presetId); if (!old || id.startsWith('builtin:') || !preset) throw new Error('RESET_NOT_ALLOWED'); this.saveRanking({ ...preset, id, name: old.name, revision: old.revision + 1 }); }
   close(): void { this.db.close(); }
 }

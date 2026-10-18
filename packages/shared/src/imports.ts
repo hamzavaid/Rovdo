@@ -16,6 +16,8 @@ export const IntelligenceCommandSchema = z.discriminatedUnion('op', [
   z.strictObject({ op: z.literal('cloneRanking'), id: z.string().max(200), name: z.string().trim().min(1).max(100) }),
   z.strictObject({ op: z.literal('saveRanking'), profile: RankingProfileSchema }),
   z.strictObject({ op: z.literal('deleteRanking'), id: z.string().max(200) }),
+  z.strictObject({ op: z.literal('importRanking'), json: z.string().min(1).max(20000) }),
+  z.strictObject({ op: z.literal('resetRanking'), id: z.string().max(200), presetId: z.string().max(200) }),
   z.strictObject({ op: z.literal('defaultRanking'), id: z.string().max(200) }),
 ]);
 export type IntelligenceCommand = z.infer<typeof IntelligenceCommandSchema>;
