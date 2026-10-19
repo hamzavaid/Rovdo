@@ -17,3 +17,9 @@ it('puts browser task first and scopes advanced controls behind disclosure witho
   expect(html.indexOf('Task<textarea')).toBeLessThan(html.indexOf('Scope and safety settings'));
   expect(html).toContain('Execution limits'); expect(html).toContain('I approve sending this task');
 });
+
+it('does not turn unavailable model accounting into zero usage or an unconnected model claim', () => {
+  const html = renderToStaticMarkup(<Dashboard active settings={settings} settingsAvailable={false} navigate={() => {}} />);
+  expect(html).toContain('Model status unavailable'); expect(html).toContain('Usage unavailable');
+  expect(html).not.toContain('No model connected'); expect(html).not.toContain('0 reported tokens');
+});

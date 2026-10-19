@@ -82,6 +82,8 @@ test('persists settings, uses the real OS vault, probes and chats with a local f
     const accounting = await page.evaluate(() => window.rovdo!.getSettings());
     expect(accounting.ok && accounting.settings.usage.requests).toBe(3);
     await page.evaluate(() => window.scrollTo(0, 0));
+    const [conversation, composer] = await Promise.all([page.getByRole('region', { name: 'Conversation', exact: true }).boundingBox(), page.locator('.composer').boundingBox()]);
+    expect(conversation!.y + conversation!.height).toBeLessThanOrEqual(composer!.y);
     await page.screenshot({ path: test.info().outputPath('byok-chat.png'), fullPage: true });
     await desktop.close();
     desktop = await electron.launch({ args: [resolve('apps/desktop'), `--rovdo-data-dir=${dataDir}`], env });

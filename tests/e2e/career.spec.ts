@@ -19,15 +19,18 @@ test('edits a verified profile and discovers, filters and saves fixture jobs wit
     await page.getByRole('button', { name: 'Profile', exact: true }).click();
     await expect(page.getByRole('heading', { name: 'Candidate profile' })).toBeVisible();
     await expect(page.locator('input[value="TypeScript"]')).toBeVisible();
+    await page.getByRole('button', { name: 'Preferences', exact: true }).click();
     await page.getByLabel('Preferred roles').fill('Engineer'); await page.getByRole('button', { name: 'Save candidate profile' }).click();
     await expect(page.getByText('Profile version 2')).toBeVisible();
     await page.getByRole('button', { name: 'Jobs', exact: true }).click();
     await page.getByLabel('Search jobs').fill('TypeScript'); await page.getByRole('button', { name: 'Search', exact: true }).click();
     await expect(page.getByRole('heading', { name: 'TypeScript Engineer' })).toBeVisible(); await expect(page.getByText('Qualification gaps: Rust')).toBeVisible();
     await page.getByRole('button', { name: 'Save opportunity' }).click(); await expect(page.getByRole('button', { name: 'Remove saved opportunity' })).toBeVisible();
+    await page.getByRole('button', { name: 'Sources & coverage', exact: true }).click();
     await page.getByText('Source health', { exact: true }).click();
     await page.getByRole('button', { name: 'Delete source Fixture Company' }).click();
     await expect(page.locator('.source-registry article')).toHaveCount(0);
+    await page.getByRole('button', { name: 'Search & results', exact: true }).click();
     await expect(page.getByRole('heading', { name: 'TypeScript Engineer' })).toBeVisible();
     const providers = await page.evaluate(async () => (await window.rovdo!.getSettings())); expect(providers.ok && providers.settings.profiles.length).toBe(0);
     await page.screenshot({ path: test.info().outputPath('career-jobs.png') });

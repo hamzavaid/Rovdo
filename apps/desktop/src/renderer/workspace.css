@@ -57,7 +57,7 @@ small, .help-text, .destination, .operation-status, .usage-meter, .tool-note, .p
 .chat-message { padding: 16px; }
 .chat-message strong { font-size: 13px; }
 .chat-message div { font-size: 15px; line-height: 1.7; }
-.composer { position: sticky; bottom: 0; padding: 16px; margin-top: 16px; background: var(--panel); border: 1px solid var(--border); border-radius: 12px; z-index: 1; }
+.composer { position: relative; padding: 16px; margin-top: 16px; background: var(--panel); border: 1px solid var(--border); border-radius: 12px; z-index: 1; }
 .composer details { font-size: 13px; padding: 0; margin: 10px 0; }
 .composer .check-label { margin: 12px 0; font-size: 14px; }
 .composer textarea { min-height: 88px; }
@@ -84,3 +84,42 @@ summary { font-size: 14px; }
 @media (max-width: 1100px) { .sidebar { width: 184px; } main { padding: 24px; } .dashboard-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); } .settings-layout { grid-template-columns: 1fr; } .profile-list { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 @media (max-width: 850px) { .sidebar { width: 160px; padding: 12px; } .topbar { padding-inline: 20px; } main { padding: 20px; } .dashboard-columns { grid-template-columns: 1fr; } .setup-steps { grid-template-columns: 1fr; gap: 12px; } .page-heading { flex-wrap: wrap; } }
 @media (max-width: 600px) { .sidebar { width: 126px; padding-inline: 8px; } .workspace-nav .workspace-item { font-size: 13px; padding-inline: 8px; overflow-wrap: anywhere; } .sidebar-footer { white-space: normal; } main { padding: 16px; } .dashboard-stats, .form-grid, .career-fields { grid-template-columns: minmax(0, 1fr); } .topbar > span { display: none; } .topbar-controls { width: 100%; justify-content: flex-end; } }
+
+.section-nav { display: flex; gap: 8px; flex-wrap: wrap; padding-bottom: 12px; margin: 20px 0 24px; border-bottom: 1px solid var(--border); }
+.section-nav button { border-color: transparent; background: transparent; }
+.section-nav button[aria-pressed=true] { border-color: var(--accent); background: var(--selected); color: var(--accent); }
+.section-nav + div > .job-search { margin-top: 0; }
+.career-workspace > p { max-width: 900px; }
+.career-workspace .intelligence-panel { padding: 20px; }
+.career-workspace .ranking-toolbar { gap: 12px; }
+.career-workspace .weight-control label { font-size: 14px; }
+.weight-control { grid-template-columns: minmax(0, 1fr) 88px; }
+.weight-heading output { font-size: 14px; }
+.weight-preview > div { display: grid; grid-template-columns: minmax(90px, 1fr) minmax(70px, 2fr) 64px; gap: 12px; margin: 10px 0; align-items: center; }
+.weight-preview meter { width: 100%; accent-color: var(--accent); }
+.weight-preview strong { font-variant-numeric: tabular-nums; font-size: 14px; text-align: right; }
+.verification-badge { font-size: 13px; border: 1px solid var(--border); padding: 3px 9px; border-radius: 16px; color: var(--muted); background: var(--panel-subtle); }
+.verification-badge.verified { color: var(--success); }
+.qualification { padding: 18px; margin: 0 0 16px; }
+.qualification fieldset { display: block; border: 0; }
+.qualification blockquote { margin: 10px 0; padding: 12px 16px; border-left: 3px solid var(--accent); background: var(--panel-subtle); overflow-wrap: anywhere; }
+.qualification blockquote p { margin: 0 0 8px; white-space: pre-wrap; }
+.profile-fact { grid-template-columns: minmax(90px, .5fr) minmax(160px, 1.5fr); align-items: center; }
+.profile-fact small, .profile-fact label { grid-column: 1 / -1; }
+.profile-fact button { justify-self: start; }
+.career-workspace .profile-fact strong { text-transform: capitalize; }
+.career-workspace fieldset { padding: 16px; margin: 14px 0; }
+.career-workspace fieldset legend { font-size: 14px; padding-inline: 6px; margin: 0; }
+.career-workspace .ranking-editor fieldset { margin: 0; }
+.career-workspace form > button[type=submit] { justify-self: start; }
+.empty-results { margin: 20px 0; border-style: dashed; }
+.empty-results p { max-width: 800px; }
+.ranking-preview-results { margin-top: 16px; border-top: 1px solid var(--border); }
+.job-card { padding: 22px; }
+.job-card p { margin: 10px 0; }
+.job-card-header h2 { font-size: 20px; }
+.job-card-header > strong { font-size: 20px; white-space: nowrap; }
+.job-card-header small { font-size: 13px; }
+@media (max-width: 850px) { .career-workspace .ranking-toolbar label { max-width: none; } .profile-fact { grid-template-columns: minmax(0, 1fr); } .section-nav { gap: 6px; } .section-nav button { padding-inline: 10px; } }
+
+.career-workspace .directory-heading button, .career-workspace .saved-searches button { font-size: 14px; }

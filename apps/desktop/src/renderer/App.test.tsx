@@ -7,7 +7,7 @@ describe('foundation shell', () => {
     const html = renderToStaticMarkup(<App />);
     expect(html).toContain('Rovdo');
     expect(html).toContain('Browser + Jobs');
-    expect(html).toContain('No model connected');
+    expect(html).toContain('Loading models...');
     expect(html).toContain('Your profile stays local');
     expect(html).toContain('Models &amp; Privacy');
     expect(html).not.toContain('type="password"');

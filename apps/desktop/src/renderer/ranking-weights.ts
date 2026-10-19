@@ -17,3 +17,13 @@ export function setWeight<T extends Record<string, number>>(weights: T, key: key
   const maximum = Math.max(0, Math.floor((100 - other + 1e-8) * 10) / 10);
   return { ...weights, [key]: Math.min(maximum, Math.max(0, Math.round(requested * 10) / 10)) };
 }
+
+/** Redistribute the remainder across the method's other components. */
+export function balanceWeight<T extends Record<string, number>>(weights: T, key: keyof T, requested: number, allowed: readonly string[] = Object.keys(weights)): T {
+  if (!Number.isFinite(requested)) return weights;
+  const next = { ...weights }; const amount = Math.min(100, Math.max(0, Math.round(requested * 10) / 10));
+  const others = allowed.filter((k) => k !== key); const sum = others.reduce((n, k) => n + (weights[k] ?? 0), 0);
+  Object.assign(next, { [key]: amount });
+  for (const k of others) Object.assign(next, { [k]: (100 - amount) * (sum ? (weights[k] ?? 0) / sum : 1 / others.length) });
+  return editorWeights(next);
+}

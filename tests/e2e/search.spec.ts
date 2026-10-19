@@ -18,13 +18,15 @@ test('filters and pages cached jobs, saves searches, tracks feedback and compare
     await page.getByLabel('Company filter').fill('No such employer');
     await page.getByRole('button', { name: 'Search', exact: true }).click();
     await expect(page.locator('.job-card')).toHaveCount(0);
+    await expect(page.getByRole('heading', { name: 'No matching jobs' })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Reset all filters' })).toBeVisible();
     await page.getByLabel('Search scope').selectOption('all');
     await page.getByText('Advanced search filters', { exact: true }).click();
     await page.getByLabel('Technical role family').selectOption('software'); await page.getByLabel('Minimum qualification score').fill('50');
     await page.getByRole('button', { name: 'Search', exact: true }).click(); await expect(page.locator('.job-card')).toHaveCount(50);
     await page.getByRole('button', { name: 'Next 50' }).click(); await expect(page.locator('.job-card')).toHaveCount(5);
     await page.getByRole('button', { name: 'Previous 50' }).click();
-    expect(await page.locator('.discovery-controls').evaluate((e) => !!(document.querySelector('.job-list')!.compareDocumentPosition(e) & Node.DOCUMENT_POSITION_FOLLOWING))).toBe(true);
+    expect(await page.getByRole('region', { name: 'Saved search management', exact: true }).evaluate((e) => !!(document.querySelector('.job-list')!.compareDocumentPosition(e) & Node.DOCUMENT_POSITION_FOLLOWING))).toBe(true);
     await page.getByText('Saved searches', { exact: true }).click();
     await page.getByLabel('Saved search name').fill('My backend search'); await page.getByRole('button', { name: 'Save current search' }).click();
     await expect(page.getByRole('button', { name: 'Load My backend search' })).toBeVisible();
@@ -33,9 +35,11 @@ test('filters and pages cached jobs, saves searches, tracks feedback and compare
     await page.getByRole('button', { name: 'Relevant', exact: true }).first().click();
     await page.getByRole('button', { name: 'Compare ranking methods' }).first().click();
     await expect(page.getByRole('heading', { name: 'Ranking comparison' })).toBeVisible();
+    await page.getByRole('button', { name: 'Ranking & matching', exact: true }).click();
     await page.getByText('Manage ranking profiles', { exact: true }).click();
     await page.getByRole('button', { name: 'Export selected configuration' }).click();
     await expect(page.getByLabel('Ranking configuration JSON')).toHaveValue(/technical-v2/);
+    await page.getByRole('button', { name: 'Search & results', exact: true }).click();
     await page.locator('.job-search').screenshot({ path: test.info().outputPath('unified-search.png') });
     for (const mode of ['light', 'dark'] as const) { await page.getByLabel('Appearance', { exact: true }).selectOption(mode); await expect(page.locator('html')).toHaveAttribute('data-theme', mode); await page.locator('.job-card').first().screenshot({ path: test.info().outputPath(`job-card-${mode}.png`) }); }
   } finally { await app.close(); }

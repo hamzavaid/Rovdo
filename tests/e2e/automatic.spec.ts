@@ -22,6 +22,7 @@ test('Search All Companies collects fixture feeds without employer identifiers o
     await page.getByRole('button', { name: 'Search', exact: true }).click();
     await expect(page.locator('.job-card')).toHaveCount(3, { timeout: 15000 });
     await expect(page.getByText(/4 directory sources/)).toBeVisible();
+    await page.getByRole('button', { name: 'Sources & coverage', exact: true }).click();
     await page.getByText('Verified source directory', { exact: true }).click();
     const entry = page.locator('.directory-entry').first();
     const heading = entry.locator('h3'); const toggle = entry.locator('.directory-heading button');

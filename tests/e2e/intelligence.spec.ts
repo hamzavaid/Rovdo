@@ -9,6 +9,7 @@ test('reviews imported qualifications and manages persisted custom ranking profi
   const desktop = await electron.launch({ args: [resolve('apps/desktop'), `--rovdo-data-dir=${dir}`], env });
   try {
     const page = await desktop.firstWindow(); await page.getByRole('button', { name: 'Profile', exact: true }).click();
+    await page.getByRole('button', { name: 'Imports', exact: true }).click();
     await page.getByText('Paste a profile', { exact: true }).click();
     await page.getByLabel('Pasted profile content').fill('Skills\nTypeScript, Node.js\nEducation\nBachelor in Computer Science | Fixture University | completed 2021\nCitizenship: US');
     await page.getByRole('button', { name: 'Preview pasted profile' }).click();
@@ -20,6 +21,7 @@ test('reviews imported qualifications and manages persisted custom ranking profi
     await page.getByText('Verified structured qualifications', { exact: true }).click();
     await expect(page.getByText('2 verified skills', { exact: false })).toBeVisible();
     await page.getByRole('button', { name: 'Jobs', exact: true }).click();
+    await page.getByRole('button', { name: 'Ranking & matching', exact: true }).click();
     await page.getByLabel('Ranking preset').selectOption('builtin:technical-balanced');
     await page.getByText('Manage ranking profiles', { exact: true }).click();
     await page.getByText('Configure selected ranking', { exact: true }).click();
@@ -33,6 +35,8 @@ test('reviews imported qualifications and manages persisted custom ranking profi
     await expect(page.getByLabel('Ranking name', { exact: true })).toBeVisible();
     await expect(page.getByLabel('Ranking name', { exact: true })).toBeEnabled();
     await expect(page.getByLabel('Ranking name', { exact: true })).toHaveValue('Technical Balanced v2_clone');
+    await expect(page.getByLabel('confidence threshold', { exact: true })).toHaveValue('75');
+    await page.getByLabel('confidence threshold', { exact: true }).fill('80');
     await page.getByLabel('Ranking name', { exact: true }).fill('My conservative backend');
     const skills = Number(await page.getByLabel('skills weight', { exact: true }).inputValue());
     const experience = Number(await page.getByLabel('experience weight', { exact: true }).inputValue());

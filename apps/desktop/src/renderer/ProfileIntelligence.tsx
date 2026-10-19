@@ -10,7 +10,7 @@ const choices: Record<string, string[]> = { depth: ['production', 'project', 'su
 const editable = (p: RankingProfile) => p.id.startsWith('builtin:') ? p : { ...p, weights: editorWeights(p.weights) };
 const idsOf = (intel: Intelligence) => sections.flatMap((key) => intel[key].map((x) => x.id));
 
-export function ProfileIntelligence({ tab, onChanged }: { tab: 'profile' | 'jobs'; onChanged: (profile: CandidateProfile | null) => void }) {
+export function ProfileIntelligence({ tab, onChanged, onSelected }: { onSelected?: (id: string) => void; tab: 'profile' | 'jobs'; onChanged: (profile: CandidateProfile | null) => void }) {
   const [view, setView] = useState<IntelligenceView | null>(null);
   const [error, setError] = useState(''); const [busy, setBusy] = useState(false);
   const [paste, setPaste] = useState(''); const [kind, setKind] = useState<'file' | 'linkedin'>('linkedin');
@@ -33,6 +33,7 @@ export function ProfileIntelligence({ tab, onChanged }: { tab: 'profile' | 'jobs
       if (input.op === 'applyImport' || input.op === 'defaultRanking' || input.op === 'saveRanking' || input.op === 'resetRanking' || input.op === 'deleteRanking') onChanged(r.view.profile);
     } catch { setError('Invalid input or desktop unavailable. Your saved information is unchanged.'); } finally { setBusy(false); }
   }
+  useEffect(() => { if (rankingId) onSelected?.(rankingId); }, [rankingId, onSelected]);
   function cloneRanking(id: string) {
     const base = view?.rankings.find((p) => p.id === id); if (!base) return;
     let number = 1; let name: string;
@@ -48,7 +49,7 @@ export function ProfileIntelligence({ tab, onChanged }: { tab: 'profile' | 'jobs
   return <section className="intelligence-panel" aria-label={tab === 'profile' ? 'Profile intelligence' : 'Ranking configurations'}>
     {error && <p role="alert">{error}</p>}
     {tab === 'profile' ? <>
-      <h2>Build your verified profile</h2><p>1. Import a source. 2. Review the proposed qualifications. 3. Verify only facts you can support.</p><h3>Import qualifications</h3><p>Review proposed facts before they affect matching. Documents stay local. GitHub imports read public repositories; LinkedIn accepts only your archive or pasted content.</p>
+      <h2>Imports &amp; verification</h2><p>1. Import a source. 2. Review the proposed qualifications. 3. Verify only facts you can support.</p><h3>Import qualifications</h3><p>Review proposed facts before they affect matching. Documents stay local. GitHub imports read public repositories; LinkedIn accepts only your archive or pasted content.</p>
       <div className="button-row"><button disabled={busy} onClick={() => void command({ op: 'importFile' })}>Choose profile file</button><span>PDF, DOCX, TXT, Markdown, JSON or LinkedIn archive ZIP · up to 5 MB</span></div>
       <details><summary>Paste a profile</summary><label>Content source<select value={kind} onChange={(e) => setKind(e.target.value as typeof kind)}><option value="linkedin">My LinkedIn profile</option><option value="file">Resume or profile text</option></select></label><label>Pasted profile content<textarea rows={7} value={paste} onChange={(e) => setPaste(e.target.value)} /></label><button disabled={busy || !paste.trim()} onClick={() => void command({ op: 'paste', text: paste, kind })}>Preview pasted profile</button></details>
       <details><summary>Import public GitHub projects</summary><label>GitHub username<input value={github} onChange={(e) => { setGithub(e.target.value); setGithubConsent(false); }} /></label><label><input type="checkbox" checked={githubConsent} onChange={(e) => setGithubConsent(e.target.checked)} />I approve reading up to 10 public repositories, languages and README files from api.github.com</label><button disabled={busy || !github || !githubConsent} onClick={() => void command({ op: 'github', username: github, limit: 10, consent: true })}>Preview GitHub projects</button></details>
@@ -61,7 +62,7 @@ export function ProfileIntelligence({ tab, onChanged }: { tab: 'profile' | 'jobs
           <div className="career-fields">{Object.entries(item).filter(([field]) => !['id', 'evidenceIds', 'verified', 'metadata'].includes(field)).map(([field, value]) => {
             const label = `Review ${singular[key]} ${i + 1} ${field}`;
             const options = field === 'level' && key === 'experience' ? ['unknown', 'intern', 'entry', 'junior', 'mid', 'senior', 'staff', 'principal', 'lead'] : choices[field];
-            return <label key={field}>{field}{typeof value === 'boolean' ? <input aria-label={label} type="checkbox" checked={value} onChange={(e) => changeItem(key, item.id, field, e.target.checked)} /> : options ? <select aria-label={label} value={String(value ?? '')} onChange={(e) => changeItem(key, item.id, field, e.target.value)}>{options.map((o) => <option key={o}>{o}</option>)}</select> : <input aria-label={label} value={Array.isArray(value) ? value.join(', ') : String(value ?? '')} onChange={(e) => changeItem(key, item.id, field, Array.isArray(value) ? e.target.value.split(',').map((s) => s.trim()).filter(Boolean) : e.target.value || (value === null ? null : ''))} />}</label>;
+            return <label key={field}>{field}{typeof value === 'boolean' ? <input aria-label={label} type="checkbox" checked={value} onChange={(e) => changeItem(key, item.id, field, e.target.checked)} /> : options ? <select aria-label={label} value={String(value ?? '')} onChange={(e) => changeItem(key, item.id, field, e.target.value)}>{options.map((o) => <option key={o}>{o}</option>)}</select> : <input aria-label={label} value={Array.isArray(value) ? value.join(', ') : String(value ?? '')} onChange={(e) => changeItem(key, item.id, field, Array.isArray(value) ? e.target.value.split(',').map((s) => s.trim()).filter(Boolean) : e.target.value || (['version', 'start', 'end', 'graduation', 'expires', 'url'].includes(field) ? null : ''))} />}</label>;
           })}</div>
           <details><summary>Supporting source evidence</summary>{item.evidenceIds.map((id) => { const e = draft.intelligence.evidence.find((e) => e.id === id); return e ? <blockquote key={id}>{e.excerpt}<small> · extraction confidence {Math.round(e.confidence * 100)}%</small></blockquote> : null; })}{'metadata' in item && <pre>{JSON.stringify(item.metadata, null, 2)}</pre>}</details>
         </article>)}</div>)}
