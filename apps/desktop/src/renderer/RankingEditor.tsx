@@ -15,11 +15,11 @@ const gates = {
   experience: 'Enforce required relevant experience. Insufficient verified duration can fail; incomplete dates need review.',
 };
 const labels = { requiredMultiplier: 'Required requirement multiplier', preferredMultiplier: 'Preferred requirement multiplier', minimumEvidence: 'Minimum evidence confidence', implicationCredit: 'Curated transferable skill credit' };
-export function RankingEditor({ ranking, busy, onChange, onSave }: { ranking: RankingProfile; busy: boolean; onChange: (r: RankingProfile) => void; onSave: () => void }) {
+export function RankingEditor({ ranking, busy, onChange, onSave, open, onToggle }: { open: boolean; onToggle: (open: boolean) => void; ranking: RankingProfile; busy: boolean; onChange: (r: RankingProfile) => void; onSave: () => void }) {
   const builtin = ranking.id.startsWith('builtin:');
   const weights = builtin ? editorWeights(ranking.weights) : ranking.weights;
   const total = totalWeight(weights);
-  return <details className="ranking-editor"><summary>Configure selected ranking</summary>
+  return <details className="ranking-editor" open={open} onToggle={(e) => onToggle(e.currentTarget.open)}><summary>Configure selected ranking</summary>
     <p className="help-text">{ranking.method} / revision {ranking.revision}. Weights are percentages. Reduce one weight to free room for another. Missing job criteria remain inactive during scoring.</p>
     {builtin && <p className="help-text">This preset is read-only. Clone it to customize. Percentage display preserves the original preset.</p>}
     <fieldset disabled={builtin || busy}>

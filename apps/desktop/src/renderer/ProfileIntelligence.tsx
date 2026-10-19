@@ -16,19 +16,29 @@ export function ProfileIntelligence({ tab, onChanged }: { tab: 'profile' | 'jobs
   const [paste, setPaste] = useState(''); const [kind, setKind] = useState<'file' | 'linkedin'>('linkedin');
   const [github, setGithub] = useState(''); const [githubConsent, setGithubConsent] = useState(false);
   const [draft, setDraft] = useState<ImportPreview | null>(null); const [selected, setSelected] = useState<string[]>([]); const [legal, setLegal] = useState(false);
-  const [rankingId, setRankingId] = useState(''); const [ranking, setRanking] = useState<RankingProfile | null>(null); const [newName, setNewName] = useState(''); const [transfer, setTransfer] = useState(''); const [resetPreset, setResetPreset] = useState('builtin:technical-balanced');
+  const [rankingId, setRankingId] = useState(''); const [ranking, setRanking] = useState<RankingProfile | null>(null); const [transfer, setTransfer] = useState(''); const [resetPreset, setResetPreset] = useState('builtin:technical-balanced');
+  const [manageOpen, setManageOpen] = useState(false); const [configureOpen, setConfigureOpen] = useState(false);
   useEffect(() => { void window.rovdo!.intelligenceCommand({ op: 'view' }).then((r) => { if (r.ok) { setView(r.view); setRankingId(r.view.defaultRanking); setRanking(editable(r.view.rankings.find((p) => p.id === r.view.defaultRanking)!)); } else setError(r.code); }).catch(() => setError('Desktop unavailable')); }, []);
   async function command(input: IntelligenceCommand) {
     setBusy(true); setError('');
     try {
       const r = await window.rovdo!.intelligenceCommand(input); if (!r.ok) { setError(`${r.code}: check your input or try again.`); return; }
       setView(r.view);
-      const current = r.view.rankings.find((p) => p.id === rankingId) ?? r.view.rankings.find((p) => p.id === r.view.defaultRanking)!;
+      const created = input.op === 'cloneRanking' ? r.view.rankings.find((p) => !view?.rankings.some((old) => old.id === p.id)) : undefined;
+      const current = created ?? r.view.rankings.find((p) => p.id === rankingId) ?? r.view.rankings.find((p) => p.id === r.view.defaultRanking)!;
       setRankingId(current.id); setRanking(editable(current));
+      if (created) { setManageOpen(true); setConfigureOpen(true); }
       if (['paste', 'github', 'importFile'].includes(input.op)) { const next = r.view.previews.find((p) => p.status === 'ready'); setDraft(next ?? null); setSelected([]); setLegal(false); }
       if (input.op === 'applyImport' || input.op === 'rejectImport') { setDraft(null); setSelected([]); }
       if (input.op === 'applyImport' || input.op === 'defaultRanking' || input.op === 'saveRanking' || input.op === 'resetRanking' || input.op === 'deleteRanking') onChanged(r.view.profile);
     } catch { setError('Invalid input or desktop unavailable. Your saved information is unchanged.'); } finally { setBusy(false); }
+  }
+  function cloneRanking(id: string) {
+    const base = view?.rankings.find((p) => p.id === id); if (!base) return;
+    let number = 1; let name: string;
+    do { const suffix = number === 1 ? '_clone' : `_clone_${number}`; name = `${base.name.slice(0, 100 - suffix.length)}${suffix}`; number++; }
+    while (view!.rankings.some((p) => p.name === name));
+    void command({ op: 'cloneRanking', id, name });
   }
   function selectRanking(id: string) { setRankingId(id); const selected = view?.rankings.find((p) => p.id === id); setRanking(selected ? editable(selected) : null); setError(''); }
   function changeItem(key: typeof sections[number], id: string, field: string, value: unknown) {
@@ -63,10 +73,10 @@ export function ProfileIntelligence({ tab, onChanged }: { tab: 'profile' | 'jobs
     </> : <>
       <h2>Ranking method</h2>
       <div className="ranking-toolbar"><label>Ranking preset<select value={rankingId} onChange={(e) => selectRanking(e.target.value)}>{view?.rankings.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}</select></label>
-      {ranking && <button disabled={busy || view?.defaultRanking === ranking.id} onClick={() => void command({ op: 'defaultRanking', id: ranking.id })}>Use as default ranking</button>}</div>
+      {ranking && <><button disabled={busy || view?.defaultRanking === ranking.id} onClick={() => void command({ op: 'defaultRanking', id: ranking.id })}>Use as default ranking</button><button disabled={busy} onClick={() => cloneRanking(ranking.id)}>Clone selected ranking</button></>}</div>
       <p className="help-text">Default: {view?.rankings.find((p) => p.id === view.defaultRanking)?.name}</p>
       {ranking && <>
-        <details><summary>Manage ranking profiles</summary><p className="help-text">Technical methods score verified qualifications. Opportunity Hybrid also includes preferences. Clone a preset to customize it.</p><RankingEditor ranking={ranking} busy={busy} onChange={setRanking} onSave={() => {
+        <details open={manageOpen} onToggle={(e) => setManageOpen(e.currentTarget.open)}><summary>Manage ranking profiles</summary><p className="help-text">Technical methods score verified qualifications. Opportunity Hybrid also includes preferences. Clone a preset to customize it.</p><RankingEditor open={configureOpen} onToggle={setConfigureOpen} ranking={ranking} busy={busy} onChange={setRanking} onSave={() => {
           if (totalWeight(ranking.weights) !== 100) { setError('Weights must total 100 before saving.'); return; }
           const parsed = RankingProfileSchema.safeParse({ ...ranking, revision: ranking.revision + 1 });
           if (!parsed.success) { setError('Invalid configuration: check weights, multipliers and thresholds.'); return; }
@@ -76,7 +86,7 @@ export function ProfileIntelligence({ tab, onChanged }: { tab: 'profile' | 'jobs
         <button disabled={busy} onClick={() => setTransfer(JSON.stringify(ranking, null, 2))}>Export selected configuration</button>
         {!ranking.id.startsWith('builtin:') && <><label>Reset from preset<select value={resetPreset} onChange={(e) => setResetPreset(e.target.value)}>{view?.rankings.filter((p) => p.id.startsWith('builtin:')).map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}</select></label><button disabled={busy} onClick={() => void command({ op: 'resetRanking', id: ranking.id, presetId: resetPreset })}>Reset custom configuration to preset</button></>}
         <details open={!!transfer}><summary>Import or export ranking JSON</summary><p>Copy the JSON to export. Imported configurations always create a new local identity and never overwrite a saved profile.</p><label>Ranking configuration JSON<textarea rows={8} value={transfer} onChange={(e) => setTransfer(e.target.value)} /></label><button disabled={busy || !transfer.trim()} onClick={() => void command({ op: 'importRanking', json: transfer })}>Import as new configuration</button></details>
-        <label>New ranking name<input value={newName} onChange={(e) => setNewName(e.target.value)} maxLength={100} /></label><button disabled={busy || !newName.trim()} onClick={() => void command({ op: 'cloneRanking', id: ranking.id, name: newName.trim() })}>Clone selected ranking</button><button disabled={busy || !newName.trim()} onClick={() => void command({ op: 'cloneRanking', id: 'builtin:technical-balanced', name: newName.trim() })}>Create technical ranking</button></details>
+        <button disabled={busy} onClick={() => cloneRanking('builtin:technical-balanced')}>Create technical ranking</button></details>
       </>}
     </>}
   </section>;
