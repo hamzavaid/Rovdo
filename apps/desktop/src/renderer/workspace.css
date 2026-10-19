@@ -1,0 +1,86 @@
+/* Task-first refinements over the shared semantic tokens and existing controls. */
+body { font-size: var(--font-size-body); }
+main { max-width: 1480px; padding: var(--space-8); }
+h1, .feature-page h1 { font-size: clamp(26px, 2.5vw, 34px); letter-spacing: -.7px; margin: 8px 0 12px; }
+h2, .feature-page h2 { font-size: 18px; letter-spacing: -.2px; margin: 0 0 14px; }
+h3 { font-size: 15px; margin: 20px 0 10px; }
+p { line-height: 1.65; }
+.intro, .feature-page .intro { font-size: 15px; max-width: 760px; }
+label, .career-workspace label, .feature-view label { font-size: 14px; gap: 6px; }
+button, input, select, textarea { font-size: 14px; border-radius: var(--radius-control); }
+button { min-height: 40px; padding: 8px 14px; font-weight: 550; }
+input:not([type=checkbox]):not([type=range]), select { min-height: 42px; }
+input[type=checkbox] { width: 16px; height: 16px; flex-shrink: 0; }
+small, .help-text, .destination, .operation-status, .usage-meter, .tool-note, .profile-list small { font-size: 13px; line-height: 1.6; }
+.help-text { margin: 8px 0; }
+.career-workspace button, .feature-view button { font-size: 14px; }
+.sidebar { width: 224px; padding: 16px; overflow-y: auto; }
+.brand img { width: 88px; }
+.sidebar-label { font-size: 11px; text-transform: uppercase; letter-spacing: 1.2px; margin: 20px 12px 7px; }
+.workspace-nav { gap: 0; }
+.workspace-nav .workspace-item { font-size: 14px; font-weight: 500; margin: 3px 0; padding: 10px 12px; }
+.workspace-nav .workspace-item.active { font-weight: 650; }
+.sidebar-footer, .workspace-footer { font-size: 12px; }
+.topbar { height: 64px; padding-inline: 32px; font-size: 14px; }
+.preview-badge, .appearance-control { font-size: 12px; }
+.workspace-footer { margin-top: 32px; padding-top: 16px; }
+.surface-card, .surface-disclosure, .metric-card { border: 1px solid var(--border); border-radius: var(--radius-panel); padding: 20px; background: var(--panel); min-width: 0; }
+.surface-disclosure { margin-block: 12px; }
+.surface-disclosure > summary { font-weight: 600; }
+.surface-disclosure > :not(summary) { margin-top: 16px; }
+.page-heading { gap: 16px; margin-bottom: 24px; }
+.section-heading { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; justify-content: space-between; margin-bottom: 16px; }
+.section-heading h2 { margin: 0; }
+.dashboard .panel-symbol { width: 64px; height: 64px; }
+.dashboard-stats { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 16px; margin: 24px 0; }
+.metric-card { display: flex; flex-direction: column; align-items: flex-start; gap: 10px; }
+.metric-card > span { font-size: 13px; color: var(--muted); }
+.metric-card strong { font-size: 32px; line-height: 1.2; letter-spacing: -.6px; }
+.metric-card strong.metric-description { font-size: 18px; letter-spacing: 0; }
+.metric-card p { font-size: 13px; margin: auto 0 0; color: var(--muted); }
+.metric-card button { margin-top: auto; }
+.dashboard-columns { display: grid; grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr); gap: 20px; }
+.activity-list { list-style: none; margin: 0; padding: 0; }
+.activity-list li { padding: 12px 0; border-bottom: 1px solid var(--border); }
+.activity-list button { text-align: left; max-width: 100%; overflow-wrap: anywhere; }
+.activity-list time { display: block; font-size: 13px; color: var(--muted); margin-top: 6px; }
+.quick-actions { display: grid; gap: 10px; }
+.empty-state { padding: 24px 12px; color: var(--muted); }
+.empty-state h2 { color: var(--text); }
+.chat-page { display: flex; flex-direction: column; min-height: calc(100dvh - 160px); }
+.chat-page .page-heading { position: static; padding: 0; margin-bottom: 12px; }
+.chat-controls { margin: 0; display: flex; align-items: end; flex-wrap: wrap; gap: 16px; }
+.chat-controls > label { flex: 1 1 280px; max-width: 560px; }
+.chat-options { flex: 1 1 200px; padding: 6px 0; }
+.chat-options label { margin-top: 12px; }
+.chat-page .transcript { flex: 1; min-height: 260px; max-height: max(280px, calc(100dvh - 430px)); padding: 20px; margin-top: 12px; }
+.chat-message { padding: 16px; }
+.chat-message strong { font-size: 13px; }
+.chat-message div { font-size: 15px; line-height: 1.7; }
+.composer { position: sticky; bottom: 0; padding: 16px; margin-top: 16px; background: var(--panel); border: 1px solid var(--border); border-radius: 12px; z-index: 1; }
+.composer details { font-size: 13px; padding: 0; margin: 10px 0; }
+.composer .check-label { margin: 12px 0; font-size: 14px; }
+.composer textarea { min-height: 88px; }
+.browser-task-form { max-width: 1040px; }
+.browser-task-form .task-prompt { font-size: 16px; font-weight: 600; }
+.browser-task-form .task-prompt textarea { font-weight: 400; font-size: 16px; }
+.feature-view .browser-task-form .surface-disclosure { margin: 0; }
+.feature-view .browser-task-form p, .feature-view .status-card p { font-size: 14px; }
+.setup-guide { margin-top: 20px; }
+.setup-steps { list-style: none; padding: 0; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 20px; }
+.setup-steps span { display: block; color: var(--muted); font-size: 14px; margin-top: 6px; }
+.settings-layout { grid-template-columns: minmax(190px, 240px) minmax(0, 1fr); }
+.profile-list button { padding: 14px; }
+.profile-list strong { font-size: 15px; }
+.connection-badge { display: block; color: var(--muted); font-size: 13px; margin-top: 8px; }
+.capabilities { font-size: 13px; padding: 12px; background: var(--panel-subtle); border-radius: 8px; }
+.editor-panel { padding: 24px; }
+.career-workspace, .feature-view { max-width: none; }
+summary { font-size: 14px; }
+.ranking-breakdown { font-size: 14px; }
+.directory-entry p, .directory-provenance { font-size: 13px; }
+.career-workspace .source-card .source-remove { min-height: 28px; }
+@media (min-width: 1600px) { main { padding: 36px 48px; } }
+@media (max-width: 1100px) { .sidebar { width: 184px; } main { padding: 24px; } .dashboard-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); } .settings-layout { grid-template-columns: 1fr; } .profile-list { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 850px) { .sidebar { width: 160px; padding: 12px; } .topbar { padding-inline: 20px; } main { padding: 20px; } .dashboard-columns { grid-template-columns: 1fr; } .setup-steps { grid-template-columns: 1fr; gap: 12px; } .page-heading { flex-wrap: wrap; } }
+@media (max-width: 600px) { .sidebar { width: 126px; padding-inline: 8px; } .workspace-nav .workspace-item { font-size: 13px; padding-inline: 8px; overflow-wrap: anywhere; } .sidebar-footer { white-space: normal; } main { padding: 16px; } .dashboard-stats, .form-grid, .career-fields { grid-template-columns: minmax(0, 1fr); } .topbar > span { display: none; } .topbar-controls { width: 100%; justify-content: flex-end; } }

@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useState } from 'react';
 import type { SettingsView } from '@rovdo/shared';
 import darkLogo from './assets/inverted_rovdo_logo.png';
-import lightMark from './assets/logo_nosub.png';
+import { Dashboard } from './Dashboard';
+import { navigation } from './presentation';
+import type { WorkspacePage } from './presentation';
 import { useAppearance } from './appearance';
 import type { Appearance } from '@rovdo/shared';
 import logo from './assets/rovdo_logo.png';
-import invertedMark from './assets/inverted_logo_nosub.png';
 import { Chat } from './Chat';
 import { Models } from './Models';
 import { BrowserRun } from './BrowserRun';
@@ -14,7 +15,7 @@ import { CareerWorkspace } from './CareerWorkspace';
 export function App() {
   const { appearance, resolved, setAppearance, error: appearanceError } = useAppearance();
   const [connection, setConnection] = useState('Connecting to desktop');
-  const [view, setView] = useState<'overview' | 'chat' | 'models' | 'browser' | 'jobs' | 'profile'>('overview');
+  const [view, setView] = useState<WorkspacePage>('overview');
   const [settings, setSettings] = useState<SettingsView>({ profiles: [], usage: { inputTokens: 0, outputTokens: 0, estimatedUsd: 0, requests: 0, unpricedRequests: 0 } });
   const refresh = useCallback(async () => {
     try {
@@ -42,41 +43,14 @@ export function App() {
     <div className="app-shell"><a className="skip-link" href="#main-content">Skip to content</a>
       <aside className="sidebar" aria-label="Workspace">
         <div className="brand"><img src={resolved === 'dark' ? darkLogo : logo} alt="Rovdo" width="96" height="96" /></div>
-        <p className="sidebar-label">YOUR WORKSPACE</p>
-        <nav className="workspace-nav" aria-label="Main navigation">
-          <button type="button" className={view === 'overview' ? 'workspace-item active' : 'workspace-item'} aria-current={view === 'overview' ? 'page' : undefined} onClick={() => setView('overview')}>Overview</button>
-          <button type="button" className={view === 'chat' ? 'workspace-item active' : 'workspace-item'} aria-current={view === 'chat' ? 'page' : undefined} onClick={() => setView('chat')}>Chat</button>
-          <button type="button" className={view === 'browser' ? 'workspace-item active' : 'workspace-item'} aria-current={view === 'browser' ? 'page' : undefined} onClick={() => setView('browser')}>Browser</button>
-          <button type="button" className={view === 'jobs' ? 'workspace-item active' : 'workspace-item'} aria-current={view === 'jobs' ? 'page' : undefined} onClick={() => setView('jobs')}>Jobs</button>
-          <button type="button" className={view === 'profile' ? 'workspace-item active' : 'workspace-item'} aria-current={view === 'profile' ? 'page' : undefined} onClick={() => setView('profile')}>Profile</button>
-          <button type="button" className={view === 'models' ? 'workspace-item active' : 'workspace-item'} aria-current={view === 'models' ? 'page' : undefined} onClick={() => setView('models')}>Models &amp; Privacy</button>
-        </nav>
+        <nav className="workspace-nav" aria-label="Main navigation">{navigation.map((group) => <div role="group" aria-label={group.label} key={group.label}><p className="sidebar-label">{group.label}</p>{group.pages.map((page) => <button type="button" key={page.id} className={view === page.id ? 'workspace-item active' : 'workspace-item'} aria-current={view === page.id ? 'page' : undefined} onClick={() => setView(page.id)}>{page.label}</button>)}</div>)}</nav>
         <div className="sidebar-footer"><span className="status-dot" />Local-first by design</div>
       </aside>
       <div className="main-shell">
         <header className="topbar"><span>{{ overview: 'Workspace overview', chat: 'Chat workspace', models: 'Model settings', browser: 'Browser workspace', jobs: 'Job discovery', profile: 'Candidate profile' }[view]}</span><div className="topbar-controls"><label className="appearance-control">Appearance<select aria-label="Appearance" value={appearance} onChange={(e) => void setAppearance(e.target.value as Appearance)}><option value="light">Light</option><option value="dark">Dark</option><option value="system">System</option></select></label><span className="preview-badge">Browser + Jobs</span></div></header>
         <main id="main-content">{appearanceError && <p role="alert">{appearanceError}</p>}
-          <section hidden={view !== 'overview'}>
-          <div className="eyebrow">A CONSIDERED START</div>
-          <h1>Your workspace starts here.</h1>
-          <p className="intro">A home for your work, with you in control. Rovdo is building a local-first workspace for thoughtful AI automation.</p>
-
-          <section className="welcome-panel" aria-labelledby="foundation-title">
-            <img className="panel-symbol" src={resolved === 'dark' ? invertedMark : lightMark} alt="" width="112" height="112" />
-            <div>
-              <div className="eyebrow">PROJECT STATUS</div>
-              <h2 id="foundation-title">Your desktop is ready.</h2>
-              <p>Discover jobs without AI, verify your candidate profile, or run a scoped browser task with your model. Your keys stay in the OS vault. Browser interactions require your approval.</p>
-            </div>
-          </section>
-
-          <section className="status-grid" aria-label="Workspace status">
-            <article className="status-card"><span className="card-label">MODELS</span><h2>{settings.profiles.length ? `${settings.profiles.length} model profiles` : 'No model connected'}</h2><p>Add and test providers in Models &amp; Privacy.</p></article>
-            <article className="status-card"><span className="card-label">PRIVACY</span><h2>{settings.profiles.length ? 'You control what is shared' : 'Your profile stays local'}</h2><p>Model requests require your explicit consent.</p></article>
-            <article className="status-card"><span className="card-label">USAGE</span><h2>{settings.usage.inputTokens + settings.usage.outputTokens} reported tokens</h2><p>{settings.usage.requests} API requests · estimated ${settings.usage.estimatedUsd.toFixed(6)}{settings.usage.unpricedRequests ? ` · ${settings.usage.unpricedRequests} unpriced calls` : ''}</p></article>
-          </section>
-          </section>
-          <section hidden={view !== 'chat'}><Chat settings={settings} refresh={refresh} /></section>
+          <section hidden={view !== 'overview'}><Dashboard theme={resolved} active={view === 'overview'} settings={settings} navigate={setView} /></section>
+          <section hidden={view !== 'chat'}><Chat settings={settings} refresh={refresh} onConfigure={() => setView('models')} /></section>
           <section hidden={view !== 'models'}><Models settings={settings} refresh={refresh} /></section>
           <section hidden={view !== 'browser'}><BrowserRun settings={settings} /></section>
           {(view === 'jobs' || view === 'profile') && <CareerWorkspace tab={view} settings={settings} />}

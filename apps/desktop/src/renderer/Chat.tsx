@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState } from 'react';
 import type { SettingsView } from '@rovdo/shared';
+import { formatUsd } from './presentation';
 import { errorMessage } from './messages';
 
-export function Chat({ settings, refresh }: { settings: SettingsView; refresh(): Promise<void> }) {
+export function Chat({ settings, refresh, onConfigure }: { settings: SettingsView; refresh(): Promise<void>; onConfigure: () => void }) {
   const [profileId, setProfileId] = useState('');
   const [text, setText] = useState('');
   const [consent, setConsent] = useState(false);
@@ -12,6 +13,8 @@ export function Chat({ settings, refresh }: { settings: SettingsView; refresh():
   const [tools, setTools] = useState<string[]>([]);
   const [status, setStatus] = useState('Ready');
   const [usage, setUsage] = useState({ input: 0, output: 0, usd: 0, reports: 0, unknown: false });
+  const transcript = useRef<HTMLElement | null>(null);
+  useEffect(() => { const node = transcript.current; if (node && node.scrollHeight - node.scrollTop - node.clientHeight < 180) node.scrollTop = node.scrollHeight; }, [entries]);
   const active = useRef<string | null>(null);
   const profile = settings.profiles.find((item) => item.config.id === profileId);
   const signature = profile ? JSON.stringify(profile.config) : '';
@@ -58,16 +61,16 @@ export function Chat({ settings, refresh }: { settings: SettingsView; refresh():
       <div className="page-heading"><div><div className="eyebrow">A CONVERSATION, ON YOUR TERMS</div><h1>Chat</h1></div><div className="button-row"><button type="button" disabled={!busy} onClick={() => { if (active.current) void window.rovdo!.cancelChat({ requestId: active.current }).catch(() => setStatus(errorMessage.INTERNAL_ERROR)); }}>Stop response</button><button type="button" disabled={busy} onClick={() => { void clear(); }}>New conversation</button></div></div>
       <div className="chat-controls">
         <label>Model profile<select disabled={busy} value={profileId} onChange={(event) => { const id = event.target.value; setConsent(false); void clear().then((cleared) => { if (cleared) setProfileId(id); }); }}><option value="">Select a profile</option>{settings.profiles.map(({ config }) => <option key={config.id} value={config.id}>{config.label} · {config.model}</option>)}</select></label>
-        <label>Estimated spend limit (USD)<input type="number" min={0.000001} max={100} step="any" disabled={busy} value={budget} onChange={(event) => setBudget(event.target.value)} /></label>
+        <details className="chat-options"><summary>Budget &amp; destination</summary><label>Estimated spend limit (USD)<input type="number" min={0.000001} max={100} step="any" disabled={busy} value={budget} onChange={(event) => setBudget(event.target.value)} /></label><p className="destination">{profile?.config.baseUrl ?? 'Choose a model profile'}</p></details>
       </div>
       <p className="destination">{profile ? `${profile.config.kind} · ${profile.config.model} → ${profile.config.baseUrl}` : 'Create a model profile in Models & Privacy first.'}</p>
       {!ready && <p className="help-text">Configure authentication, verify streaming and tool support, and set pricing before sending a message.</p>}
-      <section className="transcript" aria-label="Conversation" aria-live="polite">
-        {entries.length === 0 && <p className="empty-chat">Start a conversation. Your chat stays in memory until you clear it or close Rovdo.</p>}
+      <section ref={transcript} className="transcript" aria-label="Conversation" tabIndex={0} aria-live="polite">
+        {entries.length === 0 && <div className="empty-state"><h2>{ready ? 'What would you like to work on?' : 'Connect a model to start a conversation'}</h2><p>Your chat stays in memory until you clear it or close Rovdo.</p>{!ready && <button onClick={onConfigure}>Set up chat in Models &amp; Privacy</button>}</div>}
         {entries.map((entry, index) => <article className={`chat-message ${entry.role === 'You' ? 'user-message' : ''}`} key={index}><strong>{entry.role}</strong><div>{entry.text || (busy ? 'Waiting for response…' : 'No complete response.')}</div></article>)}
       </section>
       {tools.map((tool, index) => <p className="tool-note" key={index}>{tool}</p>)}
-      <div className="usage-meter">{usage.reports ? `${usage.input} input / ${usage.output} output tokens · ${usage.unknown ? 'Cost estimate unavailable for some calls' : `Estimated $${usage.usd.toFixed(6)}`}` : 'Token usage and costs appear when reported by the provider.'}</div>
+      <div className="usage-meter">{usage.reports ? `${usage.input} input / ${usage.output} output tokens · ${usage.unknown ? 'Cost estimate unavailable for some calls' : `Estimated ${formatUsd(usage.usd)}`}` : 'Token usage and costs appear when reported by the provider.'}</div>
       <form className="composer" onSubmit={(event) => { event.preventDefault(); void send(); }}>
         <label>Message<textarea value={text} disabled={busy} maxLength={32000} required rows={3} placeholder="What would you like to work through?" onChange={(event) => { setText(event.target.value); setConsent(false); }} /></label>
         <details><summary>Review outbound conversation</summary><p>Completed exchanges listed here, your new message, and the read-only workspace_info definition/results are sent to the selected endpoint. Failed or stopped exchanges are excluded. No credentials, screenshots or files are included in the prompt.</p>{entries.filter((entry) => entry.included && entry.text).map((entry, index) => <p className="payload-preview" key={index}><strong>{entry.role}:</strong> {entry.text}</p>)}<p className="payload-preview"><strong>New message:</strong> {text || '(empty)'}</p></details>

@@ -8,8 +8,12 @@ test('boots the built shell with isolated preload and blocked egress', async () 
   const desktop = await electron.launch({ args: [resolve('apps/desktop'), `--rovdo-data-dir=${test.info().outputPath('user-data')}`], env });
   try {
     const page = await desktop.firstWindow();
-    await expect(page.getByRole('heading', { name: 'Your workspace starts here.' })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Workspace overview' })).toBeVisible();
     await expect(page.getByText('Browser + Jobs')).toBeVisible();
+    await expect(page.getByRole('group', { name: 'Career', exact: true })).toBeVisible();
+    await expect(page.getByRole('group', { name: 'Settings', exact: true })).toBeVisible();
+    await expect(page.getByTestId('dashboard-indexed')).toHaveText('0');
+    await expect(page.getByRole('button', { name: 'Find opportunities' })).toBeVisible();
     await expect(page.getByText('Desktop connected')).toBeVisible();
     expect(page.url()).toBe('rovdo://app/index.html');
 
