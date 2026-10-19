@@ -114,12 +114,26 @@ export class CareerStore {
     const known = new Set(previous.facts.map((f) => f.id));
     this.saveProfile({ ...previous, version: previous.version + 1, facts: [...previous.facts, ...facts.filter((f) => !known.has(f.id)).map((f) => ({ ...f, verified: false }))] });
   }
+  private sourceRemovalKey(config: Pick<SourceConfig, 'ats' | 'region' | 'tenant'>): string { return `source-removed:${config.ats}:${config.region}:${config.tenant}`; }
+  deleteSource(id: string): void {
+    const source = this.sources().find((s) => s.config.id === id);
+    if (!source) throw new Error('SOURCE_NOT_FOUND');
+    this.transaction(() => {
+      this.setting(this.sourceRemovalKey(source.config), 'true');
+      // Drop polling checkpoints, retaining jobs, saved opportunities and source evidence.
+      this.db.prepare('DELETE FROM job_source_snapshot WHERE source_id=?').run(id);
+      this.db.prepare('DELETE FROM job_source WHERE id=?').run(id);
+    });
+  }
   saveSource(input: unknown): void {
     const config = SourceConfigSchema.parse(input); const old = this.sources().find((s) => s.config.id === config.id);
     if (this.sources().some((s) => s.config.id !== config.id && s.config.ats === config.ats && s.config.tenant === config.tenant && s.config.region === config.region)) throw new Error('DUPLICATE_SOURCE');
     if (old && ['ats', 'tenant', 'region', 'company'].some((key) => old.config[key as keyof SourceConfig] !== config[key as keyof SourceConfig])) throw new Error('SOURCE_IDENTITY_IMMUTABLE');
     const state = old?.state ?? initialState(); if (!config.enabled) state.status = 'DISABLED'; else if (state.status === 'DISABLED') { state.status = 'NEVER_POLLED'; state.nextPollAt = 0; }
-    this.db.prepare('INSERT INTO job_source VALUES(?,?,?) ON CONFLICT(id) DO UPDATE SET config=excluded.config,state=excluded.state').run(config.id, JSON.stringify(config), JSON.stringify(state));
+    this.transaction(() => {
+      this.db.prepare('INSERT INTO job_source VALUES(?,?,?) ON CONFLICT(id) DO UPDATE SET config=excluded.config,state=excluded.state').run(config.id, JSON.stringify(config), JSON.stringify(state));
+      this.db.prepare('DELETE FROM career_setting WHERE key=?').run(this.sourceRemovalKey(config));
+    });
   }
   sources(): SourceView[] { return this.db.prepare('SELECT config,state FROM job_source ORDER BY id').all().map((r) => ({ config: SourceConfigSchema.parse(JSON.parse(String(r.config))), state: SourceStateSchema.parse(JSON.parse(String(r.state))) })); }
   setState(id: string, input: SourceState): void { const state = SourceStateSchema.parse(input); this.db.prepare('UPDATE job_source SET state=? WHERE id=?').run(JSON.stringify(state), id); }
@@ -208,7 +222,7 @@ export class CareerStore {
   }
   enableDirectory(now = Date.now()): void {
     for (const entry of this.directory()) {
-      if (entry.policy !== 'approved' || Date.parse(entry.refreshAfter) <= now || this.sources().some((s) => s.config.directoryId === entry.id || s.config.ats === entry.ats && s.config.tenant === entry.tenant && s.config.region === entry.region)) continue;
+      if (this.setting(this.sourceRemovalKey(entry)) === 'true' || entry.policy !== 'approved' || Date.parse(entry.refreshAfter) <= now || this.sources().some((s) => s.config.directoryId === entry.id || s.config.ats === entry.ats && s.config.tenant === entry.tenant && s.config.region === entry.region)) continue;
       this.saveSource({ id: randomUUID(), ats: entry.ats, tenant: entry.tenant, company: entry.company, enabled: true, region: entry.region, intervalMs: 86400000, termsReviewedAt: entry.verifiedAt, timezone: 'UTC', priority: 0, missingGracePolls: 3, directoryId: entry.id, companyId: entry.id, ...(entry.pageUrl ? { pageUrl: entry.pageUrl } : {}) });
     }
     this.setting('search-all', 'true');

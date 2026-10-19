@@ -42,6 +42,12 @@ describe('durable source recovery and quotas', () => {
     try { await worker.poll(config.id); expect(revoked.jobs()).toHaveLength(0); expect(revoked.sources()[0]!.state.status).toBe('DISABLED'); }
     finally { await worker.shutdown(); revoked.close(); }
   });
+  it('discards a response when its source was deleted while the request was in flight', async () => {
+    const store = new CareerStore(':memory:'); store.saveSource(config);
+    const worker = new DiscoveryEngine(store, (s) => new AtsAdapter(s, async () => { store.deleteSource(config.id); return response([posting(1)]); }));
+    try { await worker.poll(config.id); expect(store.sources()).toHaveLength(0); expect(store.jobs()).toHaveLength(0); }
+    finally { await worker.shutdown(); store.close(); }
+  });
   it('handles repeated snapshots without closing jobs after an outage and preserves positional query IDs', () => {
     expect(canonicalUrl('https://jobs.example.com/apply?jobId=42&utm_source=ad#apply')).toBe('https://jobs.example.com/apply?jobId=42');
     expect(() => canonicalUrl('javascript:alert(1)')).toThrow();

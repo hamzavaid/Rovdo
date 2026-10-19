@@ -1,12 +1,13 @@
 import { useEffect, useState } from 'react';
+import { RankingEditor } from './RankingEditor';
+import { editorWeights, totalWeight } from './ranking-weights';
 import { IntelligenceSchema, RankingProfileSchema } from '@rovdo/shared';
 import type { CandidateProfile, ImportPreview, Intelligence, IntelligenceCommand, IntelligenceView, RankingProfile } from '@rovdo/shared';
 
 const sections = ['skills', 'education', 'experience', 'projects', 'certifications'] as const;
 const singular = { skills: 'skill', education: 'education', experience: 'experience', projects: 'project', certifications: 'certification' };
 const choices: Record<string, string[]> = { depth: ['production', 'project', 'supporting', 'course', 'declared'], status: ['completed', 'enrolled', 'expected', 'incomplete'], level: ['high-school', 'associate', 'bachelor', 'master', 'doctorate', 'other'], track: ['ic', 'management', 'unknown'] };
-const allowedWeights = { 'technical-v2': ['skills', 'experience', 'projects', 'seniority', 'role', 'depth', 'education', 'lexical'], 'opportunity-v2': ['skills', 'role', 'experience', 'location', 'salary', 'education', 'lexical', 'company'], 'legacy-v1': ['skills', 'role', 'location', 'eligibility', 'preferences'] };
-const readable: Record<string, string> = { requiredMultiplier: 'Required requirement multiplier', preferredMultiplier: 'Preferred requirement multiplier', minimumEvidence: 'Minimum evidence confidence', implicationCredit: 'Curated transferable skill credit', requiredSkills: 'required skills' };
+const editable = (p: RankingProfile) => p.id.startsWith('builtin:') ? p : { ...p, weights: editorWeights(p.weights) };
 const idsOf = (intel: Intelligence) => sections.flatMap((key) => intel[key].map((x) => x.id));
 
 export function ProfileIntelligence({ tab, onChanged }: { tab: 'profile' | 'jobs'; onChanged: (profile: CandidateProfile | null) => void }) {
@@ -16,20 +17,20 @@ export function ProfileIntelligence({ tab, onChanged }: { tab: 'profile' | 'jobs
   const [github, setGithub] = useState(''); const [githubConsent, setGithubConsent] = useState(false);
   const [draft, setDraft] = useState<ImportPreview | null>(null); const [selected, setSelected] = useState<string[]>([]); const [legal, setLegal] = useState(false);
   const [rankingId, setRankingId] = useState(''); const [ranking, setRanking] = useState<RankingProfile | null>(null); const [newName, setNewName] = useState(''); const [transfer, setTransfer] = useState(''); const [resetPreset, setResetPreset] = useState('builtin:technical-balanced');
-  useEffect(() => { void window.rovdo!.intelligenceCommand({ op: 'view' }).then((r) => { if (r.ok) { setView(r.view); setRankingId(r.view.defaultRanking); setRanking(r.view.rankings.find((p) => p.id === r.view.defaultRanking)!); } else setError(r.code); }).catch(() => setError('Desktop unavailable')); }, []);
+  useEffect(() => { void window.rovdo!.intelligenceCommand({ op: 'view' }).then((r) => { if (r.ok) { setView(r.view); setRankingId(r.view.defaultRanking); setRanking(editable(r.view.rankings.find((p) => p.id === r.view.defaultRanking)!)); } else setError(r.code); }).catch(() => setError('Desktop unavailable')); }, []);
   async function command(input: IntelligenceCommand) {
     setBusy(true); setError('');
     try {
       const r = await window.rovdo!.intelligenceCommand(input); if (!r.ok) { setError(`${r.code}: check your input or try again.`); return; }
       setView(r.view);
       const current = r.view.rankings.find((p) => p.id === rankingId) ?? r.view.rankings.find((p) => p.id === r.view.defaultRanking)!;
-      setRankingId(current.id); setRanking(current);
+      setRankingId(current.id); setRanking(editable(current));
       if (['paste', 'github', 'importFile'].includes(input.op)) { const next = r.view.previews.find((p) => p.status === 'ready'); setDraft(next ?? null); setSelected([]); setLegal(false); }
       if (input.op === 'applyImport' || input.op === 'rejectImport') { setDraft(null); setSelected([]); }
       if (input.op === 'applyImport' || input.op === 'defaultRanking' || input.op === 'saveRanking' || input.op === 'resetRanking' || input.op === 'deleteRanking') onChanged(r.view.profile);
     } catch { setError('Invalid input or desktop unavailable. Your saved information is unchanged.'); } finally { setBusy(false); }
   }
-  function selectRanking(id: string) { setRankingId(id); setRanking(view?.rankings.find((p) => p.id === id) ?? null); }
+  function selectRanking(id: string) { setRankingId(id); const selected = view?.rankings.find((p) => p.id === id); setRanking(selected ? editable(selected) : null); setError(''); }
   function changeItem(key: typeof sections[number], id: string, field: string, value: unknown) {
     if (!draft) return;
     setDraft({ ...draft, intelligence: { ...draft.intelligence, [key]: draft.intelligence[key].map((x) => x.id === id ? { ...x, [field]: value, verified: false } : x) } });
@@ -60,18 +61,17 @@ export function ProfileIntelligence({ tab, onChanged }: { tab: 'profile' | 'jobs
       </div>}
       {view?.profile?.intelligence && <details><summary>Verified structured qualifications</summary><p>{view.profile.intelligence.skills.filter((s) => s.verified).length} verified skills · {view.profile.intelligence.experience.filter((s) => s.verified).length} verified employment records</p><pre>{JSON.stringify(view.profile.intelligence, null, 2)}</pre></details>}
     </> : <>
-      <h2>Ranking method</h2><p>Technical methods score verified qualifications. Opportunity Hybrid also includes personal preferences. Built-in presets are immutable; clone one to customize it.</p>
-      <label>Ranking preset<select value={rankingId} onChange={(e) => selectRanking(e.target.value)}>{view?.rankings.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}</select></label>
-      <p>Default: {view?.rankings.find((p) => p.id === view.defaultRanking)?.name}</p>
-      {ranking && <><button disabled={busy || view?.defaultRanking === ranking.id} onClick={() => void command({ op: 'defaultRanking', id: ranking.id })}>Use as default ranking</button>
-        <details><summary>Manage ranking profiles</summary><details><summary>Configure selected ranking</summary><p>{ranking.method} · revision {ranking.revision}. Positive active weights normalize automatically. Missing job criteria are inactive.</p><fieldset disabled={ranking.id.startsWith('builtin:') || busy}>
-          <label>Ranking name<input value={ranking.name} onChange={(e) => setRanking({ ...ranking, name: e.target.value })} /></label>
-          <div className="career-fields">{Object.entries(ranking.weights).filter(([key]) => allowedWeights[ranking.method].includes(key)).map(([key, value]) => <label key={key}>{key} weight<input type="number" aria-label={`${key} weight`} min="0" max="100" step="1" value={value} onChange={(e) => setRanking({ ...ranking, weights: { ...ranking.weights, [key]: Number(e.target.value) } })} /></label>)}</div>
-          <div className="career-fields">{(['requiredMultiplier', 'preferredMultiplier', 'minimumEvidence', 'implicationCredit'] as const).map((key) => <label key={key}>{readable[key] ?? key}<input type="number" min="0" max={key.includes('Multiplier') ? 10 : 1} step="0.05" value={ranking[key]} onChange={(e) => setRanking({ ...ranking, [key]: Number(e.target.value) })} /></label>)}</div>
-          <div className="career-fields">{Object.entries(ranking.thresholds).map(([key, value]) => <label key={key}>{key} threshold<input type="number" min="0" max={key === 'score' ? 100 : 1} step={key === 'score' ? 1 : .05} value={value} onChange={(e) => setRanking({ ...ranking, thresholds: { ...ranking.thresholds, [key]: Number(e.target.value) } })} /></label>)}</div>
-          {Object.entries(ranking.gates).map(([key, value]) => <label key={key}><input type="checkbox" checked={value} onChange={(e) => setRanking({ ...ranking, gates: { ...ranking.gates, [key]: e.target.checked } })} />Enforce {readable[key] ?? key} gate</label>)}
-          <button onClick={() => { const parsed = RankingProfileSchema.safeParse({ ...ranking, revision: ranking.revision + 1 }); if (!parsed.success) { setError('Invalid configuration: use positive weights for this method only and valid thresholds.'); return; } void command({ op: 'saveRanking', profile: parsed.data }); }}>Save ranking configuration</button>
-        </fieldset></details>
+      <h2>Ranking method</h2>
+      <div className="ranking-toolbar"><label>Ranking preset<select value={rankingId} onChange={(e) => selectRanking(e.target.value)}>{view?.rankings.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}</select></label>
+      {ranking && <button disabled={busy || view?.defaultRanking === ranking.id} onClick={() => void command({ op: 'defaultRanking', id: ranking.id })}>Use as default ranking</button>}</div>
+      <p className="help-text">Default: {view?.rankings.find((p) => p.id === view.defaultRanking)?.name}</p>
+      {ranking && <>
+        <details><summary>Manage ranking profiles</summary><p className="help-text">Technical methods score verified qualifications. Opportunity Hybrid also includes preferences. Clone a preset to customize it.</p><RankingEditor ranking={ranking} busy={busy} onChange={setRanking} onSave={() => {
+          if (totalWeight(ranking.weights) !== 100) { setError('Weights must total 100 before saving.'); return; }
+          const parsed = RankingProfileSchema.safeParse({ ...ranking, revision: ranking.revision + 1 });
+          if (!parsed.success) { setError('Invalid configuration: check weights, multipliers and thresholds.'); return; }
+          void command({ op: 'saveRanking', profile: parsed.data });
+        }} />
         {!ranking.id.startsWith('builtin:') && <button disabled={busy} onClick={() => void command({ op: 'deleteRanking', id: ranking.id })}>Delete custom ranking</button>}
         <button disabled={busy} onClick={() => setTransfer(JSON.stringify(ranking, null, 2))}>Export selected configuration</button>
         {!ranking.id.startsWith('builtin:') && <><label>Reset from preset<select value={resetPreset} onChange={(e) => setResetPreset(e.target.value)}>{view?.rankings.filter((p) => p.id.startsWith('builtin:')).map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}</select></label><button disabled={busy} onClick={() => void command({ op: 'resetRanking', id: ranking.id, presetId: resetPreset })}>Reset custom configuration to preset</button></>}

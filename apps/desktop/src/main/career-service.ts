@@ -30,6 +30,7 @@ export function createCareerService(store: CareerStore, engine: DiscoveryEngine,
         if (cmd.op === 'saveProfile') store.saveProfile(cmd.profile);
         if (cmd.op === 'proposeFacts') store.proposeFacts(cmd.facts);
         if (cmd.op === 'saveSource') { if (cmd.source.ats === 'jsonld' && !store.directoryAllowed(cmd.source)) throw new Error('SOURCE_NOT_APPROVED'); store.saveSource(cmd.source); }
+        if (cmd.op === 'deleteSource') store.deleteSource(cmd.id);
         if (cmd.op === 'searchAll') { if (discovering) throw new Error('BUSY'); discovering = refreshEmployers(store, controller.signal); try { await discovering; } finally { discovering = null; } store.enableDirectory(); void engine.pollAll().catch(() => {}); }
         if (cmd.op === 'discoverFeeds') { if (discovering) throw new Error('BUSY'); discovering = discoverEmployers(store, cmd, controller.signal); try { await discovering; } finally { discovering = null; } }
         if (cmd.op === 'saveSearch') store.saveSearch(cmd.name, cmd.search);

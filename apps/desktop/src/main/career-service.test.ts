@@ -13,6 +13,18 @@ import { EMPLOYERS } from '@rovdo/job-sources';
 
 const sender = { url: 'rovdo://app/index.html', isMainFrame: true, ownsWindow: true };
 describe('career IPC and optional inference', () => {
+  it('validates source deletion and only permits the owning trusted renderer', async () => {
+    const store = new CareerStore(':memory:'); store.seedDirectory(EMPLOYERS); store.enableDirectory();
+    const engine = new DiscoveryEngine(store); const service = createCareerService(store, engine, async () => { throw new Error('No AI'); });
+    try {
+      const source = store.sources()[0]!.config;
+      expect(await service.command({ op: 'deleteSource', id: source.id }, { ...sender, ownsWindow: false })).toEqual({ ok: false, code: 'IPC_FORBIDDEN' });
+      expect(await service.command({ op: 'deleteSource', id: 'not-a-source-id' }, sender)).toEqual({ ok: false, code: 'VALIDATION_ERROR' });
+      expect(store.sources()).toHaveLength(4);
+      expect((await service.command({ op: 'deleteSource', id: source.id }, sender)).ok).toBe(true);
+      expect(store.sources()).toHaveLength(3);
+    } finally { await service.shutdown(); await engine.shutdown(); store.close(); }
+  });
   it('searches the verified directory without tenant entry and compares cached methods without AI', async () => {
     const store = new CareerStore(':memory:'); store.seedDirectory(EMPLOYERS);
     const engine = new DiscoveryEngine(store, (s) => new AtsAdapter(s, async () => ({ status: 200, headers: {}, body: Buffer.from(s.ats === 'lever' ? '[]' : s.ats === 'smartrecruiters' ? '{"content":[],"totalFound":0}' : '{"jobs":[]}') })));

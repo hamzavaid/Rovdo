@@ -27,7 +27,14 @@ test('reviews imported qualifications and manages persisted custom ranking profi
     await page.getByLabel('Ranking preset').selectOption({ label: 'My backend ranking' });
     await page.getByText('Configure selected ranking', { exact: true }).click();
     await page.getByLabel('Ranking name', { exact: true }).fill('My conservative backend');
-    await page.getByLabel('skills weight', { exact: true }).fill('40');
+    const skills = Number(await page.getByLabel('skills weight', { exact: true }).inputValue());
+    const experience = Number(await page.getByLabel('experience weight', { exact: true }).inputValue());
+    await page.getByLabel('experience weight', { exact: true }).fill(String(experience - 5));
+    await page.getByRole('button', { name: 'Save ranking configuration' }).click();
+    await expect(page.getByRole('alert')).toContainText('Weights must total 100');
+    await page.getByLabel('skills weight slider', { exact: true }).focus(); await page.keyboard.press('End');
+    await expect(page.getByLabel('skills weight', { exact: true })).toHaveValue(String(skills + 5));
+    await expect(page.getByText('Total weight: 100 / 100', { exact: true })).toBeVisible();
     await page.getByRole('button', { name: 'Save ranking configuration' }).click();
     await expect(page.getByLabel('Ranking name', { exact: true })).toHaveValue('My conservative backend');
     await page.getByRole('button', { name: 'Use as default ranking' }).click();

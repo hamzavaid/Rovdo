@@ -54,3 +54,23 @@ it('imports configurations as new identities and resets custom revisions without
     expect(() => store.importRanking('{"weights":{"skills":-1}}')).toThrow();
   } finally { store.close(); }
 });
+
+it('removes source registration without losing saved jobs, provenance or opting back in', () => {
+  const store = new CareerStore(':memory:');
+  try {
+    store.seedDirectory(EMPLOYERS); store.enableDirectory(Date.parse('2026-10-18'));
+    const source = store.sources()[0]!;
+    const job = { ...sampleJob(), provenance: [{ sourceId: source.config.id, sourceKey: 'fixture:1', url: 'https://employer.test/1', collectedAt: 1, rawSha256: 'a'.repeat(64), fields: {} }] };
+    store.batch(source.config, [job], source.state, 'fixture', true, 1);
+    store.saveJob(job.id, true);
+    store.deleteSource(source.config.id);
+    expect(store.sources().some((s) => s.config.id === source.config.id)).toBe(false);
+    expect(store.savedIds()).toEqual([job.id]);
+    expect(store.job(job.id).provenance).toEqual(job.provenance);
+    expect(store.sourceRecords(job.id)).toHaveLength(1);
+    store.enableDirectory(Date.parse('2026-10-18'));
+    expect(store.sources()).toHaveLength(3);
+    store.saveSource(source.config);
+    expect(store.sources()).toHaveLength(4);
+  } finally { store.close(); }
+});

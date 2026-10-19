@@ -25,8 +25,12 @@ test('edits a verified profile and discovers, filters and saves fixture jobs wit
     await page.getByLabel('Search jobs').fill('TypeScript'); await page.getByRole('button', { name: 'Search', exact: true }).click();
     await expect(page.getByRole('heading', { name: 'TypeScript Engineer' })).toBeVisible(); await expect(page.getByText('Qualification gaps: Rust')).toBeVisible();
     await page.getByRole('button', { name: 'Save opportunity' }).click(); await expect(page.getByRole('button', { name: 'Remove saved opportunity' })).toBeVisible();
+    await page.getByText('Source health', { exact: true }).click();
+    await page.getByRole('button', { name: 'Delete source Fixture Company' }).click();
+    await expect(page.locator('.source-registry article')).toHaveCount(0);
+    await expect(page.getByRole('heading', { name: 'TypeScript Engineer' })).toBeVisible();
     const providers = await page.evaluate(async () => (await window.rovdo!.getSettings())); expect(providers.ok && providers.settings.profiles.length).toBe(0);
     await page.screenshot({ path: test.info().outputPath('career-jobs.png') });
   } finally { await desktop.close(); }
-  const persisted = new CareerStore(resolve(dir, 'rovdo.sqlite')); try { expect(persisted.savedIds()).toHaveLength(1); expect(persisted.profile()!.version).toBe(2); } finally { persisted.close(); }
+  const persisted = new CareerStore(resolve(dir, 'rovdo.sqlite')); try { expect(persisted.sources()).toHaveLength(0); expect(persisted.savedIds()).toHaveLength(1); expect(persisted.profile()!.version).toBe(2); } finally { persisted.close(); }
 });
