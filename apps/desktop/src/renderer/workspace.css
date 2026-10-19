@@ -170,3 +170,28 @@ summary { font-size: 14px; }
 @media (max-width: 1100px) { .dashboard-columns { grid-template-columns: minmax(0, 1fr); } }
 @media (max-width: 850px) { .chat-budget-panel { grid-template-columns: minmax(0, 1fr); gap: 8px; } }
 @media (prefers-reduced-motion: reduce) { .activity-spinner { animation: none; border-top-color: var(--accent); } }
+
+/* Compact profile records share an accessible native modal editor. */
+.profile-dialog { position: fixed; margin: auto; width: min(680px, calc(100vw - 40px)); max-height: min(85vh, 880px); padding: 0; color: var(--text); background: var(--panel); border: 1px solid var(--border); border-radius: 16px; box-shadow: 0 24px 90px #0006; overflow: auto; }
+.profile-dialog::backdrop { background: rgb(0 0 0 / .65); }
+.dialog-heading { position: sticky; top: 0; z-index: 1; display: flex; align-items: center; justify-content: space-between; gap: 20px; padding: 20px 24px; background: var(--panel); border-bottom: 1px solid var(--border); }
+.dialog-heading h2 { margin: 0; font-size: 20px; overflow-wrap: anywhere; }
+.dialog-close { width: 32px; min-height: 32px; padding: 0; border: 0; background: transparent; font-size: 25px; flex-shrink: 0; }
+.dialog-content { padding: 24px; }
+.dialog-content .career-fields { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 16px; margin: 16px 0; }
+.dialog-content label { margin-block: 12px; }
+.dialog-content label:has(input[type=checkbox]) { flex-direction: row; align-items: start; gap: 10px; }
+.dialog-content blockquote { margin: 12px 0; padding: 12px 16px; background: var(--panel-subtle); border-left: 3px solid var(--accent); white-space: pre-wrap; overflow-wrap: anywhere; }
+.dialog-content small { color: var(--muted); }
+.compact-search { max-width: 540px; margin-bottom: 16px; }
+.qualification-rows { display: grid; gap: 8px; margin: 16px 0; }
+.qualification-row { display: flex; width: 100%; align-items: center; justify-content: space-between; gap: 16px; text-align: left; padding: 10px 14px; min-width: 0; }
+.qualification-row > span:first-child { min-width: 0; }
+.qualification-row strong { font-size: 14px; overflow-wrap: anywhere; }
+.qualification-row small { display: block; color: var(--muted); font-size: 12px; overflow-wrap: anywhere; }
+.import-row { display: flex; gap: 12px; align-items: center; }
+.import-row .qualification-row { flex: 1; }
+.import-steps { display: flex; flex-wrap: wrap; gap: 12px 24px; padding: 0; list-style: none; font-size: 13px; color: var(--muted); margin: 20px 0; }
+.import-steps [aria-current=step] { color: var(--accent); font-weight: 650; }
+.import-preview .button-row { margin-block: 16px; }
+@media(max-width:600px) { .dialog-content .career-fields { grid-template-columns: minmax(0,1fr); } .dialog-content { padding: 16px; } }

@@ -16,7 +16,11 @@ test('reviews imported qualifications and manages persisted custom ranking profi
     await expect(page.getByRole('heading', { name: 'Review import' })).toBeVisible();
     await page.getByRole('button', { name: /Review typescript imported skill/ }).click();
     await page.getByLabel('Review skill 1 skillId', { exact: true }).fill('typescript');
+    await page.getByRole('button', { name: 'Close qualification editor', exact: true }).click();
     await page.getByRole('button', { name: 'Select all qualifications' }).click();
+    await page.getByRole('button', { name: 'Continue to confirmation' }).click();
+    await expect(page.getByRole('button', { name: 'Verify selected and merge' })).toBeDisabled();
+    await page.getByLabel('I reviewed the selected qualifications and their source evidence').check();
     await page.getByRole('button', { name: 'Verify selected and merge' }).click();
     await expect(page.getByText('Profile version 1', { exact: true })).toBeVisible();
     await page.getByText('Verified structured qualifications', { exact: true }).click();
