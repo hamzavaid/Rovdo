@@ -1,6 +1,7 @@
 import type { Requirement, RequirementSet } from '@rovdo/shared';
 import { SKILLS, TAXONOMY_VERSION, roleOf } from './taxonomy';
 const escape = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+const skillMatchers = SKILLS.map(skill => ({...skill, aliases: skill.aliases.map(a => ({...a, pattern: new RegExp(`(?:^|[^\\p{L}\\p{N}_.])${escape(a.label)}(?=$|[^\\p{L}\\p{N}_.]|\\.(?=\\s|$))`, 'iu')}))}));
 export function extractRequirements(text: string, title: string): RequirementSet {
   const items: Requirement[] = []; let section = ''; let sectionImportance: Requirement['importance'] = 'ambiguous';
   for (const match of text.matchAll(/[^\n\r]+/g)) {
@@ -12,8 +13,8 @@ export function extractRequirements(text: string, title: string): RequirementSet
     const base: Omit<Requirement, 'id' | 'kind'> = { importance, section, excerpt: line.slice(0, 4000), start: offset, end: offset + Math.min(line.length, 4000), confidence: importance === 'ambiguous' ? .55 : .95, skillId: null, versionRange: null, months: null, roleFamily: null, degree: null, degreeField: null, relatedFieldsAllowed: false, enrollmentAllowed: false, equivalentAllowed: false, alternatives: [], graduationStart: null, graduationEnd: null };
     const add = (kind: Requirement['kind'], extra: Partial<Requirement>) => { items.push({ ...base, alternatives: [], kind, id: `r${items.length}`, ...extra }); };
     const skillContext = importance === 'required' || importance === 'preferred' || /skills?|technolog|stack|programming|experience (?:with|in)/i.test(`${section} ${line}`);
-    if (!/about us|benefits|company/i.test(section)) for (const skill of SKILLS) {
-      const found = skill.aliases.find((a) => (a.context === 'any' || skillContext) && new RegExp(`(?:^|[^\\p{L}\\p{N}_.])${escape(a.label)}(?=$|[^\\p{L}\\p{N}_.]|\\.(?=\\s|$))`, 'iu').test(line));
+    if (!/about us|benefits|company/i.test(section)) for (const skill of skillMatchers) {
+      const found = skill.aliases.find((a) => (a.context === 'any' || skillContext) && a.pattern.test(line));
       if (found) {
         const version = new RegExp(`${escape(found.label)}\\s*(>=|<=|>|<|\\^|~|=)?\\s*(\\d+(?:\\.\\d+){0,2})`, 'i').exec(line);
         add('skill', { skillId: skill.id, versionRange: version ? `${version[1] ?? '='}${version[2]}` : null });
@@ -23,7 +24,7 @@ export function extractRequirements(text: string, title: string): RequirementSet
     if (years) add('experience', { months: Number(years[1]) * (/year/i.test(years[2]!) ? 12 : 1), roleFamily: roleOf(title).family, skillId: items.filter((x) => x.start === offset && x.kind === 'skill')[0]?.skillId ?? null });
     const degree = /\b(bachelor|master|doctorate|ph\.?d|associate|high.school)(?:'?s)?\b/i.exec(line);
     if (degree) add('education', { degree: /ph\.?d/i.test(degree[1]!) ? 'doctorate' : degree[1]!.toLowerCase().replace(' ', '-'), degreeField: /\bin\s+(.+?)(?=\s+(?:required|preferred|or equivalent|or related)|[.;]|$)/i.exec(line)?.[1]?.trim().slice(0, 300) ?? null, relatedFieldsAllowed: /related field|or related/i.test(line), equivalentAllowed: /or equivalent|equivalent (?:practical |professional )?experience/i.test(line), enrollmentAllowed: /enrolled|pursuing|currently studying|expected/i.test(line) });
-    const graduation = /graduat\w*[^\d\n]{0,50}(20\d{2})(?:\s*[-–]\s*(20\d{2}))?/i.exec(line);
+    const graduation = /graduat\w*[^\d\n]{0,50}(20\d{2})(?:\s*[-Ã¢â‚¬â€œ]\s*(20\d{2}))?/i.exec(line);
     if (graduation) add('graduation', { graduationStart: Number(graduation[1]), graduationEnd: Number(graduation[2] ?? graduation[1]) });
     if (/citizenship|work authori[sz]|authorized to work|clearance|return to school/i.test(line)) add('legal', {});
     if (/\bcertification|\blicen[cs]e\b/i.test(line)) add('certification', {});
@@ -64,9 +65,9 @@ function monthIndex(value: string, end: boolean): number | null {
   const [year, month = end ? 12 : 1, day = 1] = value.split('-').map(Number);
   return year! * 12 + month - 1 + (value.length <= 7 && end ? 1 : (day - 1) / new Date(Date.UTC(year!, month, 0)).getUTCDate());
 }
-export function unionMonths(intervals: { start: string | null; end: string | null }[], asOf: string): number {
+export function unionMonths(intervals: { start: string | null; end: string | null; ongoing?: boolean | undefined }[], asOf: string): number {
   const now = monthIndex(asOf, false); if (now === null) return 0;
-  const sorted = intervals.flatMap((i) => { const start = i.start ? monthIndex(i.start, false) : null; const end = i.end ? monthIndex(i.end, true) : now; return start !== null && end !== null && end > start && start < now ? [[start, Math.min(end, now)] as [number, number]] : []; }).sort((a, b) => a[0] - b[0]);
+  const sorted = intervals.flatMap((i) => { if (!i.end && i.ongoing === false) return []; const start = i.start ? monthIndex(i.start, false) : null; const end = i.end ? monthIndex(i.end, true) : now; return start !== null && end !== null && end > start && start < now ? [[start, Math.min(end, now)] as [number, number]] : []; }).sort((a, b) => a[0] - b[0]);
   let total = 0; let right = -Infinity;
   for (const [start, end] of sorted) { if (end > right) total += end - Math.max(start, right); right = Math.max(end, right); }
   return Math.round(total * 1000) / 1000;

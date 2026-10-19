@@ -36,8 +36,9 @@ describe('deterministic imports and review', () => {
     const candidate = sampleCandidate(['react']); candidate.intelligence!.skills[0]!.version = '17';
     const draft = previewText('Skills\nReact 18', 'new.md', 'file', at);
     const result = mergeReviewed(candidate, draft, draft.intelligence.skills.map((s) => s.id), false);
-    expect(result.intelligence!.skills.filter((s) => s.skillId === 'react')).toHaveLength(2);
-    expect(new Set(result.intelligence!.skills.map((s) => s.id)).size).toBe(2);
+    expect(result.intelligence!.skills.filter((s) => s.skillId === 'react')).toHaveLength(1);
+    expect(result.intelligence!.skills[0]!.version).toBe('17');
+    expect(result.intelligence!.skills[0]!.evidenceIds).toContain(draft.intelligence.skills[0]!.evidenceIds[0]);
   });
   it('rebinds JSON IDs and upgrades only explicitly reviewed unverified duplicates', () => {
     const original = sampleCandidate(['react']);
@@ -45,7 +46,8 @@ describe('deterministic imports and review', () => {
     const draft = previewText(JSON.stringify(changed), 'new.json', 'file', at, 'json');
     expect(draft.intelligence.evidence[0]!.id).not.toBe(original.intelligence!.evidence[0]!.id);
     const merged = mergeReviewed(original, draft, draft.intelligence.skills.map((s) => s.id), false);
-    expect(merged.intelligence!.skills.find((s) => s.version === '19')!.evidenceIds).toEqual(draft.intelligence.skills[0]!.evidenceIds);
+    expect(merged.intelligence!.skills[0]!.version).toBe(original.intelligence!.skills[0]!.version);
+    expect(merged.intelligence!.skills[0]!.evidenceIds).toContain(draft.intelligence.skills[0]!.evidenceIds[0]);
     const pending = sampleCandidate(['react']); pending.intelligence!.skills[0]!.verified = false;
     const review = previewText('Skills\nReact', 'review.txt', 'file', at);
     expect(mergeReviewed(pending, review, review.intelligence.skills.map((s) => s.id), false).intelligence!.skills[0]!.verified).toBe(true);

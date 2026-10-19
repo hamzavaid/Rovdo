@@ -2,7 +2,7 @@ import { z } from 'zod';
 import { IntelligenceSchema, RankingProfileSchema } from './intelligence';
 import { CandidateProfileSchema, ProfileFactSchema } from './career';
 export const ImportPreviewSchema = z.strictObject({
-  id: z.string().min(1).max(200), parserVersion: z.literal('profile-import-v1'), status: z.enum(['ready', 'accepted', 'rejected']),
+  id: z.string().min(1).max(200), parserVersion: z.enum(['profile-import-v1', 'profile-import-v2']), status: z.enum(['ready', 'accepted', 'rejected']),
   source: z.strictObject({ id: z.string().max(200), name: z.string().max(200), kind: z.enum(['file', 'github', 'linkedin']), format: z.string().max(20), sha256: z.string().regex(/^[a-f0-9]{64}$/), capturedAt: z.iso.datetime() }),
   intelligence: IntelligenceSchema, facts: z.array(ProfileFactSchema).max(500), warnings: z.array(z.string().max(500)).max(50),
 });

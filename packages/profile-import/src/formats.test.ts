@@ -1,5 +1,5 @@
 import { expect, it } from 'vitest';
-import { extractFileText, previewText } from './index';
+import { extractFileText, extractDocument, previewDocument } from './index';
 import { pdfFixture, zipFixture } from '../../../tests/fixtures/profile-files';
 it('extracts actual PDF text locally without OCR or a model', async () => { expect(await extractFileText('pdf', pdfFixture())).toContain('TypeScript'); });
 it('extracts bounded DOCX paragraph text and preserves skills/education sections', async () => {
@@ -10,7 +10,7 @@ it('extracts bounded DOCX paragraph text and preserves skills/education sections
 it('imports user-provided LinkedIn archive CSVs but never fetches a restricted page', async () => {
   const archive = zipFixture({ 'Skills.csv': 'Name\nTypeScript\nPython', 'Positions.csv': 'Company Name,Title,Started On,Finished On,Description\nFixture,Backend Engineer,Jan 2020,Dec 2023,"Used TypeScript, Node.js"', 'Private.csv': 'Gender,Birthday\nprivate,private' });
   const text = await extractFileText('zip', archive); expect(text).not.toContain('Gender');
-  const draft = previewText(text, 'LinkedIn.zip', 'linkedin', '2026-10-17T00:00:00.000Z');
+  const draft = previewDocument(await extractDocument('zip', archive), 'LinkedIn.zip', 'linkedin', '2026-10-17T00:00:00.000Z');
   expect(draft.intelligence.experience[0]!.start).toBe('2020-01'); expect(draft.intelligence.skills.length).toBeGreaterThan(0);
 });
 it('rejects oversized, corrupt and unsupported files', async () => {

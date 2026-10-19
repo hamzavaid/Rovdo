@@ -1,6 +1,12 @@
 // In-memory, synthetic import fixtures; no private resumes or PDF artifacts.
 export function pdfFixture(lines = ['Skills', 'TypeScript and Node.js']): Buffer {
   const stream = `BT /F1 12 Tf 72 720 Td ${lines.map((s, i) => `${i ? '0 -16 Td ' : ''}(${s.replace(/[()\\]/g, '\\$&')}) Tj`).join('\n')} ET`;
+  return pdfStream(stream);
+}
+export function positionedPdfFixture(items: {text: string; x: number; y: number}[]): Buffer {
+  return pdfStream(items.map(({text,x,y}) => `BT /F1 10 Tf ${x} ${y} Td (${text.replace(/[()\\]/g, '\\$&')}) Tj ET`).join('\n'));
+}
+function pdfStream(stream: string): Buffer {
   const objects = ['<< /Type /Catalog /Pages 2 0 R >>', '<< /Type /Pages /Kids [3 0 R] /Count 1 >>', '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 4 0 R >> >> /Contents 5 0 R >>', '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>', `<< /Length ${Buffer.byteLength(stream)} >>\nstream\n${stream}\nendstream`];
   let body = '%PDF-1.4\n'; const offsets = [0];
   objects.forEach((object, index) => { offsets.push(Buffer.byteLength(body)); body += `${index + 1} 0 obj\n${object}\nendobj\n`; });

@@ -1,4 +1,4 @@
-export const TAXONOMY_VERSION = 'rovdo-taxonomy-1' as const;
+export const TAXONOMY_VERSION = 'rovdo-taxonomy-2' as const;
 export const TAXONOMY_REFERENCES = ['https://www.onetcenter.org/database.html', 'https://esco.ec.europa.eu/en/classification'];
 type SkillType = 'language' | 'framework' | 'runtime' | 'database' | 'cloud' | 'tool' | 'library' | 'methodology';
 export type Skill = { id: string; name: string; type: SkillType; aliases: { label: string; context: 'any' | 'skill' }[] };
@@ -8,9 +8,16 @@ const seeds: [string, string, SkillType, string[]][] = [
   ['nodejs', 'Node.js', 'runtime', ['node', 'nodejs']], ['postgresql', 'PostgreSQL', 'database', ['postgres']], ['mysql', 'MySQL', 'database', []], ['mongodb', 'MongoDB', 'database', ['mongo']], ['redis', 'Redis', 'database', []],
   ['aws', 'AWS', 'cloud', ['amazon web services']], ['azure', 'Azure', 'cloud', ['microsoft azure']], ['gcp', 'Google Cloud', 'cloud', ['gcp', 'google cloud platform']],
   ['docker', 'Docker', 'tool', []], ['kubernetes', 'Kubernetes', 'tool', ['k8s']], ['git', 'Git', 'tool', []], ['terraform', 'Terraform', 'tool', []], ['linux', 'Linux', 'tool', []], ['html', 'HTML', 'language', ['html5']], ['css', 'CSS', 'language', ['css3']], ['pytorch', 'PyTorch', 'library', []], ['tensorflow', 'TensorFlow', 'library', []], ['pandas', 'pandas', 'library', []], ['agile', 'Agile', 'methodology', []],
+  ['verilog', 'Verilog', 'language', []], ['systemverilog', 'SystemVerilog', 'language', ['system verilog']], ['vhdl', 'VHDL', 'language', []], ['assembly', 'Assembly', 'language', ['assembly language']], ['matlab', 'MATLAB', 'language', []], ['tcl', 'Tcl', 'language', []], ['bash', 'Bash', 'language', []], ['cmake', 'CMake', 'tool', []],
+  ['fpga', 'FPGA', 'tool', ['field programmable gate array']], ['asic', 'ASIC', 'tool', ['application specific integrated circuit']], ['riscv', 'RISC-V', 'tool', ['risc v', 'riscv']], ['arm', 'ARM', 'tool', ['arm cortex', 'cortex-m']], ['stm32', 'STM32', 'tool', []], ['esp32', 'ESP32', 'tool', []], ['arduino', 'Arduino', 'tool', []], ['raspberry-pi', 'Raspberry Pi', 'tool', []],
+  ['freertos', 'FreeRTOS', 'runtime', ['free rtos']], ['zephyr', 'Zephyr RTOS', 'runtime', ['zephyr']], ['rtos', 'RTOS', 'runtime', ['real time operating system']], ['embedded-linux', 'Embedded Linux', 'runtime', []],
+  ['ros', 'ROS', 'framework', ['robot operating system']], ['ros2', 'ROS 2', 'framework', ['ros2']], ['gazebo', 'Gazebo', 'tool', []], ['opencv', 'OpenCV', 'library', []], ['slam', 'SLAM', 'methodology', ['simultaneous localization and mapping']], ['pid-control', 'PID Control', 'methodology', ['pid controller']],
+  ['spi', 'SPI', 'tool', []], ['i2c', 'I2C', 'tool', ['i?c']], ['uart', 'UART', 'tool', []], ['can-bus', 'CAN bus', 'tool', []], ['jtag', 'JTAG', 'tool', []], ['pcb', 'PCB Design', 'methodology', ['pcb design']], ['kicad', 'KiCad', 'tool', []], ['altium', 'Altium Designer', 'tool', ['altium']], ['vivado', 'Vivado', 'tool', ['xilinx vivado']], ['quartus', 'Quartus', 'tool', ['intel quartus']], ['uvm', 'UVM', 'methodology', ['universal verification methodology']], ['rtl', 'RTL Design', 'methodology', ['rtl design']], ['sta', 'Static Timing Analysis', 'methodology', []], ['dsp', 'Digital Signal Processing', 'methodology', []],
+  ['pytest', 'pytest', 'tool', []], ['gtest', 'Google Test', 'tool', ['gtest']], ['grpc', 'gRPC', 'framework', []], ['rest', 'REST API', 'methodology', ['rest api']], ['ci-cd', 'CI/CD', 'methodology', ['ci cd']], ['jenkins', 'Jenkins', 'tool', []], ['github-actions', 'GitHub Actions', 'tool', []], ['swift', 'Swift', 'language', []], ['kotlin', 'Kotlin', 'language', []], ['julia', 'Julia', 'language', []],
+
 ];
 const norm = (s: string) => s.normalize('NFKC').toLowerCase().trim().replace(/\s+/g, ' ');
-const ambiguous = new Set(['ts', 'js', 'node', 'go', 'r', 'c']);
+const ambiguous = new Set(['ts', 'js', 'node', 'go', 'r', 'c', 'arm', 'ros', 'spring', 'express', 'rust', 'assembly', 'gazebo', 'zephyr', 'agile', 'swift', 'julia']);
 export const SKILLS: readonly Skill[] = Object.freeze(seeds.map(([id, name, type, aliases]) => Object.freeze({ id, name, type, aliases: [name, id, ...aliases].map((label) => ({ label, context: ambiguous.has(norm(label)) ? 'skill' as const : 'any' as const })) })));
 export function resolveSkill(value: string, context: 'any' | 'skill' = 'any'): Skill | null {
   return SKILLS.find((s) => s.aliases.some((a) => norm(a.label) === norm(value) && (a.context === 'any' || context === 'skill'))) ?? null;

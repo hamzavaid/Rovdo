@@ -8,7 +8,7 @@ test('imports PDF and DOCX through the native file capability and bounded worker
   const desktop = await electron.launch({ args: [resolve('apps/desktop'), `--rovdo-data-dir=${test.info().outputPath('user-data')}`], env });
   try {
     const page = await desktop.firstWindow();
-    for (const [extension, bytes] of [ ['pdf', pdfFixture()], ['docx', zipFixture({ 'word/document.xml': '<w:document><w:p><w:r><w:t>Skills</w:t></w:r></w:p><w:p><w:r><w:t>Python and PostgreSQL</w:t></w:r></w:p></w:document>' })] ] as const) {
+    for (const [extension, bytes] of [ ['pdf', pdfFixture()], ['docx', zipFixture({ 'word/document.xml': '<w:document><w:body><w:p><w:r><w:t>Skills</w:t></w:r></w:p><w:p><w:r><w:t>Python and PostgreSQL</w:t></w:r></w:p></w:body></w:document>' })] ] as const) {
       const path = test.info().outputPath(`resume.${extension}`); await writeFile(path, bytes);
       await desktop.evaluate(({ dialog }, file) => { dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [file] }); }, path);
       const result = await page.evaluate(() => window.rovdo!.intelligenceCommand({ op: 'importFile' }));

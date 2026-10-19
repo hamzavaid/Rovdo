@@ -12,7 +12,7 @@ describe('canonical taxonomy v2', () => {
     expect(matchSkill('aws', 'azure').strength).toBe(0);
     expect(matchSkill('typescript', 'javascript').strength).toBeGreaterThan(0);
     expect(matchSkill('javascript', 'typescript').strength).toBe(0);
-    expect(TAXONOMY_VERSION).toBe('rovdo-taxonomy-1');
+    expect(TAXONOMY_VERSION).toBe('rovdo-taxonomy-2');
   });
   it('does not equate incompatible versions or IC and management tracks', () => {
     expect(matchSkill('react', 'react', '17', '>=18').strength).toBe(0);
