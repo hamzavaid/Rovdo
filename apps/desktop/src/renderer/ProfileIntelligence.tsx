@@ -1,3 +1,5 @@
+import { OperationStatus } from './OperationStatus';
+import { useActionState } from './action-state';
 import { useEffect, useState } from 'react';
 import { RankingEditor } from './RankingEditor';
 import { editorWeights, totalWeight } from './ranking-weights';
@@ -12,7 +14,7 @@ const idsOf = (intel: Intelligence) => sections.flatMap((key) => intel[key].map(
 
 export function ProfileIntelligence({ tab, onChanged, onSelected }: { onSelected?: (id: string) => void; tab: 'profile' | 'jobs'; onChanged: (profile: CandidateProfile | null) => void }) {
   const [view, setView] = useState<IntelligenceView | null>(null);
-  const [error, setError] = useState(''); const [busy, setBusy] = useState(false);
+  const [error, setError] = useState(''); const { pending: busy, label: actionLabel, run } = useActionState(); const [reviewSkill, setReviewSkill] = useState('');
   const [paste, setPaste] = useState(''); const [kind, setKind] = useState<'file' | 'linkedin'>('linkedin');
   const [github, setGithub] = useState(''); const [githubConsent, setGithubConsent] = useState(false);
   const [draft, setDraft] = useState<ImportPreview | null>(null); const [selected, setSelected] = useState<string[]>([]); const [legal, setLegal] = useState(false);
@@ -20,7 +22,8 @@ export function ProfileIntelligence({ tab, onChanged, onSelected }: { onSelected
   const [manageOpen, setManageOpen] = useState(false); const [configureOpen, setConfigureOpen] = useState(false);
   useEffect(() => { void window.rovdo!.intelligenceCommand({ op: 'view' }).then((r) => { if (r.ok) { setView(r.view); setRankingId(r.view.defaultRanking); setRanking(editable(r.view.rankings.find((p) => p.id === r.view.defaultRanking)!)); } else setError(r.code); }).catch(() => setError('Desktop unavailable')); }, []);
   async function command(input: IntelligenceCommand) {
-    setBusy(true); setError('');
+    await run(['paste', 'github', 'importFile'].includes(input.op) ? 'Preparing import preview...' : input.op === 'applyImport' ? 'Verifying and merging qualifications...' : 'Updating ranking configuration...', async () => {
+    setError('');
     try {
       const r = await window.rovdo!.intelligenceCommand(input); if (!r.ok) { setError(`${r.code}: check your input or try again.`); return; }
       setView(r.view);
@@ -28,10 +31,11 @@ export function ProfileIntelligence({ tab, onChanged, onSelected }: { onSelected
       const current = created ?? r.view.rankings.find((p) => p.id === rankingId) ?? r.view.rankings.find((p) => p.id === r.view.defaultRanking)!;
       setRankingId(current.id); setRanking(editable(current));
       if (created) { setManageOpen(true); setConfigureOpen(true); }
-      if (['paste', 'github', 'importFile'].includes(input.op)) { const next = r.view.previews.find((p) => p.status === 'ready'); setDraft(next ?? null); setSelected([]); setLegal(false); }
+      if (['paste', 'github', 'importFile'].includes(input.op)) { const next = r.view.previews.find((p) => p.status === 'ready'); setDraft(next ?? null); setSelected([]); setReviewSkill(''); setLegal(false); }
       if (input.op === 'applyImport' || input.op === 'rejectImport') { setDraft(null); setSelected([]); }
       if (input.op === 'applyImport' || input.op === 'defaultRanking' || input.op === 'saveRanking' || input.op === 'resetRanking' || input.op === 'deleteRanking') onChanged(r.view.profile);
-    } catch { setError('Invalid input or desktop unavailable. Your saved information is unchanged.'); } finally { setBusy(false); }
+    } catch { setError('Invalid input or desktop unavailable. Your saved information is unchanged.'); }
+    });
   }
   useEffect(() => { if (rankingId) onSelected?.(rankingId); }, [rankingId, onSelected]);
   function cloneRanking(id: string) {
@@ -48,16 +52,17 @@ export function ProfileIntelligence({ tab, onChanged, onSelected }: { onSelected
   }
   return <section className="intelligence-panel" aria-label={tab === 'profile' ? 'Profile intelligence' : 'Ranking configurations'}>
     {error && <p role="alert">{error}</p>}
+    <OperationStatus label={actionLabel} />
+    <fieldset className="action-surface" disabled={busy} aria-busy={busy}>
     {tab === 'profile' ? <>
       <h2>Imports &amp; verification</h2><p>1. Import a source. 2. Review the proposed qualifications. 3. Verify only facts you can support.</p><h3>Import qualifications</h3><p>Review proposed facts before they affect matching. Documents stay local. GitHub imports read public repositories; LinkedIn accepts only your archive or pasted content.</p>
       <div className="button-row"><button disabled={busy} onClick={() => void command({ op: 'importFile' })}>Choose profile file</button><span>PDF, DOCX, TXT, Markdown, JSON or LinkedIn archive ZIP · up to 5 MB</span></div>
       <details><summary>Paste a profile</summary><label>Content source<select value={kind} onChange={(e) => setKind(e.target.value as typeof kind)}><option value="linkedin">My LinkedIn profile</option><option value="file">Resume or profile text</option></select></label><label>Pasted profile content<textarea rows={7} value={paste} onChange={(e) => setPaste(e.target.value)} /></label><button disabled={busy || !paste.trim()} onClick={() => void command({ op: 'paste', text: paste, kind })}>Preview pasted profile</button></details>
       <details><summary>Import public GitHub projects</summary><label>GitHub username<input value={github} onChange={(e) => { setGithub(e.target.value); setGithubConsent(false); }} /></label><label><input type="checkbox" checked={githubConsent} onChange={(e) => setGithubConsent(e.target.checked)} />I approve reading up to 10 public repositories, languages and README files from api.github.com</label><button disabled={busy || !github || !githubConsent} onClick={() => void command({ op: 'github', username: github, limit: 10, consent: true })}>Preview GitHub projects</button></details>
-      {busy && <p role="status">Preparing your review…</p>}
       {!draft && view?.previews.filter((p) => p.status === 'ready').map((p) => <button key={p.id} onClick={() => { setDraft(p); setSelected([]); setLegal(false); }}>Review {p.source.name}</button>)}
       {draft && <div className="import-preview"><h3>Review import</h3><p>{draft.source.name} · {draft.source.kind} · {draft.parserVersion}</p><small>Source SHA-256: {draft.source.sha256}</small>{draft.warnings.map((w) => <p key={w} className="help-text">{w}</p>)}
         <div className="button-row"><button onClick={() => setSelected(idsOf(draft.intelligence))}>Select all qualifications</button><button onClick={() => setSelected([])}>Clear selection</button></div>
-        {sections.map((key) => <div key={key}><h4>{key}</h4>{draft.intelligence[key].map((item, i) => <article className="qualification" key={item.id}>
+        {sections.map((key) => <div key={key}><h4>{key}</h4>{key === 'skills' && <><p className="help-text">{draft.intelligence.skills.filter((s) => selected.includes(s.id)).length} selected for verification. Nothing is verified until you merge.</p><div className="skill-chips">{draft.intelligence.skills.map((s) => <button type="button" className="skill-chip" key={s.id} aria-label={`Review ${s.skillId} imported skill`} aria-pressed={reviewSkill === s.id} onClick={() => setReviewSkill(reviewSkill === s.id ? '' : s.id)}><span aria-hidden="true">{selected.includes(s.id) ? '\u2713' : '\u25cb'}</span>{s.skillId}</button>)}</div></>}{draft.intelligence[key].map((item, i) => key === 'skills' && reviewSkill !== item.id ? null : <article className="qualification" key={item.id}>
           <label><input type="checkbox" checked={selected.includes(item.id)} onChange={(e) => setSelected(e.target.checked ? [...selected, item.id] : selected.filter((id) => id !== item.id))} />Verify {singular[key]} {i + 1}</label>
           <div className="career-fields">{Object.entries(item).filter(([field]) => !['id', 'evidenceIds', 'verified', 'metadata'].includes(field)).map(([field, value]) => {
             const label = `Review ${singular[key]} ${i + 1} ${field}`;
@@ -90,5 +95,6 @@ export function ProfileIntelligence({ tab, onChanged, onSelected }: { onSelected
         <button disabled={busy} onClick={() => cloneRanking('builtin:technical-balanced')}>Create technical ranking</button></details>
       </>}
     </>}
+    </fieldset>
   </section>;
 }

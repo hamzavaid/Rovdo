@@ -72,6 +72,12 @@ test('persists settings, uses the real OS vault, probes and chats with a local f
     await page.evaluate(() => window.scrollTo(0, 0));
     await page.screenshot({ path: test.info().outputPath('byok-models.png'), fullPage: true });
     await page.getByRole('button', { name: 'Chat', exact: true }).click();
+    const modelBefore = await page.getByLabel('Model profile', { exact: true }).boundingBox();
+    await page.getByRole('button', { name: 'Budget & destination', exact: true }).click();
+    const [modelAfter, budget] = await Promise.all([page.getByLabel('Model profile', { exact: true }).boundingBox(), page.getByLabel('Estimated spend limit (USD)', { exact: true }).boundingBox()]);
+    expect(modelAfter!.y).toBe(modelBefore!.y); expect(budget!.y).toBeGreaterThan(modelAfter!.y + modelAfter!.height);
+    await page.screenshot({ path: test.info().outputPath('chat-budget.png'), fullPage: true });
+    await page.getByRole('button', { name: 'Budget & destination', exact: true }).click();
     await page.getByLabel('Message').fill('Tell me about this workspace.');
     await page.getByLabel('Allow sending this conversation to the selected endpoint').check();
     await page.getByRole('button', { name: 'Send message' }).click();

@@ -1,18 +1,21 @@
+import { OperationStatus } from './OperationStatus';
+import { useActionState } from './action-state';
 import { formatUsd } from './presentation';
 import { useEffect, useState } from 'react';
 import type { BrowserCommand, BrowserRecord, RunEvent, SettingsView } from '@rovdo/shared';
 
 export function BrowserRun({ settings }: { settings: SettingsView }) {
   const [runs, setRuns] = useState<BrowserRecord[]>([]); const [events, setEvents] = useState<RunEvent[]>([]);
-  const [error, setError] = useState(''); const [busy, setBusy] = useState(false);
+  const [error, setError] = useState(''); const { pending: busy, label: actionLabel, run } = useActionState();
   const [limits, setLimits] = useState({ steps: 20, tokens: 50000, usd: .5, minutes: 5 });
   const [proposal, setProposal] = useState('');
   const [task, setTask] = useState(''); const [url, setUrl] = useState(''); const [origins, setOrigins] = useState('');
   const [expected, setExpected] = useState(''); const [profile, setProfile] = useState(''); const [consent, setConsent] = useState(false);
   async function command(cmd: BrowserCommand) {
-    setBusy(true);
+    await run(cmd.op === 'start' ? 'Preparing browser task...' : cmd.op === 'approve' ? 'Applying your decision...' : 'Updating browser task...', async () => {
     try { const result = await window.rovdo!.browserCommand(cmd); if (result.ok) { setRuns(result.runs); setEvents(result.events); setProposal(JSON.stringify(result.proposal, null, 2)); setError(''); } else setError(result.code); }
-    catch { setError('Desktop unavailable'); } finally { setBusy(false); }
+    catch { setError('Desktop unavailable'); }
+    });
   }
   useEffect(() => {
     const poll = () => { void window.rovdo?.browserCommand({ op: 'list' }).then((r) => { if (r.ok) { setRuns(r.runs); setEvents(r.events); setProposal(JSON.stringify(r.proposal, null, 2)); } }).catch(() => {}); };
@@ -33,10 +36,10 @@ export function BrowserRun({ settings }: { settings: SettingsView }) {
       <label><input name="browser-consent" type="checkbox" checked={consent} onChange={(e) => setConsent(e.target.checked)} />I approve sending this task and bounded, untrusted page observations to this model throughout the run. Observations appear below. Input values are excluded.</label>
       <button type="submit" disabled={!consent || busy}>Start browser task</button>
     </form>
-    {error && <p role="alert">{error}</p>}
+    <OperationStatus label={actionLabel} />{error && <p role="alert">{error}</p>}
     {latest && <section className="status-card"><h2>{latest.state}</h2><p>{latest.request.task}</p><p>{latest.lastUrl} · {latest.steps} actions · {latest.tokens} tokens · estimated {formatUsd(latest.spent)}</p><p>{latest.reason}</p>
       <div className="button-row"><button disabled={busy} onClick={() => void command({ op: 'control', id: latest.id, action: 'pause' })}>Pause</button><button disabled={busy || latest.state !== 'PAUSED'} onClick={() => void command({ op: 'control', id: latest.id, action: 'resume' })}>Resume in a fresh session</button><button disabled={busy} onClick={() => void command({ op: 'control', id: latest.id, action: 'cancel' })}>Stop</button></div>
-      {latest.approval && <section role="region" aria-label="Action approval"><h3>Review browser interaction</h3><p>{latest.approval.summary}</p><pre>{proposal}</pre><p>Expires {new Date(latest.approval.expiresAt).toLocaleTimeString()}. Proposed input is shown only while this approval is pending and excluded from audit events.</p><button onClick={() => void command({ op: 'approve', id: latest.id, digest: latest.approval!.digest, allow: true })}>Approve this action</button><button onClick={() => void command({ op: 'approve', id: latest.id, digest: latest.approval!.digest, allow: false })}>Deny</button></section>}
+      {latest.approval && <section role="region" aria-label="Action approval"><h3>Review browser interaction</h3><p>{latest.approval.summary}</p><pre>{proposal}</pre><p>Expires {new Date(latest.approval.expiresAt).toLocaleTimeString()}. Proposed input is shown only while this approval is pending and excluded from audit events.</p><button disabled={busy} onClick={() => void command({ op: 'approve', id: latest.id, digest: latest.approval!.digest, allow: true })}>Approve this action</button><button disabled={busy} onClick={() => void command({ op: 'approve', id: latest.id, digest: latest.approval!.digest, allow: false })}>Deny</button></section>}
       <details><summary>Page observation and outbound context</summary><pre>{latest.observation?.text}</pre></details>
       <ol>{events.map((event) => <li key={event.seq}>{event.seq}. {event.kind} · {event.detail}</li>)}</ol>
     </section>}

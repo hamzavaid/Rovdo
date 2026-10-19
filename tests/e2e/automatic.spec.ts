@@ -14,12 +14,15 @@ test('Search All Companies collects fixture feeds without employer identifiers o
         const title = 'Fixture TypeScript Engineer'; const content = 'Required skills: TypeScript';
         const data = url.hostname.includes('greenhouse') ? { jobs: [{ id: 1, title, content, location: { name: 'Remote' }, absolute_url: 'https://employer.test/figma/1' }] } : url.hostname.includes('lever') ? [{ id: '1', text: title, descriptionPlain: content, hostedUrl: 'https://employer.test/palantir/1', categories: { location: 'Remote' } }] : url.hostname.includes('ashbyhq') ? { jobs: [{ id: '1', title, descriptionPlain: content, jobUrl: 'https://employer.test/linear/1', location: 'Remote', isRemote: true }] } : url.hostname.includes('smartrecruiters') ? { content: [], totalFound: 0 } : null;
         if (!data) throw new Error('Unexpected fixture destination');
-        const request = Object.assign(new EventEmitter(), { end() { queueMicrotask(() => { const response = Object.assign(new EventEmitter(), { statusCode: 200, headers: {} }); callback(response); response.emit('data', Buffer.from(JSON.stringify(data))); response.emit('end'); }); }, destroy() {} });
+        const request = Object.assign(new EventEmitter(), { end() { setTimeout(() => { const response = Object.assign(new EventEmitter(), { statusCode: 200, headers: {} }); callback(response); response.emit('data', Buffer.from(JSON.stringify(data))); response.emit('end'); }, 600); }, destroy() {} });
         return request;
       };
     });
     const page = await app.firstWindow(); await page.getByRole('button', { name: 'Jobs', exact: true }).click();
     await page.getByRole('button', { name: 'Search', exact: true }).click();
+    await expect(page.getByText('Collecting and parsing job feeds...', { exact: true })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Refresh employer feeds', exact: true })).toBeDisabled();
+    await expect(page.getByRole('button', { name: 'Search', exact: true })).toBeDisabled();
     await expect(page.locator('.job-card')).toHaveCount(3, { timeout: 15000 });
     await expect(page.getByText(/4 directory sources/)).toBeVisible();
     await page.getByRole('button', { name: 'Sources & coverage', exact: true }).click();

@@ -14,6 +14,7 @@ test('reviews imported qualifications and manages persisted custom ranking profi
     await page.getByLabel('Pasted profile content').fill('Skills\nTypeScript, Node.js\nEducation\nBachelor in Computer Science | Fixture University | completed 2021\nCitizenship: US');
     await page.getByRole('button', { name: 'Preview pasted profile' }).click();
     await expect(page.getByRole('heading', { name: 'Review import' })).toBeVisible();
+    await page.getByRole('button', { name: /Review typescript imported skill/ }).click();
     await page.getByLabel('Review skill 1 skillId', { exact: true }).fill('typescript');
     await page.getByRole('button', { name: 'Select all qualifications' }).click();
     await page.getByRole('button', { name: 'Verify selected and merge' }).click();

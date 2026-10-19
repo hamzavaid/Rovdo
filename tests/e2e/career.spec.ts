@@ -18,6 +18,7 @@ test('edits a verified profile and discovers, filters and saves fixture jobs wit
     const page = await desktop.firstWindow();
     await page.getByRole('button', { name: 'Profile', exact: true }).click();
     await expect(page.getByRole('heading', { name: 'Candidate profile' })).toBeVisible();
+    await page.getByRole('button', { name: /Edit TypeScript skill/ }).click();
     await expect(page.locator('input[value="TypeScript"]')).toBeVisible();
     await page.getByRole('button', { name: 'Preferences', exact: true }).click();
     await page.getByLabel('Preferred roles').fill('Engineer'); await page.getByRole('button', { name: 'Save candidate profile' }).click();

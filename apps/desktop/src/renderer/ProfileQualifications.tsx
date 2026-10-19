@@ -6,12 +6,12 @@ import type { QualificationSection } from './profile-edit';
 const readable: Record<string, string> = { skillId: 'Skill', roleFamily: 'Role family', start: 'Start date', end: 'End date', evidenceIds: 'Source evidence', production: 'Used in production', url: 'Project URL', level: 'Level', depth: 'Practice depth', graduation: 'Graduation date', expires: 'Expiry date' };
 const nullable = ['version', 'start', 'end', 'graduation', 'expires', 'url'];
 const choices: Record<string, string[]> = { depth: ['production', 'project', 'supporting', 'course', 'declared'], status: ['completed', 'enrolled', 'expected', 'incomplete'], level: ['high-school', 'associate', 'bachelor', 'master', 'doctorate', 'other'], track: ['ic', 'management', 'unknown'] };
-export function ProfileQualifications({ profile, section, onUpdate }: { profile: CandidateProfile; section: QualificationSection; onUpdate: (update: (previous: CandidateProfile) => CandidateProfile) => void }) {
+export function ProfileQualifications({ profile, section, onUpdate, selectedId }: { selectedId?: string; profile: CandidateProfile; section: QualificationSection; onUpdate: (update: (previous: CandidateProfile) => CandidateProfile) => void }) {
   const [error, setError] = useState(''); const [pending, setPending] = useState('');
   const intelligence = profile.intelligence; const records = intelligence?.[section] ?? [];
   return <section aria-label={`Structured ${section}`} className="qualification-section">{error && <p role="alert">{error}</p>}
     {!records.length && <p className="empty-state">No structured {section} yet. Import qualifications or add an evidence-backed fact below.</p>}
-    {records.map((item, index) => <article className="qualification" key={item.id}>
+    {records.map((item, index) => (!selectedId || selectedId === item.id) && <article className="qualification" key={item.id}>
       <div className="section-heading"><strong>{'skillId' in item ? SKILLS.find((s) => s.id === item.skillId)?.name ?? item.skillId : 'title' in item ? item.title : 'name' in item ? item.name : 'institution' in item ? `${item.level} / ${item.institution}` : section}</strong><span className={`verification-badge ${item.verified ? 'verified' : ''}`}>{item.verified ? 'Verified' : 'Needs verification'}</span></div>
       <details><summary>Edit {section} record {index + 1}</summary><fieldset disabled={!!pending}><div className="career-fields">{Object.entries(item).filter(([field]) => !['id', 'evidenceIds', 'verified', 'metadata'].includes(field)).map(([field, value]) => {
         const label = `${section} ${index + 1} ${field}`;

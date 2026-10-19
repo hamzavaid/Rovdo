@@ -55,7 +55,7 @@ Usage distinguishes reported tokens from unavailable accounting. Cost estimates 
 
 ## Workspace navigation
 
-The sidebar groups implemented tools into **Workspace** (Overview, Chat, Browser), **Career** (Jobs, Profile), and **Settings** (Models & Privacy). Overview shows actual indexed jobs, saved opportunities, source health, model readiness, recorded collection/browser activity and API usage. **Review saved opportunities** opens Jobs with Saved only selected. Loading or unavailable data is identified explicitly.
+The sidebar groups implemented tools into **Workspace** (Overview, Chat, Browser), **Career** (Jobs, Profile), and **Settings** (Models & Privacy). Overview shows actual indexed jobs, saved opportunities, source health, model readiness, recorded collection/browser activity and API usage. **Review saved opportunities** opens Jobs with Saved only selected. Loading or unavailable data is identified explicitly. Pending actions show progress and prevent duplicate submissions; ongoing job collection identifies the sources being processed.
 
 Light / Dark / System appearance applies across all workspaces and persists locally. Keyboard users can skip to content and use native buttons, disclosures and labeled controls. Chat prioritizes its conversation and bottom composer; **Budget & destination** exposes request limits. The first-model guide walks through configuration, the OS vault and an explicitly approved connection test.
 
@@ -86,6 +86,8 @@ Open **Jobs / Ranking & matching / Ranking preset**, select a method, then **Use
 | Technical Conservative v2 | Stronger verified-evidence thresholds and direct requirements |
 | Technical Lenient v2 | More project and curated transferable-skill credit; hard legal restrictions still apply |
 | Opportunity Hybrid | Separate opportunity-fit method including location, salary and company preferences |
+
+Technical Skills uses searchable category chips with verification indicators. Select a chip to review its evidence or edit it; **+ Add** opens evidence-backed skill entry. Import previews use compact skill chips with one selected editor.
 
 Structured qualification records expose source evidence and editable fields. Editing clears verification; explicit re-verification adds a user assertion without deleting the original evidence. Save candidate profile to persist the revised record.
 

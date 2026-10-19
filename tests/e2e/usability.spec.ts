@@ -17,10 +17,20 @@ test('uses real dashboard data, edits verified qualifications and previews balan
     const page = await app.firstWindow(); await expect(page.getByTestId('dashboard-indexed')).toHaveText('1');
     await expect(page.locator('.metric-card').filter({ hasText: 'Saved opportunities' }).locator('strong')).toHaveText('1');
     await expect(page.locator('.activity-list')).toContainText('Fixture: successful collection');
+    const [activity, time] = await Promise.all([page.locator('.activity-action').first().boundingBox(), page.locator('.activity-list time').first().boundingBox()]);
+    expect(time!.x).toBeGreaterThanOrEqual(activity!.x + activity!.width);
+    expect(time!.y).toBeLessThan(activity!.y + activity!.height);
     expect(await page.evaluate(() => getComputedStyle(document.body).fontSize)).toBe('15px');
+    await page.screenshot({ path: test.info().outputPath('overview.png'), fullPage: true });
     await page.getByRole('button', { name: 'Review saved opportunities', exact: true }).click();
     await expect(page.getByLabel('Saved only', { exact: true })).toBeChecked();
     await page.getByRole('button', { name: 'Profile', exact: true }).click();
+    await expect(page.locator('.skill-chip')).toHaveCount(3);
+    expect(await page.locator('.skill-chip').first().evaluate((e) => e.getBoundingClientRect().height)).toBeLessThanOrEqual(44);
+    await page.getByLabel('Search your skills', { exact: true }).fill('type'); await expect(page.locator('.skill-chip')).toHaveCount(1);
+    await page.getByLabel('Search your skills', { exact: true }).fill('');
+    await page.screenshot({ path: test.info().outputPath('compact-skills.png'), fullPage: true });
+    await page.getByRole('button', { name: /Edit TypeScript skill/ }).click();
     await page.getByText('Edit skills record 1', { exact: true }).click();
     await expect(page.getByLabel('skills 1 skillId', { exact: true })).toHaveValue('typescript');
     await page.getByLabel('skills 1 version', { exact: true }).fill('5');
@@ -29,12 +39,17 @@ test('uses real dashboard data, edits verified qualifications and previews balan
     await expect(page.getByLabel('I verify this skills record 1', { exact: true })).toBeChecked();
     await page.getByRole('button', { name: 'Save candidate profile', exact: true }).click();
     await expect(page.getByText('Profile version 2', { exact: true })).toBeVisible();
-    await page.screenshot({ path: test.info().outputPath('profile-skills.png'), fullPage: true });
+    await page.getByRole('button', { name: '+ Add', exact: true }).click();
+    await page.getByLabel('Fact value', { exact: true }).fill('Rust'); await page.getByLabel('Evidence or assertion reference', { exact: true }).fill('User fixture assertion');
+    await page.getByRole('button', { name: 'Add fact for verification', exact: true }).click();
+    await page.getByRole('button', { name: /Edit Rust skill/ }).click(); await page.getByLabel('I verify this fact', { exact: true }).check();
+    await page.getByRole('button', { name: 'Save candidate profile', exact: true }).click(); await expect(page.getByText('Profile version 3', { exact: true })).toBeVisible();
+    await page.evaluate(() => window.scrollTo(0, 0)); await page.screenshot({ path: test.info().outputPath('profile-skills.png'), fullPage: true });
     await page.getByRole('button', { name: 'Experience', exact: true }).focus(); await page.keyboard.press('Enter');
     await expect(page.getByRole('region', { name: 'Structured experience', exact: true })).toContainText('Backend Engineer');
     await page.getByRole('button', { name: 'Education', exact: true }).click(); await page.getByText('Edit education record 1', { exact: true }).click();
     await page.getByLabel('education 1 graduation', { exact: true }).fill(''); await page.getByLabel('I verify this education record 1', { exact: true }).check();
-    await page.getByRole('button', { name: 'Save candidate profile', exact: true }).click(); await expect(page.getByText('Profile version 3', { exact: true })).toBeVisible();
+    await page.getByRole('button', { name: 'Save candidate profile', exact: true }).click(); await expect(page.getByText('Profile version 4', { exact: true })).toBeVisible();
     await page.getByRole('button', { name: 'Jobs', exact: true }).click();
     await page.getByRole('button', { name: 'Ranking & matching', exact: true }).click();
     await page.getByLabel('Ranking preset').selectOption('builtin:technical-balanced'); await page.getByRole('button', { name: 'Clone selected ranking', exact: true }).click();
@@ -55,5 +70,5 @@ test('uses real dashboard data, edits verified qualifications and previews balan
     const consent = page.getByLabel('I approve sending this task', { exact: false }); await consent.check(); await page.getByLabel('Task', { exact: true }).fill('A changed task'); await expect(consent).not.toBeChecked();
   } finally { await app.close(); }
   const persisted = new CareerStore(resolve(dir, 'rovdo.sqlite'));
-  try { const profile = persisted.profile()!; expect(profile.intelligence!.skills[0]!.version).toBe('5'); expect(profile.intelligence!.skills[0]!.verified).toBe(true); expect(profile.intelligence!.education[0]!.graduation).toBeNull(); expect(profile.intelligence!.evidence.at(-1)!.sourceKind).toBe('user'); const ranking = persisted.rankings().find((r) => r.id === persisted.defaultRanking())!; expect(ranking.thresholds.confidence).toBe(.8); expect(ranking.weights.skills).toBe(60); expect(persisted.savedIds()).toHaveLength(1); } finally { persisted.close(); }
+  try { const profile = persisted.profile()!; expect(profile.intelligence!.skills[0]!.version).toBe('5'); expect(profile.intelligence!.skills[0]!.verified).toBe(true); expect(profile.intelligence!.education[0]!.graduation).toBeNull(); expect(profile.intelligence!.evidence.at(-1)!.sourceKind).toBe('user'); const ranking = persisted.rankings().find((r) => r.id === persisted.defaultRanking())!; expect(ranking.thresholds.confidence).toBe(.8); expect(ranking.weights.skills).toBe(60); expect(persisted.savedIds()).toHaveLength(1); expect(profile.facts.some((f) => f.field === 'skill' && f.value === 'Rust' && f.verified && f.source.kind === 'user')).toBe(true); } finally { persisted.close(); }
 });

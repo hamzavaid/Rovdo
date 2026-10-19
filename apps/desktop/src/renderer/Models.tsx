@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react';
 import { ProviderConfigSchema } from '@rovdo/shared';
 import type { ProviderConfig, Result, SettingsView } from '@rovdo/shared';
+import { OperationStatus } from './OperationStatus';
+import { useActionState } from './action-state';
 import { formatUsd } from './presentation';
 import { errorMessage } from './messages';
 
@@ -15,7 +17,7 @@ export function Models({ settings, refresh }: { settings: SettingsView; refresh(
   const [draft, setDraft] = useState<ProviderConfig | null>(null);
   const [rates, setRates] = useState<Rates>(emptyRates);
   const [message, setMessage] = useState('');
-  const [busy, setBusy] = useState(false);
+  const { pending: busy, label: actionLabel, run } = useActionState();
   const [consent, setConsent] = useState(false);
   const saved = settings.profiles.find((profile) => profile.config.id === selected);
   useEffect(() => {
@@ -29,11 +31,12 @@ export function Models({ settings, refresh }: { settings: SettingsView; refresh(
   }, [settings, selected]);
 
   async function action(work: () => Promise<Result>, success: string) {
-    if (busy) return false;
-    setBusy(true); setMessage('Working…');
-    try { const result = await work(); setMessage(result.ok ? success : errorMessage[result.code]); await refresh(); return result.ok; }
-    catch { setMessage(errorMessage.INTERNAL_ERROR); return false; }
-    finally { setBusy(false); }
+    let succeeded = false;
+    await run('Updating model settings...', async () => {
+      setMessage('Working...');
+      try { const result = await work(); setMessage(result.ok ? success : errorMessage[result.code]); await refresh(); succeeded = result.ok; }
+      catch { setMessage(errorMessage.INTERNAL_ERROR); }
+    }); return succeeded;
   }
   function edit(value: Partial<ProviderConfig>) { if (draft) setDraft({ ...draft, ...value }); }
   function select(id: string) { setSelected(id); setConsent(false); setMessage(''); }
@@ -106,7 +109,7 @@ export function Models({ settings, refresh }: { settings: SettingsView; refresh(
           </div>}
         </section>}
       </div>
-      <p className="operation-status" role="status">{message}</p>
+      <OperationStatus label={actionLabel} /><p className="operation-status" role="status">{message}</p>
     </div>
   );
 }
