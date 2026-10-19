@@ -72,3 +72,21 @@ it('reports field-level precision/recall on a labeled anonymized regression corp
  // eslint-disable-next-line no-console -- Emit measured regression-corpus metrics for delivery records.
  console.info('Profile Import v2 provisional regression metrics',JSON.stringify(metrics));expect(metrics.skills.precision).toBe(1);expect(metrics.skills.recall).toBe(1);expect(metrics.employmentDates.incorrect).toBe(0);expect(metrics.employmentDates.recall).toBe(1);
 });
+
+it('retains incomplete qualifications, groups certificate issuer/expiry and rejects invalid calendar dates',()=>{
+ const p=previewText('Experience\nEngineer | Anon | 2022-13 - 2024-02\nCertifications\nEmbedded Systems Certificate\nExample Board\nExpires May 2027\n\nHardware Safety License | Sample Board | expires June 2028','x','file',at);
+ expect(p.intelligence.experience[0]!.start).toBeNull();expect(p.intelligence.certifications).toHaveLength(2);expect(p.intelligence.certifications[0]).toMatchObject({name:'Embedded Systems Certificate',issuer:'Example Board',expires:'2027-05'});
+});
+
+it('extracts education tables in either column order without treating degrees or dates as schools',async()=>{
+ const document=await extractDocument('docx',zipFixture({'word/document.xml':'<w:document><w:body><w:p><w:r><w:t>Education</w:t></w:r></w:p><w:tbl><w:tr><w:tc><w:p><w:r><w:t>Example University</w:t></w:r></w:p></w:tc><w:tc><w:p><w:r><w:t>Bachelor in Electrical Engineering</w:t></w:r></w:p></w:tc><w:tc><w:p><w:r><w:t>Expected May 2027</w:t></w:r></w:p></w:tc></w:tr></w:tbl></w:body></w:document>'}));
+ const p=previewDocument(document,'education.docx','file',at);expect(p.intelligence.education[0]).toMatchObject({institution:'Example University',field:'Electrical Engineering',status:'expected',graduation:'2027-05'});
+ const missing=previewText('Education\nBachelor in Engineering | Expected May 2027','x','file',at);expect(missing.intelligence.education[0]!.institution).toBe('');expect(missing.warnings.join(' ')).toMatch(/institution|school/i);
+});
+
+it('recognizes standalone LinkedIn education and certification CSVs by headers without making credential names into skills',async()=>{
+ const education=previewDocument(await extractDocument('csv',Buffer.from('School Name,Degree Name,Field Of Study,End Date\nExample University,Bachelor,Engineering,2027')),'Education.csv','linkedin',at);expect(education.intelligence.education).toHaveLength(1);expect(education.intelligence.skills).toHaveLength(0);
+ const certificate=previewDocument(await extractDocument('csv',Buffer.from('Name,Authority,Finished On\nHardware Safety,Example Board,May 2027')),'Certifications.csv','linkedin',at);expect(certificate.intelligence.certifications).toHaveLength(1);expect(certificate.intelligence.skills).toHaveLength(0);
+});
+
+it('does not propose negated skills from an explicit skills list',()=>{const p=previewText('Skills\nPython; no Java; never used Rust; not familiar with ARM','x','file',at);expect(p.intelligence.skills.map(s=>s.skillId)).toEqual(['python']);});

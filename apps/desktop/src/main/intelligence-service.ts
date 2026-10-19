@@ -6,7 +6,7 @@ import { readPublic } from '@rovdo/shared/network';
 import type { CareerStore } from '@rovdo/storage';
 import { isTrustedFrame } from './security';
 
-export function createIntelligenceService(store: CareerStore, chooseFile: (signal: AbortSignal) => Promise<ImportPreview | null>, applyAppearance: (mode: Appearance) => void = () => {}) {
+export function createIntelligenceService(store: CareerStore, chooseFile: (signal: AbortSignal) => Promise<ImportPreview | null>, applyAppearance: (mode: Appearance) => void = () => {}, assist?: (preview: ImportPreview, request: { modelProfileId: string; maxUsd: number; consent: true }, signal: AbortSignal) => Promise<ImportPreview>) {
   const controller = new AbortController(); let busy = false; let pending: Promise<unknown> | null = null;
   const view = () => ({ profile: store.profile(), rankings: store.rankings(), defaultRanking: store.defaultRanking(), previews: store.importPreviews(), appearance: AppearanceSchema.parse(store.setting('appearance') ?? 'system') });
   return {
@@ -35,6 +35,7 @@ export function createIntelligenceService(store: CareerStore, chooseFile: (signa
               return response;
             }); store.saveImport(draft);
           }
+          if (command.op === 'assistImport') { const original=store.importPreview(command.id); if (!assist || original.status !== 'ready') throw new Error('ASSISTANCE_UNAVAILABLE'); const proposal=await assist(original, command, AbortSignal.any([controller.signal, AbortSignal.timeout(60000)])); store.saveImport(proposal); }
           if (command.op === 'applyImport') {
             const original = store.importPreview(command.id);
             const edited = { ...original, intelligence: command.intelligence, facts: command.facts.map((f) => ({ ...f, verified: false })) };

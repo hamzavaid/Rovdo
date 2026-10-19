@@ -1,0 +1,9 @@
+# Profile Import v2 validation
+
+The deterministic default is exercised with generated, anonymized documents: positioned two-column PDF text, OOXML headings/tables/lists/hyperlinks, direct LinkedIn CSV archives, multiline technical resumes/certificates, malformed inputs, ambiguous/missing/reversed dates, custom skills and conflicting re-imports. Fixtures contain no real applicant information. Existing PDF/DOCX native-worker and GitHub REST tests remain.
+
+The small labeled text regression corpus contains three technical profiles, nine labeled canonical skill occurrences and six employment start/end fields (including an explicit ongoing end). The current test requires skill precision 1.0, recall 1.0, zero false-positive skills and zero incorrect date fields. Education table order, institution/degree/date/status and certification issuer/expiry have separate exact-field fixtures. These are provisional regression judgments, not a validated population benchmark. No broad accuracy improvement percentage is claimed. A larger independently labeled resume corpus remains release follow-up.
+
+Safety and compatibility checks cover schema validation, verified-original preservation, stable natural-key merges, multiple evidence references, missing-end duration exclusion, v1 preview/profile/ranking reopen, taxonomy-version cache invalidation, protected/legal facts, worker limits, malformed documents and optional AI citation/verification boundaries. AI tests use mocked adapters and a local fixture endpoint only. The 1,000-job zero-AI discovery regression remains in the full suite.
+
+Desktop E2Es cover grouped review, editable records, explicit confirmation, compact skills, modal focus/Escape behavior, persistence, Light/Dark/System and AI consent/failure recovery. Native screen-reader checks and hosted Linux/macOS CI remain platform release QA.

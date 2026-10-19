@@ -35,7 +35,7 @@ test('boots the built shell with isolated preload and blocked egress', async () 
     });
     expect(isolation).toEqual({
       node: 'undefined', process: 'undefined', bridgeKeys: ['intelligenceCommand', 'careerCommand', 'browserCommand', 'getAppInfo', 'getSettings', 'saveProfile', 'removeProfile', 'enterKey', 'removeKey', 'testConnection', 'startChat', 'cancelChat', 'clearChat', 'onChatEvent'],
-      info: { name: 'Rovdo', version: '0.3.5', milestone: 'career-jobs', networkEnabled: false },
+      info: { name: 'Rovdo', version: '0.3.7', milestone: 'career-jobs', networkEnabled: false },
       blocked: true,
     });
 

@@ -1,6 +1,7 @@
 import { mkdir, readFile } from 'node:fs/promises';
 import { extname, join, resolve } from 'node:path';
 import { app, nativeTheme, BrowserWindow, ipcMain, protocol, session, dialog } from 'electron';
+import { improveImport } from './import-assistance';
 import { createIntelligenceService } from './intelligence-service';
 import { readProfileFile } from './profile-file';
 import { INTELLIGENCE_CHANNEL } from '@rovdo/shared';
@@ -79,7 +80,7 @@ async function initialize(): Promise<void> {
     const result = await dialog.showOpenDialog(mainWindow, { title: 'Import candidate qualifications', properties: ['openFile'], filters: [{ name: 'Profile documents or LinkedIn archives', extensions: ['pdf', 'docx', 'txt', 'md', 'markdown', 'json', 'zip', 'csv'] }] });
     if (result.canceled || !result.filePaths[0]) return null;
     return readProfileFile(result.filePaths[0], signal);
-  }, (mode) => { nativeTheme.themeSource = mode; });
+  }, (mode) => { nativeTheme.themeSource = mode; }, (preview, request, signal) => improveImport(preview, request, store!, vault, signal));
   ipcMain.handle(INTELLIGENCE_CHANNEL, (event, payload: unknown) => intelligenceService!.command(payload, {
     url: event.senderFrame?.url ?? '', isMainFrame: event.senderFrame === event.sender.mainFrame, ownsWindow: !!mainWindow && event.sender === mainWindow.webContents,
   }));

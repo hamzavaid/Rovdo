@@ -11,7 +11,7 @@ A local-first, open-source desktop workspace for AI-assisted browser workflows, 
 
 Rovdo is being built to help users discover relevant jobs, prepare fact-grounded application documents, and review browser actions before submission. Its discovery engine uses deterministic qualification matching, filters and local search without requiring an AI key. Optional model-assisted work uses a provider selected by the user.
 
-**Status: v0.3.5 - Automatic Job Discovery, Advanced Search & Dark Mode.** Discover and rank jobs across a verified directory of public Greenhouse, Lever, Ashby and SmartRecruiters employer feeds without AI. Maintain a verified candidate profile and save opportunities. Optional BYOK models support streaming chat, advisory shortlist review and scoped browser tasks with human approvals. Document generation and application submission are planned for later milestones.
+**Status: v0.3.7 - Profile Import v2.** Discover and rank jobs across a verified directory of public Greenhouse, Lever, Ashby and SmartRecruiters employer feeds without AI. Maintain a verified candidate profile and save opportunities. Optional BYOK models support streaming chat, advisory shortlist review and scoped browser tasks with human approvals. Document generation and application submission are planned for later milestones.
 
 ## Quick start
 
@@ -87,7 +87,7 @@ Open **Jobs / Ranking & matching / Ranking preset**, select a method, then **Use
 | Technical Lenient v2 | More project and curated transferable-skill credit; hard legal restrictions still apply |
 | Opportunity Hybrid | Separate opportunity-fit method including location, salary and company preferences |
 
-Technical Skills uses searchable category chips with verification indicators. Select a chip to review its evidence or edit it; **+ Add** opens evidence-backed skill entry. Import previews use compact skill chips with one selected editor.
+Technical Skills uses searchable category chips with verification indicators. Select a chip to open a centered editor for practice depth, optional self-assessed proficiency, evidence and verification; **+ Add** opens evidence-backed entry. Experience, education, projects and certifications use compact searchable rows. The close button or Escape returns to your workspace. Save candidate profile to persist edits.
 
 Structured qualification records expose source evidence and editable fields. Editing clears verification; explicit re-verification adds a user assertion without deleting the original evidence. Save candidate profile to persist the revised record.
 
@@ -187,3 +187,13 @@ See [SECURITY.md](SECURITY.md) for vulnerability reporting and [CONTRIBUTING.md]
 ## License
 
 Rovdo's original code is available under [Apache-2.0](LICENSE). Dependencies retain their respective licenses.
+
+## Profile Import v2
+
+Imports use **Select source ? Extract ? Review ? Confirm**. Extraction stays local and deterministic unless you explicitly request AI assistance. PDF text retains recoverable coordinates, column reading order and section boundaries. DOCX reads OOXML headings, tables, lists and hyperlink text without following links. Supported LinkedIn archive CSVs map columns directly; restricted LinkedIn pages are never scraped. TXT, Markdown, structured JSON and public GitHub imports remain supported.
+
+Review grouped summaries, warnings, duplicate/conflict notices and source excerpts. Correct a record in its centered editor, select individual records or select all qualifications, then explicitly confirm before merging. Imported legal/clearance assertions need separate confirmation. Re-imports link new evidence by qualification identity and preserve verified originals. Repeated canonical skills share evidence; custom declared skills are allowed. Imported mentions and AI suggestions never verify themselves.
+
+**Improve Extraction with AI** is optional. Choose an existing BYOM model with authentication/pricing, review the exact eligible source projection and destination, set a spend limit, and approve transmission. Sensitive legal/protected excerpts are excluded. It creates a separate unverified preview with schema-validated, source-cited suggestions; it cannot add credentials or change verification. Deterministic importing and editing require no model. Requests use existing vault, adapter, network and usage-accounting boundaries.
+
+Limits remain 5 MB per file, bounded archive expansion and a disposable worker with a 15-second processing limit. No OCR: scanned PDFs need text. Complex layouts, nested tables, date formats and unfamiliar terms may need manual correction. Missing end dates do not establish ongoing employment; school dates do not prove graduation. AI assistance uses at most 64,000 characters of eligible source data and does not support adding new employment/education/certification records. Review all suggestions. Extraction precision/recall tests use a small anonymized regression corpus; they are not population-level accuracy claims.

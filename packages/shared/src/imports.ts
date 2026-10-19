@@ -14,6 +14,7 @@ export const IntelligenceCommandSchema = z.discriminatedUnion('op', [
   z.strictObject({ op: z.literal('view') }), z.strictObject({ op: z.literal('importFile') }),
   z.strictObject({ op: z.literal('paste'), text: z.string().min(1).max(200000), kind: z.enum(['linkedin', 'file']) }),
   z.strictObject({ op: z.literal('github'), username: z.string().regex(/^[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,37}[a-zA-Z0-9])?$/), limit: z.number().int().min(1).max(20), consent: z.literal(true) }),
+  z.strictObject({ op: z.literal('assistImport'), id: z.string().max(200), modelProfileId: z.uuid(), maxUsd: z.number().positive().max(1), consent: z.literal(true) }),
   z.strictObject({ op: z.literal('applyImport'), id: z.string().max(200), intelligence: IntelligenceSchema, facts: z.array(ProfileFactSchema).max(500), selectedIds: z.array(z.string().max(200)).max(2000), confirmSensitive: z.boolean() }),
   z.strictObject({ op: z.literal('rejectImport'), id: z.string().max(200) }),
   z.strictObject({ op: z.literal('cloneRanking'), id: z.string().max(200), name: z.string().trim().min(1).max(100) }),
@@ -29,3 +30,12 @@ export type IntelligenceView = z.infer<typeof IntelligenceViewSchema>;
 export const IntelligenceResultSchema = z.discriminatedUnion('ok', [z.strictObject({ ok: z.literal(true), view: IntelligenceViewSchema }), z.strictObject({ ok: z.literal(false), code: z.enum(['VALIDATION_ERROR', 'IPC_FORBIDDEN', 'IMPORT_ERROR', 'BUSY']) })]);
 export const INTELLIGENCE_CHANNEL = 'profile:intelligence';
 export interface IntelligenceApi { intelligenceCommand(input: IntelligenceCommand): Promise<z.infer<typeof IntelligenceResultSchema>> }
+
+// Pure outbound projection shared by the consent UI and privileged service.
+export function importAssistancePayload(preview: ImportPreview) {
+ const sensitive=/\b(?:citizenship|work authori[sz]ation|clearance|gender|ethnicity|religion|date of birth|marital status|passport|social security)\b/i;
+ const evidence=preview.intelligence.evidence.filter(e=>!sensitive.test(e.excerpt)).map(({id,excerpt})=>({id,excerpt}));
+ const allowed=new Set(evidence.map(e=>e.id));
+ const sections=['skills','experience','education','projects','certifications'] as const;
+ return {version:'import-assistance-v1',evidence,records:Object.fromEntries(sections.map(key=>[key,preview.intelligence[key].filter(r=>r.evidenceIds.every(id=>allowed.has(id))).map(r=>Object.fromEntries(Object.entries(r).filter(([key])=>!['verified','metadata'].includes(key))))]))};
+}

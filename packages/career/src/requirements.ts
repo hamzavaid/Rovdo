@@ -24,7 +24,7 @@ export function extractRequirements(text: string, title: string): RequirementSet
     if (years) add('experience', { months: Number(years[1]) * (/year/i.test(years[2]!) ? 12 : 1), roleFamily: roleOf(title).family, skillId: items.filter((x) => x.start === offset && x.kind === 'skill')[0]?.skillId ?? null });
     const degree = /\b(bachelor|master|doctorate|ph\.?d|associate|high.school)(?:'?s)?\b/i.exec(line);
     if (degree) add('education', { degree: /ph\.?d/i.test(degree[1]!) ? 'doctorate' : degree[1]!.toLowerCase().replace(' ', '-'), degreeField: /\bin\s+(.+?)(?=\s+(?:required|preferred|or equivalent|or related)|[.;]|$)/i.exec(line)?.[1]?.trim().slice(0, 300) ?? null, relatedFieldsAllowed: /related field|or related/i.test(line), equivalentAllowed: /or equivalent|equivalent (?:practical |professional )?experience/i.test(line), enrollmentAllowed: /enrolled|pursuing|currently studying|expected/i.test(line) });
-    const graduation = /graduat\w*[^\d\n]{0,50}(20\d{2})(?:\s*[-Ã¢â‚¬â€œ]\s*(20\d{2}))?/i.exec(line);
+    const graduation = /graduat\w*[^\d\n]{0,50}(20\d{2})(?:\s*[-–]\s*(20\d{2}))?/i.exec(line);
     if (graduation) add('graduation', { graduationStart: Number(graduation[1]), graduationEnd: Number(graduation[2] ?? graduation[1]) });
     if (/citizenship|work authori[sz]|authorized to work|clearance|return to school/i.test(line)) add('legal', {});
     if (/\bcertification|\blicen[cs]e\b/i.test(line)) add('certification', {});

@@ -40,6 +40,7 @@ export function pdfBlocks(pages:Page[]):{blocks:DocumentBlock[];warnings:string[
   const split=page.Width*.5;const left=text.filter(t=>t.x<split);const right=text.filter(t=>t.x>=split);
   const columns=left.length>=3&&right.length>=3&&left.filter(t=>t.x+t.w<split-.3).length/left.length>.8;
   if(columns)warnings.push(`Page ${index+1}: two-column reading order recovered; review section association.`);
+  if(!columns&&left.length>=3&&right.length>=3)warnings.push(`Page ${index+1}: layout may contain columns; reading order needs review.`);
   const groups=columns?[left,right]:[text];groups.forEach((items,column)=>{
    items.sort((a,b)=>a.y-b.y||a.x-b.x);const rows:typeof items[]=[];
    for(const t of items){const row=rows.at(-1);if(row&&Math.abs(row[0]!.y-t.y)<.25)row.push(t);else rows.push([t]);}

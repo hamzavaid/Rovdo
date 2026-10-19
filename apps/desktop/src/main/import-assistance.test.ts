@@ -1,0 +1,10 @@
+import { expect, it, vi } from 'vitest';
+import { SettingsStore } from '@rovdo/storage';
+import { previewText } from '@rovdo/profile-import';
+import type { ProviderConfig } from '@rovdo/shared';
+import { improveImport } from './import-assistance';
+const id='e7aca4d4-058c-49b9-8f41-ef362fe15d07';
+const config:ProviderConfig={id,label:'Fixture',kind:'compatible',baseUrl:'http://127.0.0.1:11434/v1',model:'fixture',authMode:'none',timeoutMs:5000,maxOutputTokens:512,includeUsage:true,pricing:{inputPerMillion:0,outputPerMillion:0,version:'fixture'}};
+const preview=previewText('Skills\nTypeScript','resume','file','2026-10-19T00:00:00.000Z');
+it('requires explicit consent and budget before accessing credentials or a provider',async()=>{const settings=new SettingsStore(':memory:');settings.save(config);const get=vi.fn(async()=> 'secret');const make=vi.fn();try{await expect(improveImport(preview,{modelProfileId:id,maxUsd:.1,consent:false},settings,{get},new AbortController().signal,make)).rejects.toThrow();expect(get).not.toHaveBeenCalled();expect(make).not.toHaveBeenCalled();}finally{settings.close();}});
+it('uses the selected BYOM adapter without tools, records usage and retains an unverified preview',async()=>{const settings=new SettingsStore(':memory:');settings.save(config);const generate=vi.fn(async()=>({text:JSON.stringify({suggestions:[]}),toolCalls:[],stopReason:'stop' as const,usage:{inputTokens:10,outputTokens:5,source:'reported' as const}}));const make=vi.fn(()=>({id,generate,probe:vi.fn(),capabilities:vi.fn(),estimateCost:()=>({usd:0,pricingVersion:'fixture'})}));try{const result=await improveImport(preview,{modelProfileId:id,maxUsd:.1,consent:true},settings,{get:async()=>null},new AbortController().signal,make);expect(generate.mock.calls).toHaveLength(1);expect(result.intelligence.skills.every(s=>!s.verified)).toBe(true);expect(settings.usage().requests).toBe(1);}finally{settings.close();}});
