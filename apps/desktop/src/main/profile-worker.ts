@@ -1,3 +1,4 @@
+import { importFailureCode } from '@rovdo/shared';
 import { parentPort, workerData } from 'node:worker_threads';
 import { extractDocument, previewDocument, previewText, sha } from '@rovdo/profile-import';
 
@@ -21,5 +22,5 @@ void (async () => {
     const hash = sha(buffer); draft.id = `import:${hash}`; draft.source.sha256 = hash; draft.source.id = `source:${hash}`;
     draft.intelligence.evidence.forEach((e) => { e.sourceId = draft.source.id; });
     parentPort?.postMessage({ ok: true, draft });
-  } catch { parentPort?.postMessage({ ok: false }); }
+  } catch (error) { parentPort?.postMessage({ ok: false, code: importFailureCode(error) }); }
 })();

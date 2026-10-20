@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import { z } from 'zod';
 import { ImportPreviewSchema, IntelligenceSchema, importAssistancePayload } from '@rovdo/shared';
-import type { ImportPreview } from '@rovdo/shared';
+import type { ImportPreview, ImportPrivacyOptions } from '@rovdo/shared';
 import { parseDate, recognizedSkills } from './parser';
 import { resolveSkill } from '@rovdo/career';
 const sensitive=/\b(?:citizenship|work authori[sz]ation|clearance|gender|ethnicity|religion|date of birth|marital status|passport|social security)\b/i;
@@ -11,10 +11,10 @@ const Suggestions=z.strictObject({suggestions:z.array(z.discriminatedUnion('op',
  z.strictObject({op:z.literal('skill'),...citation}),
  z.strictObject({op:z.literal('correct'),...citation,section:z.enum(['skills','experience','education','projects','certifications']),recordId:z.string().max(200),field:z.enum(['skillId','version','title','organization','start','end','field','institution','graduation','name','description','url','issuer','expires'])}),
 ])).max(30)});
-export function applyAssistance(input:ImportPreview,output:unknown):ImportPreview {
+export function applyAssistance(input:ImportPreview,output:unknown,options:ImportPrivacyOptions={}):ImportPreview {
  const preview=ImportPreviewSchema.parse(input);if(preview.status!=='ready')throw new Error('IMPORT_ALREADY_REVIEWED');
- const parsed=Suggestions.parse(output);const payload=assistancePayload(preview);const allowed=new Map(payload.evidence.map(e=>[e.id,e]));const intel=structuredClone(preview.intelligence);
- for(const s of parsed.suggestions){const e=allowed.get(s.evidenceId);if(!e||!e.excerpt.includes(s.quote)||sensitive.test(s.quote))throw new Error('UNSUPPORTED_EVIDENCE');
+ const parsed=Suggestions.parse(output);const payload=assistancePayload(preview,options);const allowed=new Map(payload.evidence.map(e=>[e.id,e]));const intel=structuredClone(preview.intelligence);
+ for(const s of parsed.suggestions){const e=allowed.get(s.evidenceId);if(!e||!e.excerpt.includes(s.quote)||sensitive.test(s.quote)||/\[redacted/i.test(s.quote))throw new Error('UNSUPPORTED_EVIDENCE');
   if(s.op==='skill'){
    const skill=resolveSkill(s.value,'skill');if(!skill||!recognizedSkills(s.quote,true).includes(skill.id))throw new Error('UNSUPPORTED_SKILL');
    const existing=intel.skills.find(x=>x.skillId===skill.id);if(existing){existing.evidenceIds=[...new Set([...existing.evidenceIds,e.id])].slice(0,50);existing.verified=false;}

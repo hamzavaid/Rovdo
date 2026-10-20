@@ -3,6 +3,7 @@ export * from './taxonomy';
 export * from './requirements';
 export * from './scorer-v2';
 export * from './application-context';
+export * from './import-review';
 export { CANDIDATE_POLICY_VERSION, qualificationKey, qualificationsConflict } from './candidate';
 import type { CandidateProfile, EligibilityCheck, Job, JobMatch } from '@rovdo/shared';
 const lower = (v: string) => v.trim().toLowerCase();

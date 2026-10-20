@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import { ImportPreviewSchema, PartialDateSchema } from '@rovdo/shared';
 import type { ImportPreview, Intelligence, ProfileFact } from '@rovdo/shared';
-import { SKILLS, resolveSkill, roleOf } from '@rovdo/career';
+import { SKILLS, resolveSkill, roleOf, qualificationsConflict } from '@rovdo/career';
 import type { ParsedDocument, DocumentBlock } from './document';
 const sha=(s:string)=>createHash('sha256').update(s).digest('hex');
 const norm=(s:string)=>s.normalize('NFKC').trim().toLowerCase().replace(/\s+/g,' ');
@@ -115,7 +115,14 @@ export function previewDocument(doc:ParsedDocument,name:string,kind:ImportPrevie
  if(!intel.experience.length)warn('No supported employment records identified. Dates and duration remain unknown.');
  warn('All imported qualifications need explicit review. Mentions do not establish proficiency, authorship or employment.');
  // Natural-key dedup within a source (e.g. repeated archive rows).
- for(const key of ['skills','education','experience','projects','certifications'] as const){const seen=new Map<string,(typeof intel)[typeof key][number]>();const target=intel[key] as (typeof intel)[typeof key][number][];for(const item of target){const id=qualificationIdentity(item);const old=seen.get(id);if(old)old.evidenceIds=[...new Set([...old.evidenceIds,...item.evidenceIds])].slice(0,50);else seen.set(id,item);}target.splice(0,target.length,...seen.values());}
+ for(const key of ['skills','education','experience','projects','certifications'] as const){
+  const target=intel[key] as (typeof intel)[typeof key][number][];const kept:typeof target=[];
+  for(const item of target){const peers=kept.filter(old=>qualificationIdentity(old)===qualificationIdentity(item));const conflicts=peers.filter(old=>qualificationsConflict(old,item));const compatible=peers.find(old=>!qualificationsConflict(old,item));
+   if(compatible)compatible.evidenceIds=[...new Set([...compatible.evidenceIds,...item.evidenceIds])].slice(0,50);
+   else if(conflicts.length){for(const old of conflicts){old.conflictWith=[...new Set([...(old.conflictWith??[]),item.id])];item.conflictWith=[...new Set([...(item.conflictWith??[]),old.id])];}kept.push(item);warn('Conflicting source qualifications retained separately. Individually review and select one consistent version before confirming.');}
+   else kept.push(item);
+  }target.splice(0,target.length,...kept);
+ }
  return ImportPreviewSchema.parse({id:`import:${hash}`,parserVersion:'profile-import-v2',status:'ready',source,intelligence:intel,facts,warnings});
 }
 export function qualificationIdentity(x: Intelligence['skills'][number]|Intelligence['education'][number]|Intelligence['experience'][number]|Intelligence['projects'][number]|Intelligence['certifications'][number]):string {

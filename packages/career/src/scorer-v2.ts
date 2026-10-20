@@ -53,7 +53,7 @@ export function rankWithProfile(rows: { job: Job; bm25Raw: number }[], profile: 
       const possible = skills.flatMap((s) => [r.skillId!, ...r.alternatives].map((required) => ({ s, ...matchSkill(s.skillId, required, s.version, r.versionRange, config.implicationCredit) })));
       possible.sort((a, b) => b.strength - a.strength || confidenceOf(b.s) - confidenceOf(a.s) || a.s.id.localeCompare(b.s.id));
       const best = possible[0]; const strength = best?.strength ?? 0;
-      return { r, strength, confidence: strength ? confidenceOf(best!.s) * r.confidence : 0, depth: strength ? depthValue[best!.s.depth] * strength : 0, ids: strength ? best!.s.evidenceIds : [], reason: best && strength ? best.reason : 'No verified matching evidence' };
+      return { r, strength, confidence: strength ? confidenceOf(best!.s) * r.confidence : 0, depth: strength ? depthValue[best!.s.depth] * strength : 0, ids: strength ? qualificationSupport(best!.s,evidence).evidenceIds : [], reason: best && strength ? best.reason : 'No verified matching evidence' };
     });
     const weighted = (values: { r: Requirement; value: number }[]) => values.length ? values.reduce((a, v) => a + importance(v.r) * v.value, 0) / values.reduce((a, v) => a + importance(v.r), 0) : null;
     const required = matches.filter((m) => m.r.importance === 'required');

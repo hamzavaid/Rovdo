@@ -4,7 +4,7 @@ import { AiReviewSchema, CandidateProfileSchema, JobMatchSchema, JobSchema, Sour
 import type { AiReview, CandidateProfile, Job, JobMatch, ProfileFact, SourceConfig, SourceState, SourceView } from '@rovdo/shared';
 import { RankingProfileSchema } from '@rovdo/shared';
 import type { RankingProfile } from '@rovdo/shared';
-import { SCORING_POLICY_VERSION, CANDIDATE_POLICY_VERSION, TAXONOMY_VERSION, BUILTIN_RANKINGS, extractRequirements, stable, intelligenceOf, rankWithProfile, roleOf } from '@rovdo/career';
+import { SCORING_POLICY_VERSION, CANDIDATE_POLICY_VERSION, TAXONOMY_VERSION, REQUIREMENTS_PARSER_VERSION, BUILTIN_RANKINGS, extractRequirements, stable, intelligenceOf, rankWithProfile, roleOf } from '@rovdo/career';
 import { EmployerSchema, JobSearchSchema, JobMarkerSchema, SavedSearchSchema } from '@rovdo/shared';
 import type { Employer, JobSearch, JobMarker, SavedSearch } from '@rovdo/shared';
 import { ImportPreviewSchema } from '@rovdo/shared';
@@ -260,7 +260,7 @@ export class CareerStore {
   private cacheKey(row: { job: Job; bm25Raw: number }, profile: CandidateProfile, config: RankingProfile, asOf: string): string {
     const intel = intelligenceOf(profile);
     const dynamic = intel.experience.some((w) => !w.end || w.end >= asOf) || intel.education.some((e) => e.graduation && e.graduation >= asOf.slice(0, e.graduation.length)) || intel.certifications.some((c) => c.expires);
-    return createHash('sha256').update(stable({ job: [row.job.id, row.job.company, row.job.level, row.job.contentSha256, row.job.title, row.job.location, row.job.workMode, row.job.salary, row.job.activeStatus, row.job.duplicateGroup], evidence: intel, facts: profile.facts.filter((f) => !['name', 'email', 'phone', 'link'].includes(f.field)), preferences: profile.preferences, config, scorer: SCORING_POLICY_VERSION, candidatePolicy: CANDIDATE_POLICY_VERSION, taxonomy: TAXONOMY_VERSION, parser: 'requirements-v2', date: dynamic ? asOf : 'static', lexical: config.method === 'legacy-v1' ? row.bm25Raw : 0 })).digest('hex');
+    return createHash('sha256').update(stable({ job: [row.job.id, row.job.company, row.job.level, row.job.contentSha256, row.job.title, row.job.location, row.job.workMode, row.job.salary, row.job.activeStatus, row.job.duplicateGroup], evidence: intel, facts: profile.facts.filter((f) => !['name', 'email', 'phone', 'link'].includes(f.field)), preferences: profile.preferences, config, scorer: SCORING_POLICY_VERSION, candidatePolicy: CANDIDATE_POLICY_VERSION, taxonomy: TAXONOMY_VERSION, parser: REQUIREMENTS_PARSER_VERSION, date: dynamic ? asOf : 'static', lexical: config.method === 'legacy-v1' ? row.bm25Raw : 0 })).digest('hex');
   }
   cacheStats = { hits: 0, misses: 0 };
   cachedRanking(row: { job: Job; bm25Raw: number }, profile: CandidateProfile, config: RankingProfile, asOf: string, ranker: typeof rankWithProfile = rankWithProfile): JobMatch {

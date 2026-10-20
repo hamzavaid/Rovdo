@@ -1,51 +1,50 @@
 import type { Requirement, RequirementSet } from '@rovdo/shared';
 import { SKILLS, TAXONOMY_VERSION, roleOf } from './taxonomy';
-const escape = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-const skillMatchers = SKILLS.map(skill => ({...skill, aliases: skill.aliases.map(a => ({...a, pattern: new RegExp(`(?:^|[^\\p{L}\\p{N}_.])${escape(a.label)}(?=$|[^\\p{L}\\p{N}_.]|\\.(?=\\s|$))`, 'iu')}))}));
-export function extractRequirements(text: string, title: string): RequirementSet {
-  const items: Requirement[] = []; let section = ''; let sectionImportance: Requirement['importance'] = 'ambiguous';
-  for (const match of text.matchAll(/[^\n\r]+/g)) {
-    const line = match[0]; const offset = match.index;
-    if (/^(?:\s*[-#*]*\s*)(?:minimum|required|preferred|nice.to.have|qualifications|requirements|responsibilities|about us)/i.test(line.trim()) && line.trim().length < 90 && !/\b(?:years|degree|skills:)\b/i.test(line)) {
-      section = line.trim(); sectionImportance = /preferred|nice.to.have/i.test(line) ? 'preferred' : /required|minimum|requirements/i.test(line) ? 'required' : 'mentioned';
-    }
-    const importance: Requirement['importance'] = /\bpreferred|nice.to.have|bonus\b/i.test(line) ? 'preferred' : /\brequired|must\b/i.test(line) ? 'required' : sectionImportance;
-    const base: Omit<Requirement, 'id' | 'kind'> = { importance, section, excerpt: line.slice(0, 4000), start: offset, end: offset + Math.min(line.length, 4000), confidence: importance === 'ambiguous' ? .55 : .95, skillId: null, versionRange: null, months: null, roleFamily: null, degree: null, degreeField: null, relatedFieldsAllowed: false, enrollmentAllowed: false, equivalentAllowed: false, alternatives: [], graduationStart: null, graduationEnd: null };
-    const add = (kind: Requirement['kind'], extra: Partial<Requirement>) => { items.push({ ...base, alternatives: [], kind, id: `r${items.length}`, ...extra }); };
-    const skillContext = importance === 'required' || importance === 'preferred' || /skills?|technolog|stack|programming|experience (?:with|in)/i.test(`${section} ${line}`);
-    if (!/about us|benefits|company/i.test(section)) for (const skill of skillMatchers) {
-      const found = skill.aliases.find((a) => (a.context === 'any' || skillContext) && a.pattern.test(line));
-      if (found) {
-        const version = new RegExp(`${escape(found.label)}\\s*(>=|<=|>|<|\\^|~|=)?\\s*(\\d+(?:\\.\\d+){0,2})`, 'i').exec(line);
-        add('skill', { skillId: skill.id, versionRange: version ? `${version[1] ?? '='}${version[2]}` : null });
-      }
-    }
-    const years = /(\d+(?:\.\d+)?)\s*\+?\s*(years?|months?)\s+(?:of\s+)?(?:relevant\s+|professional\s+|hands.on\s+)?(?:[a-z]+\s+)?experience/i.exec(line);
-    if (years) add('experience', { months: Number(years[1]) * (/year/i.test(years[2]!) ? 12 : 1), roleFamily: roleOf(title).family, skillId: items.filter((x) => x.start === offset && x.kind === 'skill')[0]?.skillId ?? null });
-    const degree = /\b(bachelor|master|doctorate|ph\.?d|associate|high.school)(?:'?s)?\b/i.exec(line);
-    if (degree) add('education', { degree: /ph\.?d/i.test(degree[1]!) ? 'doctorate' : degree[1]!.toLowerCase().replace(' ', '-'), degreeField: /\bin\s+(.+?)(?=\s+(?:required|preferred|or equivalent|or related)|[.;]|$)/i.exec(line)?.[1]?.trim().slice(0, 300) ?? null, relatedFieldsAllowed: /related field|or related/i.test(line), equivalentAllowed: /or equivalent|equivalent (?:practical |professional )?experience/i.test(line), enrollmentAllowed: /enrolled|pursuing|currently studying|expected/i.test(line) });
-    const graduation = /graduat\w*[^\d\n]{0,50}(20\d{2})(?:\s*[-–]\s*(20\d{2}))?/i.exec(line);
-    if (graduation) add('graduation', { graduationStart: Number(graduation[1]), graduationEnd: Number(graduation[2] ?? graduation[1]) });
-    if (/citizenship|work authori[sz]|authorized to work|clearance|return to school/i.test(line)) add('legal', {});
-    if (/\bcertification|\blicen[cs]e\b/i.test(line)) add('certification', {});
+export const REQUIREMENTS_PARSER_VERSION='requirements-v3';
+const escape=(s:string)=>s.replace(/[.*+?^${}()|[\]\\]/g,'\\$&');
+const aliases=SKILLS.flatMap(skill=>skill.aliases.map(alias=>({skillId:skill.id,...alias,pattern:new RegExp(String.raw`(?<![\p{L}\p{N}_.+#])${escape(alias.label)}(?![\p{L}\p{N}_.+#]|\.(?=\S))`,'iu')})));
+function clauses(text:string):{line:string;offset:number}[]{
+ const result:{line:string;offset:number}[]=[];
+ for(const match of text.matchAll(/[^\n\r]+/g)){
+  const line=match[0];let cursor=0;
+  const separators=/;\s*|,\s*(?=(?:no|not|but)\b|[A-Z][\w+#. -]{0,30}\s+(?:is\s+)?(?:required|preferred|optional)\b)|\s+but\s+|\s+and\s+(?=[A-Z][\w+#. -]{0,30}\s+(?:is\s+)?(?:required|preferred|optional)\b)/g;
+  for(const separator of line.matchAll(separators)){if(separator.index!>cursor)result.push({line:line.slice(cursor,separator.index),offset:match.index!+cursor});cursor=separator.index!+separator[0].length;}
+  if(cursor<line.length)result.push({line:line.slice(cursor),offset:match.index!+cursor});
+ }return result;
+}
+export function extractRequirements(text:string,title:string):RequirementSet {
+ const items:Requirement[]=[];let section='';let sectionImportance:Requirement['importance']='ambiguous';
+ for(const part of clauses(text)){
+  const line=part.line.slice(0,4000),offset=part.offset;const trimmed=line.trim().replace(/^[-#*]+\s*/,'');
+  if(/^(?:(?:minimum|required|preferred|nice.to.have)(?: qualifications| requirements| skills)?|qualifications|requirements|responsibilities|about us|benefits)\s*:?$/i.test(trimmed)){
+   section=trimmed;sectionImportance=/preferred|nice.to.have/i.test(trimmed)?'preferred':/required|minimum|requirements/i.test(trimmed)?'required':/responsibilities|about us|benefits/i.test(trimmed)?'mentioned':'ambiguous';continue;
   }
-  // Merge only adjacent explicit alternatives; "TypeScript and AWS or Azure"
-  // retains the mandatory TypeScript requirement independently of the cloud choice.
-  const removed = new Set<string>();
-  for (const start of new Set(items.filter((r) => r.kind === 'skill').map((r) => r.start))) {
-    const tokens = items.filter((r) => r.kind === 'skill' && r.start === start).map((r) => {
-      const skill = SKILLS.find((s) => s.id === r.skillId)!;
-      const found = skill.aliases.flatMap((a) => { const m = new RegExp(`(?<![\\p{L}\\p{N}_.])${escape(a.label)}(?![\\p{L}\\p{N}_])`, 'iu').exec(r.excerpt); return m ? [{ start: m.index, end: m.index + m[0].length }] : []; }).sort((a, b) => a.start - b.start || b.end - a.end)[0]!;
-      return { r, ...found };
-    }).sort((a, b) => a.start - b.start);
-    let group = tokens[0];
-    for (let i = 1; i < tokens.length; i++) {
-      const previous = tokens[i - 1]!; const next = tokens[i]!;
-      if (/^\s*(?:or|\/)\s*$/i.test(next.r.excerpt.slice(previous.end, next.start))) { group!.r.alternatives.push(next.r.skillId!); removed.add(next.r.id); }
-      else group = next;
-    }
+  if(/about us|benefits/i.test(section))continue;
+  // Conservative clause negation: no absence is converted into a mandatory skill/degree.
+  if(!/not only/i.test(line)&&(/^not\b/i.test(trimmed)||/\b(?:no\b.{0,70}(?:required|necessary|needed)|not (?:required|necessary|mandatory|needed|a (?:requirement|prerequisite))|must not|do not (?:require|use)|without\b.{0,40}(?:degree|experience))/i.test(line)))continue;
+  const required=/\brequired|\bmust\b/i.test(line),preferred=/\bpreferred|nice.to.have|\bbonus\b|\boptional\b|a plus/i.test(line);
+  const importance:Requirement['importance']=required&&preferred?'ambiguous':preferred?'preferred':required?'required':sectionImportance;
+  const base:Omit<Requirement,'id'|'kind'>={importance,section,excerpt:line,start:offset,end:offset+line.length,confidence:importance==='ambiguous'?.55:.95,skillId:null,versionRange:null,months:null,roleFamily:null,degree:null,degreeField:null,relatedFieldsAllowed:false,enrollmentAllowed:false,equivalentAllowed:false,alternatives:[],graduationStart:null,graduationEnd:null};
+  const add=(kind:Requirement['kind'],extra:Partial<Requirement>)=>{items.push({...base,kind,id:`r${items.length}`,alternatives:[],...extra});return items.at(-1)!;};
+  const context=importance==='required'||importance==='preferred'||/skills?|technolog|stack|programming|experience (?:with|in)/i.test(`${section} ${line}`);
+  const found=aliases.flatMap(alias=>{if(alias.context!=='any'&&!context)return [];const m=alias.pattern.exec(line);return m?[{...alias,start:m.index,end:m.index+m[0].length}]:[];});
+  const tokens=found.filter(a=>!found.some(b=>b.skillId!==a.skillId&&b.start<=a.start&&b.end>=a.end&&b.end-b.start>a.end-a.start)).sort((a,b)=>a.start-b.start||b.end-a.end||a.skillId.localeCompare(b.skillId));
+  const seen=new Set<string>();let previous:typeof tokens[number]|undefined;let group:Requirement|undefined;
+  for(const token of tokens){if(seen.has(token.skillId))continue;seen.add(token.skillId);
+   if(previous&&group&&/^\s*(?:or|\/)\s*$/i.test(line.slice(previous.end,token.start)))group.alternatives.push(token.skillId);
+   else{const version=/^\s*(>=|<=|>|<|\^|~|=)?\s*(\d+(?:\.\d+){0,2})/.exec(line.slice(token.end));group=add('skill',{skillId:token.skillId,versionRange:version?`${version[1]??'='}${version[2]}`:null});}
+   previous=token;
   }
-  return { parserVersion: 'requirements-v2', taxonomyVersion: TAXONOMY_VERSION, items: items.filter((r) => !removed.has(r.id)), role: roleOf(title) };
+  const years=/(\d+(?:\.\d+)?)\s*\+?\s*(years?|months?)\s+(?:of\s+)?(?:relevant\s+|professional\s+|hands.on\s+)?(?:[a-z]+\s+)?experience/i.exec(line);
+  if(years)add('experience',{months:Number(years[1])*(/year/i.test(years[2]!)?12:1),roleFamily:roleOf(title).family,skillId:items.find(x=>x.start===offset&&x.kind==='skill')?.skillId??null});
+  const degree=/\b(bachelor|master|doctorate|ph\.?d|associate|high.school)(?:'?s)?\b/i.exec(line);
+  if(degree)add('education',{degree:/ph\.?d/i.test(degree[1]!)?'doctorate':degree[1]!.toLowerCase().replace(' ','-'),degreeField:/\bin\s+(.+?)(?=\s+(?:required|preferred|or equivalent|or related)|[.;]|$)/i.exec(line)?.[1]?.trim().slice(0,300)??null,relatedFieldsAllowed:/related field|or related/i.test(line),equivalentAllowed:/or equivalent|equivalent (?:practical |professional )?experience/i.test(line),enrollmentAllowed:/enrolled|pursuing|currently studying|expected/i.test(line)});
+  const graduation=/graduat\w*[^\d\n]{0,50}(20\d{2})(?:\s*[-\u2013\u2014]\s*(20\d{2}))?/i.exec(line);
+  if(graduation)add('graduation',{graduationStart:Number(graduation[1]),graduationEnd:Number(graduation[2]??graduation[1])});
+  if(/citizenship|work authori[sz]|authorized to work|clearance|return to school/i.test(line))add('legal',{});
+  if(/\bcertification|\blicen[cs]e\b/i.test(line))add('certification',{});
+ }
+ return {parserVersion:REQUIREMENTS_PARSER_VERSION,taxonomyVersion:TAXONOMY_VERSION,items,role:roleOf(title)};
 }
 const degrees = ['high-school', 'associate', 'bachelor', 'master', 'doctorate'];
 export function degreeGate(candidate: { level: string; status: string; graduation: string | null; field?: string } | null, required: { level: string; enrollmentAllowed: boolean; equivalentAllowed: boolean; field?: string | null; relatedFieldsAllowed?: boolean }): 'PASS' | 'FAIL' | 'UNKNOWN' {
@@ -67,7 +66,7 @@ function monthIndex(value: string, end: boolean): number | null {
 }
 export function unionMonths(intervals: { start: string | null; end: string | null; ongoing?: boolean | undefined }[], asOf: string): number {
   const now = monthIndex(asOf, false); if (now === null) return 0;
-  const sorted = intervals.flatMap((i) => { if (!i.end && i.ongoing === false) return []; const start = i.start ? monthIndex(i.start, false) : null; const end = i.end ? monthIndex(i.end, true) : now; return start !== null && end !== null && end > start && start < now ? [[start, Math.min(end, now)] as [number, number]] : []; }).sort((a, b) => a[0] - b[0]);
+  const sorted = intervals.flatMap((i) => { if (!i.end && i.ongoing !== true) return []; const start = i.start ? monthIndex(i.start, false) : null; const end = i.end ? monthIndex(i.end, true) : now; return start !== null && end !== null && end > start && start < now ? [[start, Math.min(end, now)] as [number, number]] : []; }).sort((a, b) => a[0] - b[0]);
   let total = 0; let right = -Infinity;
   for (const [start, end] of sorted) { if (end > right) total += end - Math.max(start, right); right = Math.max(end, right); }
   return Math.round(total * 1000) / 1000;

@@ -9,6 +9,7 @@ export * from './career';
 export * from './intelligence';
 export * from './imports';
 export * from './evidence';
+export * from './import-errors';
 export * from './application-context';
 
 export const ErrorCodeSchema = z.enum(['VALIDATION_ERROR', 'IPC_FORBIDDEN', 'INTERNAL_ERROR']);

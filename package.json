@@ -1,6 +1,6 @@
 {
   "name": "rovdo",
-  "version": "0.3.7",
+  "version": "0.3.8",
   "private": true,
   "description": "Local-first desktop and browser automation with bring-your-own-model support.",
   "license": "Apache-2.0",

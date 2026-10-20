@@ -34,7 +34,7 @@ export const RequirementSchema = z.strictObject({
   section: z.string().max(300), excerpt: text, start: z.number().int().nonnegative(), end: z.number().int().nonnegative(), confidence: z.number().min(0).max(1),
   skillId: id.nullable(), versionRange: z.string().max(40).nullable(), months: z.number().finite().nonnegative().nullable(), roleFamily: id.nullable(), degree: z.string().max(40).nullable(), degreeField: z.string().max(300).nullable().default(null), relatedFieldsAllowed: z.boolean().default(false), enrollmentAllowed: z.boolean(), equivalentAllowed: z.boolean(), alternatives: z.array(id).max(20), graduationStart: z.number().int().nullable(), graduationEnd: z.number().int().nullable(),
 });
-export const RequirementSetSchema = z.strictObject({ parserVersion: z.literal('requirements-v2'), taxonomyVersion: z.enum(['rovdo-taxonomy-1', 'rovdo-taxonomy-2']), items: z.array(RequirementSchema).max(1000), role: z.strictObject({ family: id, specialty: z.string(), level: z.string(), track: z.enum(['ic', 'management', 'unknown']) }) });
+export const RequirementSetSchema = z.strictObject({ parserVersion: z.enum(['requirements-v2', 'requirements-v3']), taxonomyVersion: z.enum(['rovdo-taxonomy-1', 'rovdo-taxonomy-2']), items: z.array(RequirementSchema).max(1000), role: z.strictObject({ family: id, specialty: z.string(), level: z.string(), track: z.enum(['ic', 'management', 'unknown']) }) });
 export type Requirement = z.infer<typeof RequirementSchema>;
 export type RequirementSet = z.infer<typeof RequirementSetSchema>;
 export const COMPONENTS = ['skills', 'experience', 'projects', 'seniority', 'role', 'depth', 'education', 'lexical', 'location', 'salary', 'company', 'eligibility', 'preferences'] as const;

@@ -1,12 +1,13 @@
 import { setTimeout as delay } from 'node:timers/promises';
-import { IntelligenceCommandSchema, IntelligenceResultSchema, AppearanceSchema } from '@rovdo/shared';
-import type { ImportPreview, Appearance } from '@rovdo/shared';
+import { IntelligenceCommandSchema, IntelligenceResultSchema, AppearanceSchema, ImportFailure, importFailureCode } from '@rovdo/shared';
+import { criticalReviewIds, stable } from '@rovdo/career';
+import type { IntelligenceCommand, ImportPreview, Appearance } from '@rovdo/shared';
 import { githubPreview, mergeReviewed, previewText } from '@rovdo/profile-import';
 import { readPublic } from '@rovdo/shared/network';
 import type { CareerStore } from '@rovdo/storage';
 import { isTrustedFrame } from './security';
 
-export function createIntelligenceService(store: CareerStore, chooseFile: (signal: AbortSignal) => Promise<ImportPreview | null>, applyAppearance: (mode: Appearance) => void = () => {}, assist?: (preview: ImportPreview, request: { modelProfileId: string; maxUsd: number; consent: true }, signal: AbortSignal) => Promise<ImportPreview>) {
+export function createIntelligenceService(store: CareerStore, chooseFile: (signal: AbortSignal) => Promise<ImportPreview | null>, applyAppearance: (mode: Appearance) => void = () => {}, assist?: (preview: ImportPreview, request: Extract<IntelligenceCommand, {op:'assistImport'}>, signal: AbortSignal) => Promise<ImportPreview>) {
   const controller = new AbortController(); let busy = false; let pending: Promise<unknown> | null = null;
   const view = () => ({ profile: store.profile(), rankings: store.rankings(), defaultRanking: store.defaultRanking(), previews: store.importPreviews(), appearance: AppearanceSchema.parse(store.setting('appearance') ?? 'system') });
   return {
@@ -38,6 +39,10 @@ export function createIntelligenceService(store: CareerStore, chooseFile: (signa
           if (command.op === 'assistImport') { const original=store.importPreview(command.id); if (!assist || original.status !== 'ready') throw new Error('ASSISTANCE_UNAVAILABLE'); const proposal=await assist(original, command, AbortSignal.any([controller.signal, AbortSignal.timeout(60000)])); store.saveImport(proposal); }
           if (command.op === 'applyImport') {
             const original = store.importPreview(command.id);
+            if (stable(original.intelligence.evidence) !== stable(command.intelligence.evidence)) throw new ImportFailure('IMPORT_VALIDATION');
+            const critical=criticalReviewIds(store.profile(), command.intelligence,command.facts);const reviewed=new Set(command.reviewedCriticalIds??[]);
+            if(command.selectedIds.some(id=>critical.has(id)&&!reviewed.has(id)))throw new ImportFailure('REVIEW_REQUIRED');
+            const known=new Set([...(['skills','experience','education','projects','certifications'] as const).flatMap(section=>command.intelligence[section].map(item=>item.id)),...command.facts.map(f=>f.id)]);if(command.selectedIds.some(id=>!known.has(id)))throw new ImportFailure('IMPORT_VALIDATION');
             const edited = { ...original, intelligence: command.intelligence, facts: command.facts.map((f) => ({ ...f, verified: false })) };
             store.commitImport(original.id, mergeReviewed(store.profile(), edited, command.selectedIds, command.confirmSensitive));
           }
@@ -50,7 +55,7 @@ export function createIntelligenceService(store: CareerStore, chooseFile: (signa
           if (command.op === 'defaultRanking') store.setDefaultRanking(command.id);
         };
         pending = work(); await pending; return IntelligenceResultSchema.parse({ ok: true, view: view() });
-      } catch { return IntelligenceResultSchema.parse({ ok: false, code: 'IMPORT_ERROR' }); }
+      } catch (error) { return IntelligenceResultSchema.parse({ ok: false, code: importFailureCode(error, command.op === 'assistImport' ? 'model' : command.op === 'github' ? 'source' : 'document') }); }
       finally { if (acquired) { busy = false; pending = null; } }
     },
     async shutdown() { controller.abort(); await pending?.catch(() => {}); },

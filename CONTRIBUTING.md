@@ -38,3 +38,9 @@ Provider tests use injected fetch fixtures with the official SDKs. The desktop a
 Follow [SECURITY.md](SECURITY.md). Do not publish secrets, personal data, or active exploit details in a public issue.
 
 Contributions are made under the project's Apache-2.0 license.
+
+## Approved application snapshots
+
+`@rovdo/career` exports `buildApprovedApplicationContext`; shared contracts export `ApprovedApplicationContextSchema` and `validateApprovedApplicationContext`. Preparation accepts a stored profile, selected job, ranking configuration, template ID/version/content SHA-256, and explicit approval selections. Qualification IDs are section-prefixed (for example, `skills:typescript`); fact IDs remain their stored IDs. Unknown IDs are rejected. Unverified, unsupported, sensitive or conflicting selections are omitted with reasons. Names and contacts are included only when explicitly selected.
+
+Use the asynchronous validator at future consumption boundaries: schema parsing alone cannot recompute evidence, claim and snapshot hashes. Snapshots bind content and versions but do not establish identity or authorization. Obtain fresh explicit approval when content changes. No IPC capability or document-generation implementation is introduced here. Preserve historical profiles and immutable preset weights; version behavioral policies and cache keys when matching changes.

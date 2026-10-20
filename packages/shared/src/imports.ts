@@ -1,3 +1,4 @@
+import { ImportFailureCodeSchema } from './import-errors';
 import { z } from 'zod';
 import { IntelligenceSchema, RankingProfileSchema } from './intelligence';
 import { CandidateProfileSchema, ProfileFactSchema } from './career';
@@ -14,8 +15,8 @@ export const IntelligenceCommandSchema = z.discriminatedUnion('op', [
   z.strictObject({ op: z.literal('view') }), z.strictObject({ op: z.literal('importFile') }),
   z.strictObject({ op: z.literal('paste'), text: z.string().min(1).max(200000), kind: z.enum(['linkedin', 'file']) }),
   z.strictObject({ op: z.literal('github'), username: z.string().regex(/^[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,37}[a-zA-Z0-9])?$/), limit: z.number().int().min(1).max(20), consent: z.literal(true) }),
-  z.strictObject({ op: z.literal('assistImport'), id: z.string().max(200), modelProfileId: z.uuid(), maxUsd: z.number().positive().max(1), consent: z.literal(true) }),
-  z.strictObject({ op: z.literal('applyImport'), id: z.string().max(200), intelligence: IntelligenceSchema, facts: z.array(ProfileFactSchema).max(500), selectedIds: z.array(z.string().max(200)).max(2000), confirmSensitive: z.boolean() }),
+  z.strictObject({ op: z.literal('assistImport'), id: z.string().max(200), modelProfileId: z.uuid(), maxUsd: z.number().positive().max(1), consent: z.literal(true), redactPii: z.boolean().optional(), evidenceIds: z.array(z.string().max(200)).max(1000).optional() }),
+  z.strictObject({ op: z.literal('applyImport'), id: z.string().max(200), intelligence: IntelligenceSchema, facts: z.array(ProfileFactSchema).max(500), selectedIds: z.array(z.string().max(200)).max(2000), confirmSensitive: z.boolean(), reviewedCriticalIds: z.array(z.string().max(200)).max(1000).optional() }),
   z.strictObject({ op: z.literal('rejectImport'), id: z.string().max(200) }),
   z.strictObject({ op: z.literal('cloneRanking'), id: z.string().max(200), name: z.string().trim().min(1).max(100) }),
   z.strictObject({ op: z.literal('saveRanking'), profile: RankingProfileSchema }),
@@ -27,7 +28,7 @@ export const IntelligenceCommandSchema = z.discriminatedUnion('op', [
 export type IntelligenceCommand = z.infer<typeof IntelligenceCommandSchema>;
 export const IntelligenceViewSchema = z.strictObject({ profile: CandidateProfileSchema.nullable(), rankings: z.array(RankingProfileSchema), defaultRanking: z.string(), appearance: AppearanceSchema.default('system'), previews: z.array(ImportPreviewSchema) });
 export type IntelligenceView = z.infer<typeof IntelligenceViewSchema>;
-export const IntelligenceResultSchema = z.discriminatedUnion('ok', [z.strictObject({ ok: z.literal(true), view: IntelligenceViewSchema }), z.strictObject({ ok: z.literal(false), code: z.enum(['VALIDATION_ERROR', 'IPC_FORBIDDEN', 'IMPORT_ERROR', 'BUSY']) })]);
+export const IntelligenceResultSchema = z.discriminatedUnion('ok', [z.strictObject({ ok: z.literal(true), view: IntelligenceViewSchema }), z.strictObject({ ok: z.literal(false), code: z.enum(['VALIDATION_ERROR', 'IPC_FORBIDDEN', 'IMPORT_ERROR', 'BUSY', ...ImportFailureCodeSchema.options]) })]);
 export const INTELLIGENCE_CHANNEL = 'profile:intelligence';
 export interface IntelligenceApi { intelligenceCommand(input: IntelligenceCommand): Promise<z.infer<typeof IntelligenceResultSchema>> }
 

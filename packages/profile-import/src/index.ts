@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import { z } from 'zod';
-import { CandidateProfileSchema, ImportPreviewSchema, IntelligenceSchema } from '@rovdo/shared';
+import { CandidateProfileSchema, ImportPreviewSchema, IntelligenceSchema, ImportFailure } from '@rovdo/shared';
 import type { CandidateProfile, ImportPreview, Intelligence, ProfileFact } from '@rovdo/shared';
 import { emptyProfile, intelligenceOf, qualificationsConflict, resolveSkill, SKILLS } from '@rovdo/career';
 import { readPublic } from '@rovdo/shared/network';
@@ -42,6 +42,7 @@ export function previewText(text: string, name: string, kind: ImportPreview['sou
 export function mergeReviewed(profile: CandidateProfile | null, input: ImportPreview, selectedIds: string[], confirmSensitive: boolean): CandidateProfile {
   const preview = ImportPreviewSchema.parse(input); if (preview.status !== 'ready') throw new Error('IMPORT_ALREADY_REVIEWED');
   const base = profile ?? emptyProfile(); const selected = new Set(selectedIds); const intel = intelligenceOf(base); const proposed = structuredClone(preview.intelligence);
+  for(const key of ['skills','education','experience','projects','certifications'] as const){const chosen=proposed[key].filter(q=>selected.has(q.id));if(chosen.some((a,i)=>chosen.slice(i+1).some(b=>qualificationsConflict(a,b))))throw new ImportFailure('IMPORT_CONFLICT');for(const q of chosen)delete q.conflictWith;}
   const selectedEvidence = new Set<string>();
   for (const key of ['skills', 'education', 'experience', 'projects', 'certifications'] as const) for (const item of proposed[key]) {
     item.verified = selected.has(item.id); if (item.verified) item.evidenceIds.forEach((id) => selectedEvidence.add(id));

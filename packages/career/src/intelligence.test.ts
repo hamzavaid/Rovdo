@@ -50,7 +50,7 @@ describe('requirement evidence and date rules', () => {
   });
   it('unions concurrent employment, handles current dates explicitly and rejects invalid chronology', () => {
     expect(unionMonths([{ start: '2020-01', end: '2020-12' }, { start: '2020-06', end: '2021-05' }], '2022-01-01')).toBe(17);
-    expect(unionMonths([{ start: '2025-01', end: null }], '2026-01-01')).toBe(12);
+    expect(unionMonths([{ start: '2025-01', end: null, ongoing: true }], '2026-01-01')).toBe(12);
     expect(unionMonths([{ start: '2028-01', end: '2020-01' }], '2026-01-01')).toBe(0);
   });
   it('validates versioned evidence and rejects unbound evidence references', () => {

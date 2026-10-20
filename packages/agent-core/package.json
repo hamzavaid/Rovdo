@@ -1,12 +1,12 @@
 {
   "name": "@rovdo/agent-core",
-  "version": "0.3.7",
+  "version": "0.3.8",
   "private": true,
   "license": "Apache-2.0",
   "type": "module",
   "exports": "./src/index.ts",
   "dependencies": {
-    "@rovdo/shared": "0.3.7",
-    "@rovdo/storage": "0.3.7"
+    "@rovdo/shared": "0.3.8",
+    "@rovdo/storage": "0.3.8"
   }
 }

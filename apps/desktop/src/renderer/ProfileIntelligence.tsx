@@ -5,7 +5,7 @@ import { useActionState } from './action-state';
 import { useEffect, useState } from 'react';
 import { RankingEditor } from './RankingEditor';
 import { editorWeights, totalWeight } from './ranking-weights';
-import { IntelligenceSchema, RankingProfileSchema } from '@rovdo/shared';
+import { IntelligenceSchema, RankingProfileSchema, importFailureMessage } from '@rovdo/shared';
 import type { CandidateProfile, ImportPreview, IntelligenceCommand, IntelligenceView, RankingProfile, SettingsView } from '@rovdo/shared';
 
 const editable = (p: RankingProfile) => p.id.startsWith('builtin:') ? p : { ...p, weights: editorWeights(p.weights) };
@@ -23,7 +23,7 @@ export function ProfileIntelligence({ tab, settings, onChanged, onSelected }: { 
     await run(input.op === 'assistImport' ? 'Preparing AI extraction suggestions...' : ['paste', 'github', 'importFile'].includes(input.op) ? 'Preparing import preview...' : input.op === 'applyImport' ? 'Verifying and merging qualifications...' : 'Updating ranking configuration...', async () => {
     setError('');
     try {
-      const r = await window.rovdo!.intelligenceCommand(input); if (!r.ok) { setError(`${r.code}: check your input or try again.`); return; }
+      const r = await window.rovdo!.intelligenceCommand(input); if (!r.ok) { setError(importFailureMessage(r.code)); return; }
       setView(r.view);
       const created = input.op === 'cloneRanking' ? r.view.rankings.find((p) => !view?.rankings.some((old) => old.id === p.id)) : undefined;
       const current = created ?? r.view.rankings.find((p) => p.id === rankingId) ?? r.view.rankings.find((p) => p.id === r.view.defaultRanking)!;
@@ -55,7 +55,7 @@ export function ProfileIntelligence({ tab, settings, onChanged, onSelected }: { 
       <details><summary>Import public GitHub projects</summary><label>GitHub username<input value={github} onChange={(e) => { setGithub(e.target.value); setGithubConsent(false); }} /></label><label><input type="checkbox" checked={githubConsent} onChange={(e) => setGithubConsent(e.target.checked)} />I approve reading up to 10 public repositories, languages and README files from api.github.com</label><button disabled={busy || !github || !githubConsent} onClick={() => void command({ op: 'github', username: github, limit: 10, consent: true })}>Preview GitHub projects</button></details>
       </>}
       {!draft && view?.previews.filter(p => p.status === 'ready').map(p => <button type="button" key={p.id} onClick={() => setDraft(p)}>Review {p.source.name}</button>)}
-      {draft && <ImportReview key={draft.id} draft={draft} profile={view?.profile ?? null} assistance={<ImportAssistance preview={view?.previews.find(p => p.id === draft.id) ?? draft} settings={settings} onImprove={request => void command({op:'assistImport',id:draft.id,...request})}/>} onChange={setDraft} onReject={() => void command({op:'rejectImport',id:draft.id})} onApply={(selectedIds,confirmSensitive) => { const parsed=IntelligenceSchema.safeParse(draft.intelligence); if(!parsed.success){setError('Check dates, skill names and evidence before merging.');return;} void command({op:'applyImport',id:draft.id,intelligence:parsed.data,facts:draft.facts,selectedIds,confirmSensitive}); }}/>}
+      {draft && <ImportReview key={draft.id} draft={draft} profile={view?.profile ?? null} assistance={<ImportAssistance preview={view?.previews.find(p => p.id === draft.id) ?? draft} settings={settings} onImprove={request => void command({op:'assistImport',id:draft.id,...request})}/>} onChange={setDraft} onReject={() => void command({op:'rejectImport',id:draft.id})} onApply={(selectedIds,confirmSensitive,reviewedCriticalIds) => { const parsed=IntelligenceSchema.safeParse(draft.intelligence); if(!parsed.success){setError('Check dates, skill names and evidence before merging.');return;} void command({op:'applyImport',id:draft.id,intelligence:parsed.data,facts:draft.facts,selectedIds,confirmSensitive,reviewedCriticalIds}); }}/>}
       {view?.profile?.intelligence && <details><summary>Verified structured qualifications</summary><p>{view.profile.intelligence.skills.filter((s) => s.verified).length} verified skills · {view.profile.intelligence.experience.filter((s) => s.verified).length} verified employment records</p></details>}
     </> : <>
       <h2>Ranking method</h2>

@@ -19,3 +19,27 @@ test('imports PDF and DOCX through the native file capability and bounded worker
     }
   } finally { await desktop.close(); }
 });
+
+
+test('shows actionable file errors and recovers through the isolated worker',async()=>{
+ const env=Object.fromEntries(Object.entries(process.env).filter((e):e is [string,string]=>e[1]!==undefined));delete env.ELECTRON_RUN_AS_NODE;delete env.NODE_OPTIONS;
+ const app=await electron.launch({args:[resolve('apps/desktop'),`--rovdo-data-dir=${test.info().outputPath('error-data')}`],env});
+ try{const page=await app.firstWindow();await page.getByRole('button',{name:'Profile',exact:true}).click();await page.getByRole('button',{name:'Imports',exact:true}).click();
+ const cases=[['unsupported.exe',Buffer.from('no'), 'Choose a supported'],['scanned.pdf',pdfFixture([]),'no readable text'],['malformed.docx',Buffer.from('not a zip'),'damaged or malformed']] as const;
+ for(const [name,bytes,message] of cases){const file=test.info().outputPath(name);await writeFile(file,bytes);await app.evaluate(({dialog},file)=>{dialog.showOpenDialog=async()=>({canceled:false,filePaths:[file]});},file);await page.getByRole('button',{name:'Choose profile file'}).click();await expect(page.getByRole('alert')).toContainText(message);await expect(page.getByRole('button',{name:'Choose profile file'})).toBeEnabled();}
+ const file=test.info().outputPath('recovered.pdf');await writeFile(file,pdfFixture());await app.evaluate(({dialog},file)=>{dialog.showOpenDialog=async()=>({canceled:false,filePaths:[file]});},file);await page.getByRole('button',{name:'Choose profile file'}).click();await expect(page.getByRole('heading',{name:'Review import'})).toBeVisible();await expect(page.getByRole('alert')).toHaveCount(0);
+ }finally{await app.close();}
+});
+
+
+test('keeps conflicting employment proposals separate until an individual version is approved',async()=>{
+ const env=Object.fromEntries(Object.entries(process.env).filter((e):e is [string,string]=>e[1]!==undefined));delete env.ELECTRON_RUN_AS_NODE;delete env.NODE_OPTIONS;
+ const app=await electron.launch({args:[resolve('apps/desktop'),`--rovdo-data-dir=${test.info().outputPath('conflict-data')}`],env});
+ try{const page=await app.firstWindow();const file=test.info().outputPath('conflicts.zip');await writeFile(file,zipFixture({'Positions.csv':'Company Name,Title,Started On,Finished On,Description\nSample Labs,Engineer,2020-01,2023-12,Controls\nSample Labs,Engineer,2020-01,2024-12,Controls'}));await app.evaluate(({dialog},file)=>{dialog.showOpenDialog=async()=>({canceled:false,filePaths:[file]});},file);await page.getByRole('button',{name:'Profile',exact:true}).click();await page.getByRole('button',{name:'Imports',exact:true}).click();await page.getByRole('button',{name:'Choose profile file'}).click();await page.getByRole('button',{name:'Experience (2)',exact:true}).click();
+ const rows=page.getByRole('button',{name:/Review Engineer imported experience/});await expect(rows).toHaveCount(2);
+ for(let i=0;i<2;i++){await rows.nth(i).click();await page.getByLabel('I individually reviewed this qualification and its source evidence').check();await page.getByRole('button',{name:'Done',exact:true}).click();}
+ await page.getByRole('button',{name:'Continue to confirmation'}).click();await page.getByLabel('I reviewed the selected qualifications and their source evidence').check();await page.getByRole('button',{name:'Verify selected and merge'}).click();await expect(page.getByRole('alert')).toContainText('Resolve conflicting selections');
+ await page.getByRole('button',{name:'Back to review'}).click();await page.getByLabel('Verify experience 2',{exact:true}).uncheck();await page.getByRole('button',{name:'Continue to confirmation'}).click();await page.getByLabel('I reviewed the selected qualifications and their source evidence').check();await page.getByRole('button',{name:'Verify selected and merge'}).click();await expect(page.getByText('Profile version 1',{exact:true})).toBeVisible();
+ const result=await page.evaluate(()=>window.rovdo!.intelligenceCommand({op:'view'}));expect(result.ok&&result.view.profile!.intelligence!.experience).toHaveLength(1);
+ }finally{await app.close();}
+});

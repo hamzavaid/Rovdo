@@ -61,6 +61,6 @@ export async function extractDocument(format:string,bytes:Buffer):Promise<Parsed
  }else if(['txt','md','markdown','json'].includes(format))doc=textDocument(bytes.toString('utf8').replace(/^\uFEFF/,''),format);
  else throw new Error('UNSUPPORTED_FILE');
  const text=[...doc.blocks.map(b=>b.text),...doc.tables.map(t=>JSON.stringify(t.rows))].join('\n');
- if(!text.trim()||text.length>200000||text.includes('\0'))throw new Error('TEXT_LIMIT_OR_SCANNED_PDF');return doc;
+ if(!text.trim())throw new Error(format==='pdf'?'SCANNED_PDF':'EMPTY_DOCUMENT');if(text.length>200000)throw new Error('DOCUMENT_LIMIT');if(text.includes('\0'))throw new Error('MALFORMED_DOCUMENT');return doc;
 }
 export async function extractFileText(format:string,bytes:Buffer):Promise<string>{const doc=await extractDocument(format,bytes);return doc.tables.length?JSON.stringify(doc.tables):doc.blocks.map(b=>b.text).join('\n')+(format==='docx'?'\n':'');}

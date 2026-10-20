@@ -17,7 +17,13 @@ test('reviews imported qualifications and manages persisted custom ranking profi
     await page.getByRole('button', { name: /Review typescript imported skill/ }).click();
     await page.getByLabel('Review skill 1 skillId', { exact: true }).fill('typescript');
     await page.getByRole('button', { name: 'Close qualification editor', exact: true }).click();
-    await page.getByRole('button', { name: 'Select all qualifications' }).click();
+    await page.getByRole('button', { name: 'Select skills and projects' }).click();
+    await page.getByRole('button', { name: 'Education (1)', exact: true }).click();
+    await expect(page.getByLabel('Verify education 1', { exact: true })).toBeDisabled();
+    await page.getByRole('button', { name: /Review .* imported education/ }).click();
+    await page.getByLabel('I individually reviewed this qualification and its source evidence').check();
+    await page.getByRole('button', { name: 'Done', exact: true }).click();
+    await expect(page.getByLabel('Verify education 1', { exact: true })).toBeChecked();
     await page.getByRole('button', { name: 'Continue to confirmation' }).click();
     await expect(page.getByRole('button', { name: 'Verify selected and merge' })).toBeDisabled();
     await page.getByLabel('I reviewed the selected qualifications and their source evidence').check();
