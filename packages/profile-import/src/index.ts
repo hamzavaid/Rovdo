@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import { z } from 'zod';
 import { CandidateProfileSchema, ImportPreviewSchema, IntelligenceSchema } from '@rovdo/shared';
 import type { CandidateProfile, ImportPreview, Intelligence, ProfileFact } from '@rovdo/shared';
-import { emptyProfile, intelligenceOf, resolveSkill, SKILLS } from '@rovdo/career';
+import { emptyProfile, intelligenceOf, qualificationsConflict, resolveSkill, SKILLS } from '@rovdo/career';
 import { readPublic } from '@rovdo/shared/network';
 import type { PublicResponse } from '@rovdo/shared/network';
 export { zipEntries, csvRows } from './formats';
@@ -59,6 +59,7 @@ export function mergeReviewed(profile: CandidateProfile | null, input: ImportPre
       if (index < 0) target.push(item);
       else {
         const old = target[index]!;
+        if (old.verified && qualificationsConflict(old, item)) continue;
         const refs = [...new Set([...old.evidenceIds, ...item.evidenceIds])].slice(0, 50);
         if (!old.verified) target[index] = { ...item, id: old.id, evidenceIds: refs };
         else old.evidenceIds = refs;

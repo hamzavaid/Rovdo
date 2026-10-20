@@ -12,8 +12,8 @@ function category(id: string, name: string): string {
 export function SkillsPanel({ profile, onUpdate, onAdd }: { profile: CandidateProfile; onUpdate: (update: (p: CandidateProfile) => CandidateProfile) => void; onAdd: () => void }) {
   const [query, setQuery] = useState(''); const [selected, setSelected] = useState('');
   const skills = [
-    ...(profile.intelligence?.skills.map((s) => ({ key: `structured:${s.id}`, id: s.id, name: s.displayName ?? resolveSkill(s.skillId, 'skill')?.name ?? s.skillId, category: category(s.skillId, s.skillId), verified: s.verified, version: s.version })) ?? []),
-    ...profile.facts.filter((f) => f.field === 'skill' && !profile.intelligence?.skills.some(s => (resolveSkill(s.skillId, 'skill')?.id ?? s.skillId.toLowerCase()) === (resolveSkill(f.value, 'skill')?.id ?? f.value.toLowerCase()))).map((f) => ({ key: `fact:${f.id}`, id: f.id, name: resolveSkill(f.value, 'skill')?.name ?? f.value, category: category(f.value, f.value), verified: f.verified, version: null })),
+    ...(profile.intelligence?.skills.filter(s => s.verified || !profile.facts.some(f => f.field === 'skill' && f.verified && (resolveSkill(f.value, 'skill')?.id ?? f.value.toLowerCase()) === s.skillId)).map((s) => ({ key: `structured:${s.id}`, id: s.id, name: s.displayName ?? resolveSkill(s.skillId, 'skill')?.name ?? s.skillId, category: category(s.skillId, s.skillId), verified: s.verified, version: s.version })) ?? []),
+    ...profile.facts.filter((f) => f.field === 'skill' && !profile.intelligence?.skills.some(s => (s.verified || !f.verified) && (resolveSkill(s.skillId, 'skill')?.id ?? s.skillId.toLowerCase()) === (resolveSkill(f.value, 'skill')?.id ?? f.value.toLowerCase()))).map((f) => ({ key: `fact:${f.id}`, id: f.id, name: resolveSkill(f.value, 'skill')?.name ?? f.value, category: category(f.value, f.value), verified: f.verified, version: null })),
   ];
   const filtered = skills.filter((s) => `${s.name} ${s.category}`.toLowerCase().includes(query.trim().toLowerCase()));
   const selectedSkill = skills.find((s) => s.key === selected);

@@ -1,9 +1,12 @@
-import { COMPONENTS, IntelligenceSchema, JobMatchSchema, RankingProfileSchema } from '@rovdo/shared';
-import type { CandidateProfile, Intelligence, Job, JobMatch, RankingDetails, RankingProfile, Requirement } from '@rovdo/shared';
+import { COMPONENTS, qualificationSupport, EVIDENCE_POLICY_VERSION, JobMatchSchema, RankingProfileSchema } from '@rovdo/shared';
+import type { CandidateProfile, Job, JobMatch, RankingDetails, RankingProfile, Requirement } from '@rovdo/shared';
 import { rankJobs, evaluateEligibility } from './index';
 import { degreeGate, extractRequirements, unionMonths } from './requirements';
-import { matchSkill, resolveSkill, roleOf, TAXONOMY_VERSION } from './taxonomy';
+import { matchSkill, roleOf, TAXONOMY_VERSION } from './taxonomy';
 
+import { intelligenceOf, CANDIDATE_POLICY_VERSION } from './candidate';
+export { intelligenceOf } from './candidate';
+export const SCORING_POLICY_VERSION = 'deterministic-v2.1';
 type Weights = RankingProfile['weights'];
 const weights = (partial: Partial<Weights>): Weights => Object.fromEntries(COMPONENTS.map((key) => [key, partial[key] ?? 0])) as Weights;
 function freeze<T>(value: T): T { if (value && typeof value === 'object') { for (const child of Object.values(value)) freeze(child); Object.freeze(value); } return value; }
@@ -22,14 +25,6 @@ export function stable(value: unknown): string {
 }
 // A deterministic cache fingerprint, not a cryptographic authorization digest.
 export function fingerprint(value: unknown): string { let hash = 14695981039346656037n; for (const c of stable(value)) hash = BigInt.asUintN(64, (hash ^ BigInt(c.charCodeAt(0))) * 1099511628211n); return hash.toString(16).padStart(16, '0'); }
-export function intelligenceOf(profile: CandidateProfile): Intelligence {
-  if (profile.intelligence) return IntelligenceSchema.parse(profile.intelligence);
-  const evidence = profile.facts.filter((f) => ['skill', 'education', 'degree', 'experience', 'project', 'graduationYear'].includes(f.field)).map((f) => ({ id: f.id, sourceId: `legacy:${f.id}`, sourceKind: 'legacy' as const, excerpt: f.value, sha256: '0'.repeat(64), confidence: f.source.kind === 'user' ? .9 : .75, verified: f.verified }));
-  const skills = profile.facts.flatMap((f) => { const skill = f.field === 'skill' ? resolveSkill(f.value, 'skill') : null; return skill ? [{ id: f.id, skillId: skill.id, version: null, evidenceIds: [f.id], verified: f.verified, depth: 'declared' as const }] : []; });
-  const graduation = profile.facts.find((f) => f.field === 'graduationYear' && f.verified && /^20\d{2}$/.test(f.value));
-  const education = profile.facts.flatMap((f) => { const level = /bachelor|master|doctorate|associate|high-school/i.exec(f.value)?.[0]?.toLowerCase(); return f.field === 'degree' && level ? [{ id: f.id, level, field: '', institution: '', status: /expected|enroll|pursu/i.test(f.value) ? 'expected' : 'completed', graduation: graduation?.value ?? null, verified: f.verified, evidenceIds: [f.id, ...(graduation ? [graduation.id] : [])] }] : []; });
-  return IntelligenceSchema.parse({ schemaVersion: 'intelligence-v2', evidence, skills, education, experience: [], projects: [], certifications: [] });
-}
 const clamp = (n: number) => Math.max(0, Math.min(1, n));
 const rounded = (n: number) => Math.round(n * 1000000) / 1000000;
 const avg = (values: number[]) => values.length ? values.reduce((a, b) => a + b, 0) / values.length : 0;
@@ -45,10 +40,10 @@ export function rankWithProfile(rows: { job: Job; bm25Raw: number }[], profile: 
     return rankJobs(rows, { ...profile, preferences: { ...profile.preferences, weights: { skills: config.weights.skills / total, role: config.weights.role / total, location: config.weights.location / total, eligibility: config.weights.eligibility / total, preferences: config.weights.preferences / total } } }).map((m) => ({ ...m, ranking: { method: config.method, configId: config.id, configRevision: config.revision, configHash: fingerprint(config), taxonomyVersion: 'legacy-v1', parserVersion: 'legacy-v1', evidenceVersion: fingerprint(profile.facts.filter((f) => !['name', 'email', 'phone', 'citizenship'].includes(f.field))), asOf, technicalScore: null, preferenceScore: null, requiredCoverage: 0, shortlist: !m.excluded && m.score >= config.thresholds.score && m.confidence >= config.thresholds.confidence, components: [], requirements: [] } }));
   }
   const intel = intelligenceOf(profile);
-  const configHash = fingerprint(config); const evidenceVersion = fingerprint(intel);
+  const configHash = fingerprint(config); const evidenceVersion = fingerprint([intel,EVIDENCE_POLICY_VERSION,CANDIDATE_POLICY_VERSION]);
   const evidence = new Map(intel.evidence.map((e) => [e.id, e]));
-  const confidenceOf = (item: { verified: boolean; evidenceIds: string[] }) => item.verified ? Math.min(...item.evidenceIds.map((id) => { const e = evidence.get(id); return e?.verified ? e.confidence : 0; })) : 0;
-  const usable = <T extends { verified: boolean; evidenceIds: string[] }>(items: T[]) => items.filter((i) => confidenceOf(i) >= config.minimumEvidence);
+  const confidenceOf = (item: {verified:boolean;evidenceIds:string[];conflictWith?:string[]|undefined}) => qualificationSupport(item,evidence).confidence;
+  const usable = <T extends { verified: boolean; evidenceIds: string[] }>(items: T[]) => items.filter((i) => i.verified && confidenceOf(i) > 0 && confidenceOf(i) >= config.minimumEvidence);
   const skills = usable(intel.skills); const work = usable(intel.experience); const projects = usable(intel.projects); const education = usable(intel.education); const certifications = usable(intel.certifications);
   const results = rows.map(({ job, bm25Raw }): JobMatch => {
     const parsed = extractRequirements(job.descriptionText, job.title);

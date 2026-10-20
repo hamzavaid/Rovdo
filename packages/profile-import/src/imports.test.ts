@@ -38,7 +38,7 @@ describe('deterministic imports and review', () => {
     const result = mergeReviewed(candidate, draft, draft.intelligence.skills.map((s) => s.id), false);
     expect(result.intelligence!.skills.filter((s) => s.skillId === 'react')).toHaveLength(1);
     expect(result.intelligence!.skills[0]!.version).toBe('17');
-    expect(result.intelligence!.skills[0]!.evidenceIds).toContain(draft.intelligence.skills[0]!.evidenceIds[0]);
+    expect(result.intelligence!.skills[0]!.evidenceIds).not.toContain(draft.intelligence.skills[0]!.evidenceIds[0]);
   });
   it('rebinds JSON IDs and upgrades only explicitly reviewed unverified duplicates', () => {
     const original = sampleCandidate(['react']);

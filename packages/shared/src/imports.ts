@@ -31,11 +31,20 @@ export const IntelligenceResultSchema = z.discriminatedUnion('ok', [z.strictObje
 export const INTELLIGENCE_CHANNEL = 'profile:intelligence';
 export interface IntelligenceApi { intelligenceCommand(input: IntelligenceCommand): Promise<z.infer<typeof IntelligenceResultSchema>> }
 
-// Pure outbound projection shared by the consent UI and privileged service.
-export function importAssistancePayload(preview: ImportPreview) {
- const sensitive=/\b(?:citizenship|work authori[sz]ation|clearance|gender|ethnicity|religion|date of birth|marital status|passport|social security)\b/i;
- const evidence=preview.intelligence.evidence.filter(e=>!sensitive.test(e.excerpt)).map(({id,excerpt})=>({id,excerpt}));
+// Same minimized source projection is used by the consent UI and privileged service.
+export type ImportPrivacyOptions={redactPii?:boolean|undefined;evidenceIds?:string[]|undefined};
+export function redactImportPii(text:string):string {
+ return text.replace(/^\s*(?:name|address|phone|email|contact|date of birth|birth date)\s*:[^\n]*/gim,'[redacted contact line]')
+ .replace(/\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/gi,'[redacted email]')
+ .replace(/(?:\+?\d[\d ().-]{7,}\d)/g,'[redacted phone]')
+ .replace(/https?:\/\/[^\s"<>]+/gi,'[redacted URL]');
+}
+export function importAssistancePayload(preview:ImportPreview,options:ImportPrivacyOptions={}) {
+ const sensitive=/\b(?:citizenship|work authori[sz]ation|clearance|gender|ethnicity|religion|date of birth|birth date|marital status|passport|social security)\b/i;
+ const chosen=options.evidenceIds?new Set(options.evidenceIds):null;const redact=options.redactPii!==false;
+ const evidence=preview.intelligence.evidence.filter(e=>(!chosen||chosen.has(e.id))&&!sensitive.test(e.excerpt)).map(({id,excerpt})=>({id,excerpt:redact?redactImportPii(excerpt):excerpt}));
  const allowed=new Set(evidence.map(e=>e.id));
+ const fields:Record<string,string[]>={skills:['skillId','version'],experience:['title','organization','start','end'],education:['institution','field','graduation'],projects:['name','start','end'],certifications:['name','issuer','expires']};
  const sections=['skills','experience','education','projects','certifications'] as const;
- return {version:'import-assistance-v1',evidence,records:Object.fromEntries(sections.map(key=>[key,preview.intelligence[key].filter(r=>r.evidenceIds.every(id=>allowed.has(id))).map(r=>Object.fromEntries(Object.entries(r).filter(([key])=>!['verified','metadata'].includes(key))))]))};
+ return {version:'import-assistance-v2',evidence,records:Object.fromEntries(sections.map(key=>[key,preview.intelligence[key].filter(r=>r.evidenceIds.some(id=>allowed.has(id))).map(r=>({id:r.id,evidenceIds:r.evidenceIds.filter(id=>allowed.has(id)),...Object.fromEntries(Object.entries(r).filter(([field])=>fields[key]!.includes(field)).map(([k,v])=>[k,redact&&typeof v==='string'?redactImportPii(v):v]))}))]))};
 }

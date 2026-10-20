@@ -6,8 +6,8 @@ export const PartialDateSchema = z.string().regex(/^\d{4}(?:-(?:0[1-9]|1[0-2])(?
   if (v.length !== 10) return true;
   const d = new Date(`${v}T00:00:00Z`); return Number.isFinite(d.getTime()) && d.toISOString().slice(0, 10) === v;
 });
-export const EvidenceSchema = z.strictObject({ id, sourceId: id, sourceKind: z.enum(['file', 'github', 'linkedin', 'user', 'legacy']), excerpt: text, sha256: z.string().regex(/^[a-f0-9]{64}$/), confidence: z.number().finite().min(0).max(1), verified: z.boolean(), location: z.string().max(400).optional() });
-const bound = { id, evidenceIds: z.array(id).min(1).max(50), verified: z.boolean() };
+export const EvidenceSchema = z.strictObject({ id, sourceId: id, sourceKind: z.enum(['file', 'github', 'linkedin', 'user', 'legacy']), excerpt: text, sha256: z.string().regex(/^[a-f0-9]{64}$/), confidence: z.number().finite().min(0).max(1), verified: z.boolean(), location: z.string().max(400).optional(), sourceReliability: z.number().min(0).max(1).optional(), stance: z.enum(['supports', 'contradicts']).optional() });
+const bound = { conflictWith: z.array(id).max(50).optional(), id, evidenceIds: z.array(id).min(1).max(50), verified: z.boolean() };
 export const SkillEvidenceSchema = z.strictObject({ ...bound, skillId: id, version: z.string().max(40).nullable(), depth: z.enum(['production', 'project', 'supporting', 'course', 'declared']), proficiency: z.enum(['unspecified', 'beginner', 'working', 'advanced', 'expert']).optional(), recognition: z.enum(['explicit', 'contextual', 'inferred']).optional(), displayName: z.string().trim().min(1).max(200).optional() });
 export const EducationSchema = z.strictObject({ ...bound, level: z.enum(['high-school', 'associate', 'bachelor', 'master', 'doctorate', 'other']), field: text, institution: text, status: z.enum(['completed', 'enrolled', 'expected', 'incomplete']), graduation: PartialDateSchema.nullable() });
 export const ExperienceSchema = z.strictObject({ ...bound, title: text, organization: text, roleFamily: id, level: z.string().max(40), track: z.enum(['ic', 'management', 'unknown']), start: PartialDateSchema.nullable(), end: PartialDateSchema.nullable(), ongoing: z.boolean().optional(), skills: z.array(id).max(100), production: z.boolean() });
@@ -22,8 +22,9 @@ export const IntelligenceSchema = z.strictObject({
     if (new Set(v[key].map((x) => x.id)).size !== v[key].length) ctx.addIssue({ code: 'custom', message: 'Duplicate qualification IDs', path: [key] });
     for (const item of v[key]) for (const ref of item.evidenceIds) {
       const e = evidence.get(ref);
-      if (!e || item.verified && !e.verified) ctx.addIssue({ code: 'custom', message: 'Qualification needs bound, verified evidence', path: [key] });
+      if (!e) ctx.addIssue({ code: 'custom', message: 'Qualification needs bound, verified evidence', path: [key] });
     }
+    for (const item of v[key]) if (item.verified && !item.evidenceIds.some(ref => { const e = evidence.get(ref); return e?.verified && e.stance !== 'contradicts'; })) ctx.addIssue({ code: 'custom', message: 'Verified qualification needs verified supporting evidence', path: [key] });
   }
 });
 export type Intelligence = z.infer<typeof IntelligenceSchema>;
