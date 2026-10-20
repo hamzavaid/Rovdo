@@ -1,25 +1,348 @@
+/**
+ * Guided extraction review with grouped proposals, source excerpts and final merge confirmation.
+ * Critical records require individual review; editing a proposal invalidates its previous approval.
+ */
 import { useState } from 'react';
 import type { CandidateProfile, ImportPreview } from '@rovdo/shared';
 import { criticalReviewIds, intelligenceOf, resolveSkill } from '@rovdo/career';
 import { ProfileDialog } from './ProfileDialog';
-import { QualificationFields, QualificationEvidence, qualificationTitle } from './QualificationFields';
+import {
+  QualificationFields,
+  QualificationEvidence,
+  qualificationTitle,
+} from './QualificationFields';
 import type { Qualification } from './QualificationFields';
-const sections=['skills','experience','education','projects','certifications'] as const;
-const singular={skills:'skill',experience:'experience',education:'education',projects:'project',certifications:'certification'};
-const identity=(item:Qualification)=>('skillId' in item?(resolveSkill(item.skillId,'skill')?.id??item.skillId):'organization' in item?`${item.title}|${item.organization}|${item.start}`:'institution' in item?`${item.level}|${item.field}|${item.institution}`:`${item.name}|${'url' in item?item.url??'':item.issuer}`).toLowerCase().replace(/\s+/g,' ').trim();
-const value=(item:Qualification)=>JSON.stringify(Object.fromEntries(Object.entries(item).filter(([k])=>!['id','evidenceIds','verified'].includes(k))));
-export function ImportReview({draft,profile,onChange,onApply,onReject,assistance}:{draft:ImportPreview;profile:CandidateProfile|null;onChange:(p:ImportPreview)=>void;onApply:(ids:string[],legal:boolean,reviewed:string[])=>void;onReject:()=>void;assistance?:React.ReactNode}){
- const [section,setSection]=useState<typeof sections[number]>('skills');const [selected,setSelected]=useState<string[]>([]);const [editing,setEditing]=useState('');const [query,setQuery]=useState('');const [confirm,setConfirm]=useState(false);const [assertion,setAssertion]=useState(false);const [legal,setLegal]=useState(false);
- const [reviewed,setReviewed]=useState<Record<string,string>>({}); const critical=criticalReviewIds(profile,draft.intelligence,draft.facts);
- const existing=profile?intelligenceOf(profile):null;
- const report=(key:typeof sections[number],item:Qualification)=>{if(item.conflictWith?.length)return 'Conflict: source records disagree; select one consistent version';const old=existing?.[key].find(x=>identity(x)===identity(item));return !old?'New qualification':value(old)===value(item)?'Duplicate: links supporting evidence':old.verified?'Conflict: verified original will be preserved':'Existing proposal: reviewed changes will merge';};
- const items=sections.flatMap(key=>draft.intelligence[key].map(item=>({key,item,note:report(key,item)})));const duplicates=items.filter(x=>x.note.startsWith('Duplicate')).length;const conflicts=items.filter(x=>x.note.startsWith('Conflict')).length;
- const entry=items.find(x=>x.item.id===editing);const index=entry?draft.intelligence[entry.key].findIndex(x=>x.id===entry.item.id):0;
- const toggle=(id:string,checked:boolean)=>{setSelected(s=>checked?[...new Set([...s,id])]:s.filter(x=>x!==id));setAssertion(false);};
- return <div className="import-preview"><ol className="import-steps" aria-label="Import progress">{['Select source','Extract','Review','Confirm'].map((s,i)=><li key={s} aria-current={(confirm?3:2)===i?'step':undefined}>{i+1}. {s}</li>)}</ol><h3>{confirm?'Confirm qualifications':'Review import'}</h3><p>{draft.source.name} / {draft.parserVersion}</p><p className="help-text">{items.length} proposed qualifications / {duplicates} duplicates / {conflicts} conflicts. Verified originals are preserved.</p>
- {draft.warnings.length>0&&<details><summary>Warnings &amp; missing information ({draft.warnings.length})</summary><ul>{draft.warnings.map(w=><li key={w}>{w}</li>)}</ul></details>}
- {!confirm?<><nav className="section-nav" aria-label="Import groups">{sections.map(key=><button type="button" key={key} aria-pressed={section===key} onClick={()=>{setSection(key);setQuery('');}}>{key[0]!.toUpperCase()+key.slice(1)} ({draft.intelligence[key].length})</button>)}</nav><label>Search extracted qualifications<input value={query} onChange={e=>setQuery(e.target.value)}/></label><div className="button-row"><button type="button" onClick={()=>{setSelected(items.filter(x=>!critical.has(x.item.id)).map(x=>x.item.id));setAssertion(false);}}>Select skills and projects</button><button type="button" onClick={()=>{setSelected([]);setAssertion(false);}}>Clear selection</button><small>{selected.length} selected; not yet verified</small></div><p className="help-text">Employment, education, certifications and conflicts need individual source review. Open a record to confirm it.</p><div className="qualification-rows">{draft.intelligence[section].filter(item=>qualificationTitle(item).toLowerCase().includes(query.toLowerCase())).map((item,i)=><div className="import-row" key={item.id}><input type="checkbox" aria-label={`Verify ${singular[section]} ${i+1}`} disabled={critical.has(item.id)&&reviewed[item.id]!==JSON.stringify(item)} checked={selected.includes(item.id)} onChange={e=>toggle(item.id,e.target.checked)}/><button type="button" className="qualification-row" aria-label={`Review ${'skillId' in item?item.skillId:qualificationTitle(item)} imported ${singular[section]}`} onClick={()=>setEditing(item.id)}><span><strong>{qualificationTitle(item)}</strong><small>{report(section,item)}</small></span><span>Edit</span></button></div>)}</div>{!draft.intelligence[section].length&&<p className="help-text">No {section} detected. Add missing information to your profile after review.</p>}
- {draft.facts.length>0&&<details><summary>Additional assertions ({draft.facts.length})</summary>{draft.facts.map(f=><details key={f.id}><summary>{f.field}: {f.value.slice(0,100)}</summary><blockquote>{f.value}</blockquote><p className="help-text">{f.source.reference}. Imported assertions remain unverified until you confirm them.</p><label><input type="checkbox" checked={selected.includes(f.id)} onChange={e=>{setReviewed(r=>({...r,[f.id]:e.target.checked?JSON.stringify(f):''}));toggle(f.id,e.target.checked);}}/>I individually reviewed this {f.field} assertion and its source</label></details>)}</details>}{assistance}<div className="button-row"><button type="button" className="primary-button" disabled={!selected.length} onClick={()=>{setAssertion(false);setConfirm(true);}}>Continue to confirmation</button><button type="button" onClick={onReject}>Reject import</button></div></>:<section className="surface-card"><p>{selected.length} records selected. Only confirm qualifications you can support. Existing verified records will be kept.</p><label><input type="checkbox" checked={assertion} onChange={e=>setAssertion(e.target.checked)}/>I reviewed the selected qualifications and their source evidence</label>{draft.facts.some(f=>selected.includes(f.id)&&['citizenship','workAuthorization','clearance'].includes(f.field))&&<label><input type="checkbox" checked={legal} onChange={e=>setLegal(e.target.checked)}/>I explicitly confirm selected citizenship, work authorization and clearance assertions as my own</label>}<div className="button-row"><button type="button" onClick={()=>setConfirm(false)}>Back to review</button><button type="button" className="primary-button" disabled={!assertion} onClick={()=>onApply(selected,legal,[...items.filter(x=>reviewed[x.item.id]===JSON.stringify(x.item)).map(x=>x.item.id),...draft.facts.filter(f=>reviewed[f.id]===JSON.stringify(f)).map(f=>f.id)])}>Verify selected and merge</button></div></section>}
- {entry&&<ProfileDialog title={qualificationTitle(entry.item)} onClose={()=>setEditing('')}><QualificationFields section={entry.key} item={entry.item} prefix={`Review ${singular[entry.key]} ${index+1}`} onChange={(field,value)=>{onChange({...draft,intelligence:{...draft.intelligence,[entry.key]:draft.intelligence[entry.key].map(x=>x.id===entry.item.id?{...x,[field]:value,verified:false}:x)}});setSelected(s=>s.filter(id=>id!==entry.item.id));setReviewed(r=>{const next={...r};delete next[entry.item.id];return next;});setAssertion(false);}}/><QualificationEvidence item={entry.item} intelligence={draft.intelligence}/><p className="help-text">{entry.note}. Confirm only information supported by the source excerpts.</p><label><input type="checkbox" checked={selected.includes(entry.item.id)} onChange={e=>{setReviewed(r=>({...r,[entry.item.id]:e.target.checked?JSON.stringify(entry.item):''}));toggle(entry.item.id,e.target.checked);}}/>{critical.has(entry.item.id)?'I individually reviewed this qualification and its source evidence':'Select this qualification for confirmation'}</label><button type="button" onClick={()=>setEditing('')}>Done</button></ProfileDialog>}
- </div>;
+const sections = ['skills', 'experience', 'education', 'projects', 'certifications'] as const;
+const singular = {
+  skills: 'skill',
+  experience: 'experience',
+  education: 'education',
+  projects: 'project',
+  certifications: 'certification',
+};
+const identity = (item: Qualification) =>
+  ('skillId' in item
+    ? (resolveSkill(item.skillId, 'skill')?.id ?? item.skillId)
+    : 'organization' in item
+      ? `${item.title}|${item.organization}|${item.start}`
+      : 'institution' in item
+        ? `${item.level}|${item.field}|${item.institution}`
+        : `${item.name}|${'url' in item ? (item.url ?? '') : item.issuer}`
+  )
+    .toLowerCase()
+    .replace(/\s+/g, ' ')
+    .trim();
+const value = (item: Qualification) =>
+  JSON.stringify(
+    Object.fromEntries(
+      Object.entries(item).filter(([k]) => !['id', 'evidenceIds', 'verified'].includes(k)),
+    ),
+  );
+export function ImportReview({
+  draft,
+  profile,
+  onChange,
+  onApply,
+  onReject,
+  assistance,
+}: {
+  draft: ImportPreview;
+  profile: CandidateProfile | null;
+  onChange: (p: ImportPreview) => void;
+  onApply: (ids: string[], legal: boolean, reviewed: string[]) => void;
+  onReject: () => void;
+  assistance?: React.ReactNode;
+}) {
+  const [section, setSection] = useState<(typeof sections)[number]>('skills');
+  const [selected, setSelected] = useState<string[]>([]);
+  const [editing, setEditing] = useState('');
+  const [query, setQuery] = useState('');
+  const [confirm, setConfirm] = useState(false);
+  const [assertion, setAssertion] = useState(false);
+  const [legal, setLegal] = useState(false);
+  // Bind individual review to the exact proposal fields; edits invalidate the stored signature.
+  const [reviewed, setReviewed] = useState<Record<string, string>>({});
+  const critical = criticalReviewIds(profile, draft.intelligence, draft.facts);
+  const existing = profile ? intelligenceOf(profile) : null;
+  const report = (key: (typeof sections)[number], item: Qualification) => {
+    if (item.conflictWith?.length)
+      return 'Conflict: source records disagree; select one consistent version';
+    const old = existing?.[key].find((x) => identity(x) === identity(item));
+    return !old
+      ? 'New qualification'
+      : value(old) === value(item)
+        ? 'Duplicate: links supporting evidence'
+        : old.verified
+          ? 'Conflict: verified original will be preserved'
+          : 'Existing proposal: reviewed changes will merge';
+  };
+  const items = sections.flatMap((key) =>
+    draft.intelligence[key].map((item) => ({ key, item, note: report(key, item) })),
+  );
+  const duplicates = items.filter((x) => x.note.startsWith('Duplicate')).length;
+  const conflicts = items.filter((x) => x.note.startsWith('Conflict')).length;
+  const entry = items.find((x) => x.item.id === editing);
+  const index = entry ? draft.intelligence[entry.key].findIndex((x) => x.id === entry.item.id) : 0;
+  // Any selection change invalidates the final aggregate confirmation, independently of row review.
+  const toggle = (id: string, checked: boolean) => {
+    setSelected((s) => (checked ? [...new Set([...s, id])] : s.filter((x) => x !== id)));
+    setAssertion(false);
+  };
+  return (
+    <div className="import-preview">
+      <ol className="import-steps" aria-label="Import progress">
+        {['Select source', 'Extract', 'Review', 'Confirm'].map((s, i) => (
+          <li key={s} aria-current={(confirm ? 3 : 2) === i ? 'step' : undefined}>
+            {i + 1}. {s}
+          </li>
+        ))}
+      </ol>
+      <h3>{confirm ? 'Confirm qualifications' : 'Review import'}</h3>
+      <p>
+        {draft.source.name} / {draft.parserVersion}
+      </p>
+      <p className="help-text">
+        {items.length} proposed qualifications / {duplicates} duplicates / {conflicts} conflicts.
+        Verified originals are preserved.
+      </p>
+      {draft.warnings.length > 0 && (
+        <details>
+          <summary>Warnings &amp; missing information ({draft.warnings.length})</summary>
+          <ul>
+            {draft.warnings.map((w) => (
+              <li key={w}>{w}</li>
+            ))}
+          </ul>
+        </details>
+      )}
+      {!confirm ? (
+        <>
+          <nav className="section-nav" aria-label="Import groups">
+            {sections.map((key) => (
+              <button
+                type="button"
+                key={key}
+                aria-pressed={section === key}
+                onClick={() => {
+                  setSection(key);
+                  setQuery('');
+                }}
+              >
+                {key[0]!.toUpperCase() + key.slice(1)} ({draft.intelligence[key].length})
+              </button>
+            ))}
+          </nav>
+          <label>
+            Search extracted qualifications
+            <input value={query} onChange={(e) => setQuery(e.target.value)} />
+          </label>
+          <div className="button-row">
+            <button
+              type="button"
+              onClick={() => {
+                setSelected(items.filter((x) => !critical.has(x.item.id)).map((x) => x.item.id));
+                setAssertion(false);
+              }}
+            >
+              Select skills and projects
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setSelected([]);
+                setAssertion(false);
+              }}
+            >
+              Clear selection
+            </button>
+            <small>{selected.length} selected; not yet verified</small>
+          </div>
+          <p className="help-text">
+            Employment, education, certifications and conflicts need individual source review. Open
+            a record to confirm it.
+          </p>
+          <div className="qualification-rows">
+            {draft.intelligence[section]
+              .filter((item) =>
+                qualificationTitle(item).toLowerCase().includes(query.toLowerCase()),
+              )
+              .map((item, i) => (
+                <div className="import-row" key={item.id}>
+                  <input
+                    type="checkbox"
+                    aria-label={`Verify ${singular[section]} ${i + 1}`}
+                    disabled={critical.has(item.id) && reviewed[item.id] !== JSON.stringify(item)}
+                    checked={selected.includes(item.id)}
+                    onChange={(e) => toggle(item.id, e.target.checked)}
+                  />
+                  <button
+                    type="button"
+                    className="qualification-row"
+                    aria-label={`Review ${'skillId' in item ? item.skillId : qualificationTitle(item)} imported ${singular[section]}`}
+                    onClick={() => setEditing(item.id)}
+                  >
+                    <span>
+                      <strong>{qualificationTitle(item)}</strong>
+                      <small>{report(section, item)}</small>
+                    </span>
+                    <span>Edit</span>
+                  </button>
+                </div>
+              ))}
+          </div>
+          {!draft.intelligence[section].length && (
+            <p className="help-text">
+              No {section} detected. Add missing information to your profile after review.
+            </p>
+          )}
+          {draft.facts.length > 0 && (
+            <details>
+              <summary>Additional assertions ({draft.facts.length})</summary>
+              {draft.facts.map((f) => (
+                <details key={f.id}>
+                  <summary>
+                    {f.field}: {f.value.slice(0, 100)}
+                  </summary>
+                  <blockquote>{f.value}</blockquote>
+                  <p className="help-text">
+                    {f.source.reference}. Imported assertions remain unverified until you confirm
+                    them.
+                  </p>
+                  <label>
+                    <input
+                      type="checkbox"
+                      checked={selected.includes(f.id)}
+                      onChange={(e) => {
+                        setReviewed((r) => ({
+                          ...r,
+                          [f.id]: e.target.checked ? JSON.stringify(f) : '',
+                        }));
+                        toggle(f.id, e.target.checked);
+                      }}
+                    />
+                    I individually reviewed this {f.field} assertion and its source
+                  </label>
+                </details>
+              ))}
+            </details>
+          )}
+          {assistance}
+          <div className="button-row">
+            <button
+              type="button"
+              className="primary-button"
+              disabled={!selected.length}
+              onClick={() => {
+                setAssertion(false);
+                setConfirm(true);
+              }}
+            >
+              Continue to confirmation
+            </button>
+            <button type="button" onClick={onReject}>
+              Reject import
+            </button>
+          </div>
+        </>
+      ) : (
+        <section className="surface-card">
+          <p>
+            {selected.length} records selected. Only confirm qualifications you can support.
+            Existing verified records will be kept.
+          </p>
+          <label>
+            <input
+              type="checkbox"
+              checked={assertion}
+              onChange={(e) => setAssertion(e.target.checked)}
+            />
+            I reviewed the selected qualifications and their source evidence
+          </label>
+          {draft.facts.some(
+            (f) =>
+              selected.includes(f.id) &&
+              ['citizenship', 'workAuthorization', 'clearance'].includes(f.field),
+          ) && (
+            <label>
+              <input type="checkbox" checked={legal} onChange={(e) => setLegal(e.target.checked)} />
+              I explicitly confirm selected citizenship, work authorization and clearance assertions
+              as my own
+            </label>
+          )}
+          <div className="button-row">
+            <button type="button" onClick={() => setConfirm(false)}>
+              Back to review
+            </button>
+            <button
+              type="button"
+              className="primary-button"
+              disabled={!assertion}
+              onClick={() =>
+                onApply(selected, legal, [
+                  ...items
+                    .filter((x) => reviewed[x.item.id] === JSON.stringify(x.item))
+                    .map((x) => x.item.id),
+                  ...draft.facts
+                    .filter((f) => reviewed[f.id] === JSON.stringify(f))
+                    .map((f) => f.id),
+                ])
+              }
+            >
+              Verify selected and merge
+            </button>
+          </div>
+        </section>
+      )}
+      {entry && (
+        <ProfileDialog title={qualificationTitle(entry.item)} onClose={() => setEditing('')}>
+          <QualificationFields
+            section={entry.key}
+            item={entry.item}
+            prefix={`Review ${singular[entry.key]} ${index + 1}`}
+            onChange={(field, value) => {
+              onChange({
+                ...draft,
+                intelligence: {
+                  ...draft.intelligence,
+                  [entry.key]: draft.intelligence[entry.key].map((x) =>
+                    x.id === entry.item.id ? { ...x, [field]: value, verified: false } : x,
+                  ),
+                },
+              });
+              setSelected((s) => s.filter((id) => id !== entry.item.id));
+              setReviewed((r) => {
+                const next = { ...r };
+                delete next[entry.item.id];
+                return next;
+              });
+              setAssertion(false);
+            }}
+          />
+          <QualificationEvidence item={entry.item} intelligence={draft.intelligence} />
+          <p className="help-text">
+            {entry.note}. Confirm only information supported by the source excerpts.
+          </p>
+          <label>
+            <input
+              type="checkbox"
+              checked={selected.includes(entry.item.id)}
+              onChange={(e) => {
+                setReviewed((r) => ({
+                  ...r,
+                  [entry.item.id]: e.target.checked ? JSON.stringify(entry.item) : '',
+                }));
+                toggle(entry.item.id, e.target.checked);
+              }}
+            />
+            {critical.has(entry.item.id)
+              ? 'I individually reviewed this qualification and its source evidence'
+              : 'Select this qualification for confirmation'}
+          </label>
+          <button type="button" onClick={() => setEditing('')}>
+            Done
+          </button>
+        </ProfileDialog>
+      )}
+    </div>
+  );
 }

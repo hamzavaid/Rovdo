@@ -1,3 +1,7 @@
+/**
+ * Allow-listed structured diagnostics for privileged application components.
+ * Schema validation prevents arbitrary secrets, page contents or exception payloads from entering logs.
+ */
 import { DiagnosticEventSchema } from '@rovdo/shared';
 export * from './browser';
 
@@ -7,9 +11,13 @@ export function createLogger(
 ): (input: unknown) => void {
   return (input) => {
     const parsed = DiagnosticEventSchema.safeParse(input);
-    const event = parsed.success ? parsed.data : {
-      level: 'warn', event: 'diagnostics.rejected', component: 'agent-core',
-    };
+    const event = parsed.success
+      ? parsed.data
+      : {
+          level: 'warn',
+          event: 'diagnostics.rejected',
+          component: 'agent-core',
+        };
     sink(JSON.stringify({ timestamp: now().toISOString(), ...event }) + '\n');
   };
 }

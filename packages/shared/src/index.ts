@@ -1,3 +1,7 @@
+/**
+ * Public shared contracts and the renderer-facing DesktopApi capability surface.
+ * Schemas are runtime boundaries; diagnostics deliberately accept only predefined metadata.
+ */
 import { z } from 'zod';
 import type { ByokApi } from './byok';
 import type { BrowserApi } from './browser';
@@ -16,26 +20,45 @@ export const ErrorCodeSchema = z.enum(['VALIDATION_ERROR', 'IPC_FORBIDDEN', 'INT
 export type ErrorCode = z.infer<typeof ErrorCodeSchema>;
 
 export const RunStateSchema = z.enum([
-  'CREATED', 'QUEUED', 'PREFLIGHT', 'PLANNING', 'EXECUTING', 'VERIFYING',
-  'AWAITING_APPROVAL', 'PAUSED', 'RETRYING', 'COMPLETED', 'PARTIAL', 'FAILED', 'CANCELED',
+  'CREATED',
+  'QUEUED',
+  'PREFLIGHT',
+  'PLANNING',
+  'EXECUTING',
+  'VERIFYING',
+  'AWAITING_APPROVAL',
+  'PAUSED',
+  'RETRYING',
+  'COMPLETED',
+  'PARTIAL',
+  'FAILED',
+  'CANCELED',
 ]);
 export type RunState = z.infer<typeof RunStateSchema>;
 
 // Syntax validation only. Execution must also resolve destinations and check
 // IPs, redirects and per-run authorization at the action broker boundary.
-const ExternalOriginSchema = z.string().max(2048).refine((value) => {
-  try {
-    const url = new URL(value);
-    const labels = url.hostname.split('.');
-    return url.protocol === 'https:' && url.origin === value &&
-      !url.username && !url.password && labels.length > 1 &&
-      labels.every((label) => /^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/i.test(label)) &&
-      /^[a-z]{2,}$/i.test(labels.at(-1)!) &&
-      !/\.(local|localhost|internal|lan|home)$/i.test(url.hostname);
-  } catch {
-    return false;
-  }
-}, 'Expected an explicit external HTTPS origin without credentials, path or query');
+const ExternalOriginSchema = z
+  .string()
+  .max(2048)
+  .refine((value) => {
+    try {
+      const url = new URL(value);
+      const labels = url.hostname.split('.');
+      return (
+        url.protocol === 'https:' &&
+        url.origin === value &&
+        !url.username &&
+        !url.password &&
+        labels.length > 1 &&
+        labels.every((label) => /^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/i.test(label)) &&
+        /^[a-z]{2,}$/i.test(labels.at(-1)!) &&
+        !/\.(local|localhost|internal|lan|home)$/i.test(url.hostname)
+      );
+    } catch {
+      return false;
+    }
+  }, 'Expected an explicit external HTTPS origin without credentials, path or query');
 
 export const StartRunSchema = z.strictObject({
   task: z.string().trim().min(1).max(10_000),

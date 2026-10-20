@@ -1,3 +1,5 @@
+# Cross-platform regression gate for the built Electron application.
+# Tests use fixture services and the native credential vault, never paid model requests.
 name: CI
 
 on:
@@ -52,6 +54,7 @@ jobs:
           node scripts/linux-sandbox.ts > "$RUNNER_TEMP/rovdo-playwright.apparmor"
           sudo install -o root -g root -m 644 "$RUNNER_TEMP/rovdo-playwright.apparmor" /etc/apparmor.d/rovdo-playwright
           sudo apparmor_parser --replace /etc/apparmor.d/rovdo-playwright
+      # Provide an isolated Secret Service session and display while preserving Chromium sandboxing.
       - name: Electron and native vault (Linux)
         if: runner.os == 'Linux'
         run: dbus-run-session -- sh -c 'printf "rovdo-ci-fixture\n" | gnome-keyring-daemon --unlock --components=secrets; xvfb-run --auto-servernum npm run test:e2e'
@@ -60,6 +63,7 @@ jobs:
         run: npm run test:e2e
       - name: Dependency audit
         run: npm audit --audit-level=high
+      # Private implementation records must never enter the public repository.
       - name: Verify private documentation is untracked
         shell: bash
         run: test -z "$(git ls-files docs)"

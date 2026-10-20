@@ -1,11 +1,156 @@
+/**
+ * Optional AI-assistance consent UI with destination, payload, privacy and spending controls.
+ * Approval is bound to the displayed configuration so changing what will be sent requires fresh consent.
+ */
 import { useState } from 'react';
 import { importAssistancePayload } from '@rovdo/shared';
 import type { ImportPreview, ImportPrivacyOptions, SettingsView } from '@rovdo/shared';
-export function ImportAssistance({preview,settings,onImprove}:{preview:ImportPreview;settings:SettingsView;onImprove:(request:ImportPrivacyOptions&{modelProfileId:string;maxUsd:number;consent:true})=>void}){
- const [model,setModel]=useState('');const [budget,setBudget]=useState('0.10');const [approval,setApproval]=useState('');
- const [redactPii,setRedactPii]=useState(true);const [excluded,setExcluded]=useState<string[]>([]);
- const available=importAssistancePayload(preview,{redactPii:false}).evidence;const evidenceIds=available.filter(e=>!excluded.includes(e.id)).map(e=>e.id);const projection=importAssistancePayload(preview,{redactPii,evidenceIds});
- const payload=JSON.stringify(projection);const config=settings.profiles.find(p=>p.config.id===model)?.config;
- const stamp=JSON.stringify([redactPii,evidenceIds,payload,model,config?.baseUrl,config?.model,budget]);const eligible=settings.profiles.filter(p=>p.config.pricing&&['stored','not-required'].includes(p.credential));
- return <details className="surface-disclosure"><summary>Improve Extraction with AI (optional)</summary><p>Deterministic importing works without a model. AI can propose cited corrections and missing skills; you must review and confirm every suggestion. This opens a separate proposal from the saved extraction.</p>{!eligible.length?<p className="help-text">Configure a model with authentication and pricing in Models &amp; Privacy to use assistance.</p>:<><label>Extraction model<select value={model} onChange={e=>setModel(e.target.value)}><option value="">Choose a model</option>{eligible.map(p=><option key={p.config.id} value={p.config.id}>{p.config.label} / {p.config.model}</option>)}</select></label><label>Extraction spend limit (USD)<input type="number" min="0.01" max="1" step="0.01" value={budget} onChange={e=>setBudget(e.target.value)}/></label><details><summary>Privacy &amp; included sources</summary><label><input type="checkbox" checked={redactPii} onChange={e=>setRedactPii(e.target.checked)}/>Redact detected contact details before sending</label><p className="help-text">Redaction is heuristic and may miss personal information. Review the exact outbound content. Legal and protected assertions are always excluded. Only selected source excerpts and minimal qualification fields are sent.</p>{available.map((e,i)=><label key={e.id}><input type="checkbox" checked={!excluded.includes(e.id)} onChange={event=>setExcluded(ids=>event.target.checked?ids.filter(id=>id!==e.id):[...ids,e.id])}/>{`Include source excerpt ${i+1}`}<small>{e.excerpt.slice(0,100)}</small></label>)}</details><p className="destination">{config?.baseUrl ?? 'Select a destination'}</p><details><summary>Review exact source content sent to the model</summary><pre className="payload-preview">{payload}</pre></details>{payload.length>64000&&<p role="alert">This source exceeds the 64,000-character assistance limit. Continue deterministic review.</p>}<label><input type="checkbox" checked={approval===stamp} onChange={e=>setApproval(e.target.checked?stamp:'')}/>I approve sending these source excerpts and proposed records to this model</label><button type="button" disabled={!projection.evidence.length||!config||approval!==stamp||payload.length>64000||!Number.isFinite(Number(budget))||Number(budget)<=0||Number(budget)>1} onClick={()=>onImprove({modelProfileId:model,maxUsd:Number(budget),consent:true,redactPii,evidenceIds})}>Improve Extraction with AI</button></>}</details>;
+export function ImportAssistance({
+  preview,
+  settings,
+  onImprove,
+}: {
+  preview: ImportPreview;
+  settings: SettingsView;
+  onImprove: (
+    request: ImportPrivacyOptions & { modelProfileId: string; maxUsd: number; consent: true },
+  ) => void;
+}) {
+  const [model, setModel] = useState('');
+  const [budget, setBudget] = useState('0.10');
+  const [approval, setApproval] = useState('');
+  const [redactPii, setRedactPii] = useState(true);
+  const [excluded, setExcluded] = useState<string[]>([]);
+  const available = importAssistancePayload(preview, { redactPii: false }).evidence;
+  const evidenceIds = available.filter((e) => !excluded.includes(e.id)).map((e) => e.id);
+  const projection = importAssistancePayload(preview, { redactPii, evidenceIds });
+  const payload = JSON.stringify(projection);
+  const config = settings.profiles.find((p) => p.config.id === model)?.config;
+  // Consent covers payload, privacy, model destination and budget, rather than a reusable checkbox.
+  const stamp = JSON.stringify([
+    redactPii,
+    evidenceIds,
+    payload,
+    model,
+    config?.baseUrl,
+    config?.model,
+    budget,
+  ]);
+  const eligible = settings.profiles.filter(
+    (p) => p.config.pricing && ['stored', 'not-required'].includes(p.credential),
+  );
+  return (
+    <details className="surface-disclosure">
+      <summary>Improve Extraction with AI (optional)</summary>
+      <p>
+        Deterministic importing works without a model. AI can propose cited corrections and missing
+        skills; you must review and confirm every suggestion. This opens a separate proposal from
+        the saved extraction.
+      </p>
+      {!eligible.length ? (
+        <p className="help-text">
+          Configure a model with authentication and pricing in Models &amp; Privacy to use
+          assistance.
+        </p>
+      ) : (
+        <>
+          <label>
+            Extraction model
+            <select value={model} onChange={(e) => setModel(e.target.value)}>
+              <option value="">Choose a model</option>
+              {eligible.map((p) => (
+                <option key={p.config.id} value={p.config.id}>
+                  {p.config.label} / {p.config.model}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label>
+            Extraction spend limit (USD)
+            <input
+              type="number"
+              min="0.01"
+              max="1"
+              step="0.01"
+              value={budget}
+              onChange={(e) => setBudget(e.target.value)}
+            />
+          </label>
+          <details>
+            <summary>Privacy &amp; included sources</summary>
+            <label>
+              <input
+                type="checkbox"
+                checked={redactPii}
+                onChange={(e) => setRedactPii(e.target.checked)}
+              />
+              Redact detected contact details before sending
+            </label>
+            <p className="help-text">
+              Redaction is heuristic and may miss personal information. Review the exact outbound
+              content. Legal and protected assertions are always excluded. Only selected source
+              excerpts and minimal qualification fields are sent.
+            </p>
+            {available.map((e, i) => (
+              <label key={e.id}>
+                <input
+                  type="checkbox"
+                  checked={!excluded.includes(e.id)}
+                  onChange={(event) =>
+                    setExcluded((ids) =>
+                      event.target.checked ? ids.filter((id) => id !== e.id) : [...ids, e.id],
+                    )
+                  }
+                />
+                {`Include source excerpt ${i + 1}`}
+                <small>{e.excerpt.slice(0, 100)}</small>
+              </label>
+            ))}
+          </details>
+          <p className="destination">{config?.baseUrl ?? 'Select a destination'}</p>
+          <details>
+            <summary>Review exact source content sent to the model</summary>
+            <pre className="payload-preview">{payload}</pre>
+          </details>
+          {payload.length > 64000 && (
+            <p role="alert">
+              This source exceeds the 64,000-character assistance limit. Continue deterministic
+              review.
+            </p>
+          )}
+          <label>
+            <input
+              type="checkbox"
+              checked={approval === stamp}
+              onChange={(e) => setApproval(e.target.checked ? stamp : '')}
+            />
+            I approve sending these source excerpts and proposed records to this model
+          </label>
+          <button
+            type="button"
+            disabled={
+              !projection.evidence.length ||
+              !config ||
+              approval !== stamp ||
+              payload.length > 64000 ||
+              !Number.isFinite(Number(budget)) ||
+              Number(budget) <= 0 ||
+              Number(budget) > 1
+            }
+            onClick={() =>
+              onImprove({
+                modelProfileId: model,
+                maxUsd: Number(budget),
+                consent: true,
+                redactPii,
+                evidenceIds,
+              })
+            }
+          >
+            Improve Extraction with AI
+          </button>
+        </>
+      )}
+    </details>
+  );
 }

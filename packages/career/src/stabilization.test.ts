@@ -1,19 +1,153 @@
 import { expect, it } from 'vitest';
 import { BUILTIN_RANKINGS, intelligenceOf, rankWithProfile } from './scorer-v2';
 import { sampleCandidate, sampleJob, AS_OF } from '../../../tests/fixtures/ranking-v2';
-it('support confidence and score cannot fall when valid lower-confidence evidence is added',()=>{
- const original=sampleCandidate(['typescript']);const row={job:sampleJob('Required skills: TypeScript'),bm25Raw:0};const config=BUILTIN_RANKINGS[2]!;
- const before=rankWithProfile([row],original,config,AS_OF)[0]!;const next=structuredClone(original);next.intelligence!.evidence.push({...next.intelligence!.evidence[0]!,id:'second',sourceId:'second-document',confidence:.2});next.intelligence!.skills[0]!.evidenceIds.push('second');const after=rankWithProfile([row],next,config,AS_OF)[0]!;expect(after.score).toBe(before.score);expect(after.confidence).toBeGreaterThanOrEqual(before.confidence);
+it('support confidence and score cannot fall when valid lower-confidence evidence is added', () => {
+  const original = sampleCandidate(['typescript']);
+  const row = { job: sampleJob('Required skills: TypeScript'), bm25Raw: 0 };
+  const config = BUILTIN_RANKINGS[2]!;
+  const before = rankWithProfile([row], original, config, AS_OF)[0]!;
+  const next = structuredClone(original);
+  next.intelligence!.evidence.push({
+    ...next.intelligence!.evidence[0]!,
+    id: 'second',
+    sourceId: 'second-document',
+    confidence: 0.2,
+  });
+  next.intelligence!.skills[0]!.evidenceIds.push('second');
+  const after = rankWithProfile([row], next, config, AS_OF)[0]!;
+  expect(after.score).toBe(before.score);
+  expect(after.confidence).toBeGreaterThanOrEqual(before.confidence);
 });
-it('does not admit unverified or unsupported qualifications at a zero evidence threshold',()=>{const p=sampleCandidate(['typescript']);p.intelligence!.skills[0]!.verified=false;const config={...BUILTIN_RANKINGS[1]!,minimumEvidence:0};const match=rankWithProfile([{job:sampleJob('Required skills: TypeScript'),bm25Raw:0}],p,config,AS_OF)[0]!;expect(match.matchedSkills).not.toContain('typescript');});
-it('keeps verified legacy skills alongside structured records without duplicating aliases or mutating history',()=>{const p=sampleCandidate(['typescript']);p.facts.push({id:'legacy-rust',field:'skill',value:'Rust',verified:true,source:{kind:'user',reference:'User assertion',capturedAt:'2026-10-20T00:00:00.000Z'}},{id:'legacy-ts',field:'skill',value:'TS',verified:true,source:{kind:'document',reference:'Resume',capturedAt:'2026-10-20T00:00:00.000Z'}});const before=structuredClone(p);const canonical=intelligenceOf(p);expect(canonical.skills.map(s=>s.skillId).sort()).toEqual(['rust','typescript']);expect(canonical.skills.find(s=>s.skillId==='rust')!.verified).toBe(true);expect(canonical.skills.find(s=>s.skillId==='typescript')!.evidenceIds.length).toBeGreaterThan(1);expect(p).toEqual(before);});
-it('preserves unknown custom legacy skills and does not infer employment dates or degree completion',()=>{const p=sampleCandidate([]);p.facts.push({id:'custom',field:'skill',value:'CustomBench',verified:true,source:{kind:'user',reference:'Assertion',capturedAt:'2026-10-20T00:00:00.000Z'}});expect(intelligenceOf(p).skills.some(s=>s.skillId==='custom:custombench'&&s.verified)).toBe(true);});
+it('does not admit unverified or unsupported qualifications at a zero evidence threshold', () => {
+  const p = sampleCandidate(['typescript']);
+  p.intelligence!.skills[0]!.verified = false;
+  const config = { ...BUILTIN_RANKINGS[1]!, minimumEvidence: 0 };
+  const match = rankWithProfile(
+    [{ job: sampleJob('Required skills: TypeScript'), bm25Raw: 0 }],
+    p,
+    config,
+    AS_OF,
+  )[0]!;
+  expect(match.matchedSkills).not.toContain('typescript');
+});
+it('keeps verified legacy skills alongside structured records without duplicating aliases or mutating history', () => {
+  const p = sampleCandidate(['typescript']);
+  p.facts.push(
+    {
+      id: 'legacy-rust',
+      field: 'skill',
+      value: 'Rust',
+      verified: true,
+      source: { kind: 'user', reference: 'User assertion', capturedAt: '2026-10-20T00:00:00.000Z' },
+    },
+    {
+      id: 'legacy-ts',
+      field: 'skill',
+      value: 'TS',
+      verified: true,
+      source: { kind: 'document', reference: 'Resume', capturedAt: '2026-10-20T00:00:00.000Z' },
+    },
+  );
+  const before = structuredClone(p);
+  const canonical = intelligenceOf(p);
+  expect(canonical.skills.map((s) => s.skillId).sort()).toEqual(['rust', 'typescript']);
+  expect(canonical.skills.find((s) => s.skillId === 'rust')!.verified).toBe(true);
+  expect(
+    canonical.skills.find((s) => s.skillId === 'typescript')!.evidenceIds.length,
+  ).toBeGreaterThan(1);
+  expect(p).toEqual(before);
+});
+it('preserves unknown custom legacy skills and does not infer employment dates or degree completion', () => {
+  const p = sampleCandidate([]);
+  p.facts.push({
+    id: 'custom',
+    field: 'skill',
+    value: 'CustomBench',
+    verified: true,
+    source: { kind: 'user', reference: 'Assertion', capturedAt: '2026-10-20T00:00:00.000Z' },
+  });
+  expect(
+    intelligenceOf(p).skills.some((s) => s.skillId === 'custom:custombench' && s.verified),
+  ).toBe(true);
+});
 
-it('separates extraction, source reliability and verification and rejects verified contradictory evidence',async()=>{const {qualificationSupport}=await import('@rovdo/shared');const p=sampleCandidate(['typescript']);const item=p.intelligence!.skills[0]!;const source={...p.intelligence!.evidence[0]!,confidence:.8,sourceReliability:.5};expect(qualificationSupport(item,new Map([[source.id,source]])).confidence).toBe(.4);const unverified={...source,id:'unverified',verified:false,confidence:1};item.evidenceIds.push(unverified.id);expect(qualificationSupport(item,new Map([[source.id,source],[unverified.id,unverified]])).confidence).toBe(.4);const contrary={...source,id:'contrary',stance:'contradicts' as const};item.evidenceIds.push(contrary.id);expect(qualificationSupport(item,new Map([[source.id,source],[contrary.id,contrary]])).confidence).toBe(0);});
-it('excludes conflicting verified records in the compatibility projection while preserving the raw history',()=>{const p=sampleCandidate();const duplicate={...p.intelligence!.experience[0]!,id:'conflicting',end:'2024-12'};p.intelligence!.experience.push(duplicate);const canonical=intelligenceOf(p);expect(canonical.experience.every(q=>q.conflictWith?.length)).toBe(true);expect(p.intelligence!.experience[0]!.conflictWith).toBeUndefined();});
+it('separates extraction, source reliability and verification and rejects verified contradictory evidence', async () => {
+  const { qualificationSupport } = await import('@rovdo/shared');
+  const p = sampleCandidate(['typescript']);
+  const item = p.intelligence!.skills[0]!;
+  const source = { ...p.intelligence!.evidence[0]!, confidence: 0.8, sourceReliability: 0.5 };
+  expect(qualificationSupport(item, new Map([[source.id, source]])).confidence).toBe(0.4);
+  const unverified = { ...source, id: 'unverified', verified: false, confidence: 1 };
+  item.evidenceIds.push(unverified.id);
+  expect(
+    qualificationSupport(
+      item,
+      new Map([
+        [source.id, source],
+        [unverified.id, unverified],
+      ]),
+    ).confidence,
+  ).toBe(0.4);
+  const contrary = { ...source, id: 'contrary', stance: 'contradicts' as const };
+  item.evidenceIds.push(contrary.id);
+  expect(
+    qualificationSupport(
+      item,
+      new Map([
+        [source.id, source],
+        [contrary.id, contrary],
+      ]),
+    ).confidence,
+  ).toBe(0);
+});
+it('excludes conflicting verified records in the compatibility projection while preserving the raw history', () => {
+  const p = sampleCandidate();
+  const duplicate = { ...p.intelligence!.experience[0]!, id: 'conflicting', end: '2024-12' };
+  p.intelligence!.experience.push(duplicate);
+  const canonical = intelligenceOf(p);
+  expect(canonical.experience.every((q) => q.conflictWith?.length)).toBe(true);
+  expect(p.intelligence!.experience[0]!.conflictWith).toBeUndefined();
+});
 
-it('does not resurrect a materialized legacy claim after its fact is edited or unverified',()=>{const p=sampleCandidate([]);p.facts.push({id:'old-skill',field:'skill',value:'Rust',verified:true,source:{kind:'user',reference:'Original assertion',capturedAt:'2026-10-20T00:00:00.000Z'}});p.intelligence=intelligenceOf(p);p.facts[0]!.verified=false;const canonical=intelligenceOf(p);expect(canonical.skills.find(s=>s.skillId==='rust')!.verified).toBe(false);expect(canonical.evidence.find(e=>e.sourceKind==='legacy')!.verified).toBe(false);});
+it('does not resurrect a materialized legacy claim after its fact is edited or unverified', () => {
+  const p = sampleCandidate([]);
+  p.facts.push({
+    id: 'old-skill',
+    field: 'skill',
+    value: 'Rust',
+    verified: true,
+    source: {
+      kind: 'user',
+      reference: 'Original assertion',
+      capturedAt: '2026-10-20T00:00:00.000Z',
+    },
+  });
+  p.intelligence = intelligenceOf(p);
+  p.facts[0]!.verified = false;
+  const canonical = intelligenceOf(p);
+  expect(canonical.skills.find((s) => s.skillId === 'rust')!.verified).toBe(false);
+  expect(canonical.evidence.find((e) => e.sourceKind === 'legacy')!.verified).toBe(false);
+});
 
-it('only cites approved supporting evidence in ranking explanations',()=>{const p=sampleCandidate(['typescript']);p.intelligence!.evidence.push({...p.intelligence!.evidence[0]!,id:'unreviewed',verified:false});p.intelligence!.skills[0]!.evidenceIds.push('unreviewed');const match=rankWithProfile([{job:sampleJob('TypeScript required'),bm25Raw:0}],p,BUILTIN_RANKINGS[1]!,AS_OF)[0]!;expect(match.ranking!.requirements[0]!.evidenceIds).toEqual(['assertion']);});
+it('only cites approved supporting evidence in ranking explanations', () => {
+  const p = sampleCandidate(['typescript']);
+  p.intelligence!.evidence.push({
+    ...p.intelligence!.evidence[0]!,
+    id: 'unreviewed',
+    verified: false,
+  });
+  p.intelligence!.skills[0]!.evidenceIds.push('unreviewed');
+  const match = rankWithProfile(
+    [{ job: sampleJob('TypeScript required'), bm25Raw: 0 }],
+    p,
+    BUILTIN_RANKINGS[1]!,
+    AS_OF,
+  )[0]!;
+  expect(match.ranking!.requirements[0]!.evidenceIds).toEqual(['assertion']);
+});
 
-it('does not count an unknown historical employment end as ongoing',async()=>{const {unionMonths}=await import('./requirements');expect(unionMonths([{start:'2020-01',end:null}],'2026-01-01')).toBe(0);expect(unionMonths([{start:'2020-01',end:null,ongoing:true}],'2026-01-01')).toBe(72);});
+it('does not count an unknown historical employment end as ongoing', async () => {
+  const { unionMonths } = await import('./requirements');
+  expect(unionMonths([{ start: '2020-01', end: null }], '2026-01-01')).toBe(0);
+  expect(unionMonths([{ start: '2020-01', end: null, ongoing: true }], '2026-01-01')).toBe(72);
+});

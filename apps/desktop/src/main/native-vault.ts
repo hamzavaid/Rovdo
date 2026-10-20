@@ -1,5 +1,13 @@
+/**
+ * Connects native key-entry dialogs to the OS credential vault.
+ * Secret input stays outside the renderer and is passed through process streams rather than command arguments.
+ */
 import { execFile } from 'node:child_process';
-import type { ChildProcess, ExecFileException, ExecFileOptionsWithStringEncoding } from 'node:child_process';
+import type {
+  ChildProcess,
+  ExecFileException,
+  ExecFileOptionsWithStringEncoding,
+} from 'node:child_process';
 import { join } from 'node:path';
 import { CredentialVault } from './vault';
 
@@ -40,35 +48,75 @@ $ok.UseVisualStyleBackColor = $false; $cancel.UseVisualStyleBackColor = $false
 
 // Only main process owns this pipe. Secrets never enter command arguments,
 // environment variables, shell history, renderer fields or persisted files.
-export type PromptRunner = (file: string, args: string[], options: ExecFileOptionsWithStringEncoding, callback: (error: ExecFileException | null, stdout: string, stderr: string) => void) => ChildProcess;
-export async function promptForApiKey(platform: NodeJS.Platform = process.platform, execute: PromptRunner = execFile, dark = false): Promise<string | null> {
-  const [executable, args]: [string, string[]] = platform === 'win32'
-    ? [join(process.env.SystemRoot ?? 'C:/Windows', 'System32/WindowsPowerShell/v1.0/powershell.exe'), ['-NoProfile', '-STA', '-NonInteractive', '-EncodedCommand', Buffer.from(windowsPrompt(dark), 'utf16le').toString('base64')]]
-    : platform === 'darwin'
-      ? ['/usr/bin/osascript', ['-e', 'text returned of (display dialog "Enter the API key for the profile selected in Rovdo." default answer "" with hidden answer with title "Rovdo API key" buttons {"Cancel", "Store in OS vault"} default button "Store in OS vault")']]
-      : ['/usr/bin/zenity', ['--password', '--title=Rovdo API key']];
+export type PromptRunner = (
+  file: string,
+  args: string[],
+  options: ExecFileOptionsWithStringEncoding,
+  callback: (error: ExecFileException | null, stdout: string, stderr: string) => void,
+) => ChildProcess;
+export async function promptForApiKey(
+  platform: NodeJS.Platform = process.platform,
+  execute: PromptRunner = execFile,
+  dark = false,
+): Promise<string | null> {
+  const [executable, args]: [string, string[]] =
+    platform === 'win32'
+      ? [
+          join(
+            process.env.SystemRoot ?? 'C:/Windows',
+            'System32/WindowsPowerShell/v1.0/powershell.exe',
+          ),
+          [
+            '-NoProfile',
+            '-STA',
+            '-NonInteractive',
+            '-EncodedCommand',
+            Buffer.from(windowsPrompt(dark), 'utf16le').toString('base64'),
+          ],
+        ]
+      : platform === 'darwin'
+        ? [
+            '/usr/bin/osascript',
+            [
+              '-e',
+              'text returned of (display dialog "Enter the API key for the profile selected in Rovdo." default answer "" with hidden answer with title "Rovdo API key" buttons {"Cancel", "Store in OS vault"} default button "Store in OS vault")',
+            ],
+          ]
+        : ['/usr/bin/zenity', ['--password', '--title=Rovdo API key']];
   return await new Promise((resolve, reject) => {
-    execute(executable, args, { windowsHide: true, timeout: 120_000, maxBuffer: 8192, encoding: 'utf8' }, (error, stdout, stderr) => {
-      if (error) {
-        if (error.code === 1 && (platform === 'linux' || (platform === 'darwin' && stderr.includes('(-128)')))) resolve(null);
-        else reject(new Error('CREDENTIAL_ENTRY_UNAVAILABLE'));
-        return;
-      }
-      resolve(stdout.trim() || null);
-    });
+    execute(
+      executable,
+      args,
+      { windowsHide: true, timeout: 120_000, maxBuffer: 8192, encoding: 'utf8' },
+      (error, stdout, stderr) => {
+        if (error) {
+          if (
+            error.code === 1 &&
+            (platform === 'linux' || (platform === 'darwin' && stderr.includes('(-128)')))
+          )
+            resolve(null);
+          else reject(new Error('CREDENTIAL_ENTRY_UNAVAILABLE'));
+          return;
+        }
+        resolve(stdout.trim() || null);
+      },
+    );
   });
 }
 
 export function createNativeVault(isDark: () => boolean = () => false): CredentialVault {
-  return new CredentialVault((account) => {
-    const load = async () => {
-      const { AsyncEntry } = await import('@napi-rs/keyring');
-      return new AsyncEntry('Rovdo', account, { linux: { store: 'secret-service' } });
-    };
-    return {
-      getPassword: async () => (await load()).getPassword(),
-      setPassword: async (value) => (await load()).setPassword(value),
-      deleteCredential: async () => (await load()).deleteCredential(),
-    };
-  }, () => promptForApiKey(process.platform, execFile, isDark()));
+  return new CredentialVault(
+    (account) => {
+      const load = async () => {
+        const { AsyncEntry } = await import('@napi-rs/keyring');
+        return new AsyncEntry('Rovdo', account, { linux: { store: 'secret-service' } });
+      };
+      return {
+        getPassword: async () => (await load()).getPassword(),
+        setPassword: async (value) => (await load()).setPassword(value),
+        deleteCredential: async () => (await load()).deleteCredential(),
+      };
+    },
+    () => promptForApiKey(process.platform, execFile, isDark()),
+  );
 }

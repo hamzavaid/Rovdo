@@ -18,30 +18,66 @@ describe('run request boundary', () => {
   });
 
   it.each([
-    { maxSteps: 0 }, { maxSteps: 1.5 }, { maxUsd: -1 }, { maxUsd: Infinity },
-    { applicationLimit: -1 }, { applicationLimit: 0.5 }, { task: '   ' },
-    { workflow: 'shell' }, { submitMode: 'automatic' }, { modelProfileId: '' },
-    { apiKey: 'secret-canary' }, { allowedOrigins: [] },
+    { maxSteps: 0 },
+    { maxSteps: 1.5 },
+    { maxUsd: -1 },
+    { maxUsd: Infinity },
+    { applicationLimit: -1 },
+    { applicationLimit: 0.5 },
+    { task: '   ' },
+    { workflow: 'shell' },
+    { submitMode: 'automatic' },
+    { modelProfileId: '' },
+    { apiKey: 'secret-canary' },
+    { allowedOrigins: [] },
   ])('rejects unsafe or incomplete input: %j', (override) => {
     expect(StartRunSchema.safeParse({ ...validRun, ...override }).success).toBe(false);
   });
 
   it.each([
-    'http://jobs.example.com', 'file:///etc/passwd', 'javascript:alert(1)',
-    'https://user:password@jobs.example.com', 'https://jobs.example.com/form',
-    'https://jobs.example.com?token=secret', 'https://jobs.example.com#secret',
-    'https://localhost', 'https://127.0.0.1', 'https://[::1]',
-    'https://169.254.169.254', 'https://192.168.1.2',
+    'http://jobs.example.com',
+    'file:///etc/passwd',
+    'javascript:alert(1)',
+    'https://user:password@jobs.example.com',
+    'https://jobs.example.com/form',
+    'https://jobs.example.com?token=secret',
+    'https://jobs.example.com#secret',
+    'https://localhost',
+    'https://127.0.0.1',
+    'https://[::1]',
+    'https://169.254.169.254',
+    'https://192.168.1.2',
   ])('rejects an invalid external origin: %s', (origin) => {
     expect(StartRunSchema.safeParse({ ...validRun, allowedOrigins: [origin] }).success).toBe(false);
   });
 
   it('supports a zero-spend, review-only request', () => {
-    expect(StartRunSchema.safeParse({ ...validRun, maxUsd: 0, applicationLimit: 0, submitMode: 'review-only' }).success).toBe(true);
+    expect(
+      StartRunSchema.safeParse({
+        ...validRun,
+        maxUsd: 0,
+        applicationLimit: 0,
+        submitMode: 'review-only',
+      }).success,
+    ).toBe(true);
   });
 
   it('enumerates state names without implementing the later runtime', () => {
-    for (const state of ['CREATED', 'QUEUED', 'PREFLIGHT', 'PLANNING', 'EXECUTING', 'VERIFYING', 'AWAITING_APPROVAL', 'PAUSED', 'RETRYING', 'COMPLETED', 'PARTIAL', 'FAILED', 'CANCELED']) {
+    for (const state of [
+      'CREATED',
+      'QUEUED',
+      'PREFLIGHT',
+      'PLANNING',
+      'EXECUTING',
+      'VERIFYING',
+      'AWAITING_APPROVAL',
+      'PAUSED',
+      'RETRYING',
+      'COMPLETED',
+      'PARTIAL',
+      'FAILED',
+      'CANCELED',
+    ]) {
       expect(RunStateSchema.safeParse(state).success).toBe(true);
     }
     expect(RunStateSchema.safeParse('SUBMITTED').success).toBe(false);
@@ -56,7 +92,12 @@ describe('read-only desktop IPC contracts', () => {
   });
 
   it('validates shell metadata and rejects secret-bearing fields', () => {
-    const info = { name: 'Rovdo', version: '0.1.0', milestone: 'career-jobs', networkEnabled: false };
+    const info = {
+      name: 'Rovdo',
+      version: '0.1.0',
+      milestone: 'career-jobs',
+      networkEnabled: false,
+    };
     expect(AppInfoSchema.parse(info)).toEqual(info);
     expect(AppInfoSchema.safeParse({ ...info, apiKey: 'secret-canary' }).success).toBe(false);
     expect(AppInfoSchema.safeParse({ ...info, networkEnabled: true }).success).toBe(false);

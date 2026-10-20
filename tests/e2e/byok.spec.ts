@@ -9,7 +9,13 @@ test('persists settings, uses the real OS vault, probes and chats with a local f
   let calls = 0;
   const secret = `rovdo-test-${randomUUID()}`;
   const server = createServer(async (request, response) => {
-    if (request.url !== '/v1/chat/completions' || request.headers.authorization !== `Bearer ${secret}`) { response.writeHead(401).end(); return; }
+    if (
+      request.url !== '/v1/chat/completions' ||
+      request.headers.authorization !== `Bearer ${secret}`
+    ) {
+      response.writeHead(401).end();
+      return;
+    }
     const fixture = completion('compatible', ++calls <= 2, 'Hello from the local fixture.');
     response.writeHead(200, { 'content-type': 'text/event-stream' });
     const content = await fixture.text();
@@ -17,12 +23,21 @@ test('persists settings, uses the real OS vault, probes and chats with a local f
     setTimeout(() => response.end(content.slice(120)), 30);
   });
   await new Promise<void>((done) => server.listen(0, '127.0.0.1', done));
-  const address = server.address(); if (!address || typeof address === 'string') throw new Error('Fixture server unavailable');
+  const address = server.address();
+  if (!address || typeof address === 'string') throw new Error('Fixture server unavailable');
   const baseUrl = `http://127.0.0.1:${address.port}/v1`;
   const dataDir = test.info().outputPath('user-data');
-  const env = Object.fromEntries(Object.entries(process.env).filter((entry): entry is [string, string] => entry[1] !== undefined));
-  delete env.ELECTRON_RUN_AS_NODE; delete env.NODE_OPTIONS;
-  let desktop = await electron.launch({ args: [resolve('apps/desktop'), `--rovdo-data-dir=${dataDir}`], env });
+  const env = Object.fromEntries(
+    Object.entries(process.env).filter(
+      (entry): entry is [string, string] => entry[1] !== undefined,
+    ),
+  );
+  delete env.ELECTRON_RUN_AS_NODE;
+  delete env.NODE_OPTIONS;
+  let desktop = await electron.launch({
+    args: [resolve('apps/desktop'), `--rovdo-data-dir=${dataDir}`],
+    env,
+  });
   const diagnostics: string[] = [];
   const capture = () => {
     desktop.process().stdout?.on('data', (chunk: Buffer) => diagnostics.push(chunk.toString()));
@@ -49,24 +64,37 @@ test('persists settings, uses the real OS vault, probes and chats with a local f
       if (!result.ok) throw new Error('Settings unavailable');
       return result.settings.profiles[0]!.config.id;
     });
-    expect(await page.evaluate(async (profileId) => {
-      try {
-        const enter = window.rovdo!.enterKey as (input: unknown) => Promise<unknown>;
-        await enter({ profileId, apiKey: 'renderer-injection-canary' });
-        return false;
-      } catch { return true; }
-    }, profileId)).toBe(true);
+    expect(
+      await page.evaluate(async (profileId) => {
+        try {
+          const enter = window.rovdo!.enterKey as (input: unknown) => Promise<unknown>;
+          await enter({ profileId, apiKey: 'renderer-injection-canary' });
+          return false;
+        } catch {
+          return true;
+        }
+      }, profileId),
+    ).toBe(true);
     account = `${profileId}:${createHash('sha256').update(`compatible:${baseUrl}`).digest('hex')}`;
     // This is privileged test instrumentation, never a production bridge method.
-    await desktop.evaluate(async ({ app }, values) => {
-      const load = process.getBuiltinModule('node:module').createRequire(`${app.getAppPath()}/package.json`);
-      const { AsyncEntry } = load('@napi-rs/keyring') as typeof import('@napi-rs/keyring');
-      const entry = new AsyncEntry('Rovdo', values.account, { linux: { store: 'secret-service' } });
-      await entry.setPassword(values.secret);
-    }, { account, secret });
+    await desktop.evaluate(
+      async ({ app }, values) => {
+        const load = process
+          .getBuiltinModule('node:module')
+          .createRequire(`${app.getAppPath()}/package.json`);
+        const { AsyncEntry } = load('@napi-rs/keyring') as typeof import('@napi-rs/keyring');
+        const entry = new AsyncEntry('Rovdo', values.account, {
+          linux: { store: 'secret-service' },
+        });
+        await entry.setPassword(values.secret);
+      },
+      { account, secret },
+    );
     await page.getByRole('button', { name: 'Refresh status' }).click();
     await expect(page.getByText('Key stored in OS vault')).toBeVisible();
-    await page.getByLabel('Allow the connection test to send a small tool-call prompt to this endpoint').check();
+    await page
+      .getByLabel('Allow the connection test to send a small tool-call prompt to this endpoint')
+      .check();
     await page.getByRole('button', { name: 'Test connection' }).click();
     await expect(page.getByText('Connection verified: streaming and tools.')).toBeVisible();
     await page.evaluate(() => window.scrollTo(0, 0));
@@ -74,8 +102,12 @@ test('persists settings, uses the real OS vault, probes and chats with a local f
     await page.getByRole('button', { name: 'Chat', exact: true }).click();
     const modelBefore = await page.getByLabel('Model profile', { exact: true }).boundingBox();
     await page.getByRole('button', { name: 'Budget & destination', exact: true }).click();
-    const [modelAfter, budget] = await Promise.all([page.getByLabel('Model profile', { exact: true }).boundingBox(), page.getByLabel('Estimated spend limit (USD)', { exact: true }).boundingBox()]);
-    expect(modelAfter!.y).toBe(modelBefore!.y); expect(budget!.y).toBeGreaterThan(modelAfter!.y + modelAfter!.height);
+    const [modelAfter, budget] = await Promise.all([
+      page.getByLabel('Model profile', { exact: true }).boundingBox(),
+      page.getByLabel('Estimated spend limit (USD)', { exact: true }).boundingBox(),
+    ]);
+    expect(modelAfter!.y).toBe(modelBefore!.y);
+    expect(budget!.y).toBeGreaterThan(modelAfter!.y + modelAfter!.height);
     await page.screenshot({ path: test.info().outputPath('chat-budget.png'), fullPage: true });
     await page.getByRole('button', { name: 'Budget & destination', exact: true }).click();
     await page.getByLabel('Message').fill('Tell me about this workspace.');
@@ -88,11 +120,17 @@ test('persists settings, uses the real OS vault, probes and chats with a local f
     const accounting = await page.evaluate(() => window.rovdo!.getSettings());
     expect(accounting.ok && accounting.settings.usage.requests).toBe(3);
     await page.evaluate(() => window.scrollTo(0, 0));
-    const [conversation, composer] = await Promise.all([page.getByRole('region', { name: 'Conversation', exact: true }).boundingBox(), page.locator('.composer').boundingBox()]);
+    const [conversation, composer] = await Promise.all([
+      page.getByRole('region', { name: 'Conversation', exact: true }).boundingBox(),
+      page.locator('.composer').boundingBox(),
+    ]);
     expect(conversation!.y + conversation!.height).toBeLessThanOrEqual(composer!.y);
     await page.screenshot({ path: test.info().outputPath('byok-chat.png'), fullPage: true });
     await desktop.close();
-    desktop = await electron.launch({ args: [resolve('apps/desktop'), `--rovdo-data-dir=${dataDir}`], env });
+    desktop = await electron.launch({
+      args: [resolve('apps/desktop'), `--rovdo-data-dir=${dataDir}`],
+      env,
+    });
     capture();
     page = await desktop.firstWindow();
     await page.getByRole('button', { name: 'Models & Privacy' }).click();
@@ -103,16 +141,27 @@ test('persists settings, uses the real OS vault, probes and chats with a local f
     await page.getByRole('button', { name: 'Remove key' }).click();
     await expect(page.getByText('No key stored')).toBeVisible();
     await desktop.close();
-    expect((await readFile(resolve(dataDir, 'rovdo.sqlite'))).includes(Buffer.from(secret))).toBe(false);
+    expect((await readFile(resolve(dataDir, 'rovdo.sqlite'))).includes(Buffer.from(secret))).toBe(
+      false,
+    );
     expect(diagnostics.join('')).not.toContain(secret);
     expect(calls).toBe(3);
   } finally {
     // Idempotent cleanup for failures before the settings UI removes the canary.
     try {
       const { AsyncEntry } = await import('@napi-rs/keyring');
-      if (account) await new AsyncEntry('Rovdo', account, { linux: { store: 'secret-service' } }).deleteCredential();
-    } catch { /* No raw native errors in diagnostics. */ }
-    try { await desktop.close(); } catch { /* Already closed. */ }
+      if (account)
+        await new AsyncEntry('Rovdo', account, {
+          linux: { store: 'secret-service' },
+        }).deleteCredential();
+    } catch {
+      /* No raw native errors in diagnostics. */
+    }
+    try {
+      await desktop.close();
+    } catch {
+      /* Already closed. */
+    }
     await new Promise<void>((done) => server.close(() => done()));
   }
 });

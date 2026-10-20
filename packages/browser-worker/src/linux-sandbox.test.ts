@@ -13,7 +13,15 @@ it('grants user namespaces only to the installed full and headless Chromium exec
   expect(policy).not.toContain('sysctl');
 });
 it('rejects empty inventories, out-of-cache paths and AppArmor syntax injection', () => {
-  for (const paths of [[], ['/usr/bin/chrome'], [`${root}/../elsewhere/chrome`], [`${root}/chromium/*/chrome`], [`${root}/chromium/"chrome`], [`${root}/chromium/chrome\nuserns,`], [`${root}/chromium/node`]]) {
+  for (const paths of [
+    [],
+    ['/usr/bin/chrome'],
+    [`${root}/../elsewhere/chrome`],
+    [`${root}/chromium/*/chrome`],
+    [`${root}/chromium/"chrome`],
+    [`${root}/chromium/chrome\nuserns,`],
+    [`${root}/chromium/node`],
+  ]) {
     expect(() => renderSandboxProfile(root, paths)).toThrow();
   }
 });

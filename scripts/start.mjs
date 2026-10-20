@@ -1,3 +1,7 @@
+/**
+ * Launches the built Electron application from the workspace.
+ * Removes inherited Node execution overrides so Electron starts as the desktop process.
+ */
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import electronPath from 'electron';
@@ -8,13 +12,19 @@ delete env.ELECTRON_RUN_AS_NODE;
 delete env.NODE_OPTIONS;
 
 const child = spawn(electronPath, [fileURLToPath(new URL('../apps/desktop', import.meta.url))], {
-  env, stdio: 'inherit', windowsHide: true,
+  env,
+  stdio: 'inherit',
+  windowsHide: true,
 });
 child.on('error', () => {
   process.stderr.write('Unable to launch Rovdo. Run npm ci and npm run build, then retry.\n');
   process.exitCode = 1;
 });
-child.on('exit', (code) => { process.exitCode = code ?? 1; });
+child.on('exit', (code) => {
+  process.exitCode = code ?? 1;
+});
 for (const signal of ['SIGINT', 'SIGTERM']) {
-  process.on(signal, () => { if (child.exitCode === null) child.kill(signal); });
+  process.on(signal, () => {
+    if (child.exitCode === null) child.kill(signal);
+  });
 }

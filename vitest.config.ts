@@ -1,3 +1,7 @@
+/**
+ * Unit/integration-test discovery and bounded worker concurrency.
+ * Serial execution avoids contention between the existing SQLite corpus and document/provider fixtures.
+ */
 import { defineConfig } from 'vitest/config';
 
 export default defineConfig({
