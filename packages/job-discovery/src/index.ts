@@ -229,3 +229,6 @@ export class DiscoveryEngine {
     await this.work;
   }
 }
+
+export * from './global-engine';
+export * from './queries';

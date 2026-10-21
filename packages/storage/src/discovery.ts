@@ -55,6 +55,14 @@ export class DiscoveryStore {
       .all(id, now, limit)
       .map((r) => DiscoveryTaskSchema.parse(JSON.parse(String(r.json))));
   }
+  runningRuns(): DiscoveryRun[] {
+    return this.db
+      .prepare(
+        "SELECT json FROM discovery_run WHERE json_extract(json,'$.status')='running' ORDER BY rowid",
+      )
+      .all()
+      .map((r) => DiscoveryRunSchema.parse(JSON.parse(String(r.json))));
+  }
   recover() {
     for (const row of this.db
       .prepare("SELECT json FROM discovery_task WHERE status='running'")

@@ -122,6 +122,7 @@ export function inspectCareerPage(
   html: string,
   page: string,
   company: string,
+  complete = false,
 ): { feeds: Pick<SourceConfig, 'ats' | 'tenant' | 'region'>[]; postings: unknown[] } {
   if (!permittedPage(page) || html.length > 2_000_000) throw new Error('PAGE_BLOCKED');
   const feeds = new Map<string, Pick<SourceConfig, 'ats' | 'tenant' | 'region'>>();
@@ -137,9 +138,9 @@ export function inspectCareerPage(
     }
   }
   const visit = (raw: unknown, depth: number) => {
-    if (depth > 5 || postings.length >= 100) return;
+    if (depth > 5 || (!complete && postings.length >= 100)) return;
     if (Array.isArray(raw)) {
-      raw.slice(0, 100).forEach((x) => visit(x, depth + 1));
+      raw.slice(0, complete ? raw.length : 100).forEach((x) => visit(x, depth + 1));
       return;
     }
     if (!raw || typeof raw !== 'object') return;
@@ -153,7 +154,9 @@ export function inspectCareerPage(
         const employer = r.hiringOrganization as { name?: string } | undefined;
         if (
           url.origin === new URL(page).origin &&
-          (!employer?.name || employer.name.toLowerCase() === company.toLowerCase())
+          (!employer?.name ||
+            (!company && complete) ||
+            employer.name.toLowerCase() === company.toLowerCase())
         )
           postings.push({ ...r, url: url.href });
       } catch {
@@ -171,5 +174,5 @@ export function inspectCareerPage(
       /* inert malformed JSON */
     }
   }
-  return { feeds: [...feeds.values()].slice(0, 10), postings };
+  return { feeds: complete ? [...feeds.values()] : [...feeds.values()].slice(0, 10), postings };
 }

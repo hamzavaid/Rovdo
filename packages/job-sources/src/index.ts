@@ -629,3 +629,5 @@ export class AtsAdapter implements JobSourceAdapter {
 }
 
 export * from './registry';
+
+export * from './global-adapters';

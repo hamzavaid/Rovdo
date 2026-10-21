@@ -42,6 +42,7 @@ let discovery: DiscoveryEngine | null = null;
 let careerService: ReturnType<typeof createCareerService> | null = null;
 let intelligenceService: ReturnType<typeof createIntelligenceService> | null = null;
 let discoveryTimer: ReturnType<typeof setInterval> | null = null;
+let globalTimer: ReturnType<typeof setInterval> | null = null;
 const reviewController = new AbortController();
 let shutdownComplete = false;
 let shutdownStarted = false;
@@ -137,6 +138,9 @@ async function initialize(): Promise<void> {
   careerService = createCareerService(careerStore, discovery, (request) =>
     reviewShortlist(request, careerStore!, store!, vault, reviewController.signal),
   );
+  globalTimer = setInterval(() => {
+    void careerService?.global.tick().catch(() => {});
+  }, 2000);
   ipcMain.handle(CAREER_CHANNEL, (event, payload: unknown) =>
     careerService!.command(payload, {
       url: event.senderFrame?.url ?? '',
@@ -245,6 +249,7 @@ app.on('before-quit', (event) => {
   if (shutdownStarted) return;
   shutdownStarted = true;
   if (discoveryTimer) clearInterval(discoveryTimer);
+  if (globalTimer) clearInterval(globalTimer);
   reviewController.abort();
   void Promise.all([
     service?.shutdown(),

@@ -77,3 +77,19 @@ export const BOARD_REGISTRY = boards.map((board) => {
 export const GLOBAL_DEFAULT_SOURCES = BOARD_REGISTRY.filter((s) => s.status === 'ready').map(
   (s) => s.id,
 );
+
+/** An unrestricted, user-configured index is separate from the 126-board capability catalog. */
+export const DISCOVERY_SOURCES = [
+  ...BOARD_REGISTRY,
+  RegistryEntrySchema.parse({
+    id: 'web-index',
+    name: 'Open web index',
+    url: 'https://docs.searxng.org/dev/search_api.html',
+    mode: 'indexed',
+    status: 'configuration',
+    adapter: 'index',
+    policyUrl: 'https://docs.searxng.org/dev/search_api.html',
+    limitation:
+      'Requires a permitted SearXNG JSON endpoint. Broad qualification queries have no site restriction; results remain unverified until resolved.',
+  }),
+];

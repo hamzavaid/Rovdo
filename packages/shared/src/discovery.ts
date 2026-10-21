@@ -69,6 +69,7 @@ export const DiscoveryCoverageSchema = z.strictObject({
   updatedAt: z.number(),
 });
 export const DiscoveryViewSchema = z.strictObject({
+  plan: z.array(z.string()).default([]),
   run: DiscoveryRunSchema.nullable(),
   runs: z.array(DiscoveryRunSchema),
   registry: z.array(RegistryEntrySchema),

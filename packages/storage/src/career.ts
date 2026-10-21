@@ -471,8 +471,14 @@ export class CareerStore {
         };
         if (old && this.companyIdentity(old.company) !== companyKey)
           job = { ...old, duplicateGroup: 'EMPLOYER_CONFLICT', provenance: job.provenance };
-        else if (old && old.source !== raw.source)
-          job = { ...old, lastSeenAt: now, activeStatus: 'open', provenance: job.provenance }; // Never overwrite first-party fields with a second source.
+        else if (
+          old &&
+          old.source !== raw.source &&
+          (old.discovery?.kind === 'employer' ||
+            !old.discovery ||
+            raw.discovery?.kind !== 'employer')
+        )
+          job = { ...old, lastSeenAt: now, provenance: job.provenance }; // Never overwrite first-party fields with a second source.
         if (old) state.duplicates++;
         else state.accepted++;
         this.writeJob(job);
@@ -772,7 +778,7 @@ export class CareerStore {
         graduation[0]?.graduationEnd ?? null,
       );
   }
-  searchFiltered(input: JobSearch): { job: Job; bm25Raw: number }[] {
+  private filteredQuery(input: JobSearch) {
     const s = JobSearchSchema.parse(input);
     const params: (string | number)[] = [];
     const where: string[] = [];
@@ -784,6 +790,29 @@ export class CareerStore {
     if (words.length)
       add('job_fts MATCH ?', words.map((w) => `"${w.replaceAll('"', '""')}"`).join(' OR '));
     if (s.company) add("instr(lower(json_extract(j.json,'$.company')),lower(?))>0", s.company);
+    if (s.scope === 'saved-companies')
+      where.push(
+        "EXISTS(SELECT 1 FROM job_source_snapshot ss JOIN job_source src ON src.id=ss.source_id WHERE ss.job_id=j.id AND COALESCE(json_extract(src.config,'$.collection'),'saved')<>'global')",
+      );
+    if (s.scope === 'company' && s.selectedSourceId)
+      add(
+        'EXISTS(SELECT 1 FROM job_source_snapshot ss WHERE ss.job_id=j.id AND ss.source_id=?)',
+        s.selectedSourceId,
+      );
+    if (s.employmentType && s.employmentType !== 'all')
+      add("json_extract(j.json,'$.details.employmentType')=?", s.employmentType);
+    if (s.sourceId) {
+      add(
+        "(json_extract(j.json,'$.source')=? OR EXISTS(SELECT 1 FROM json_each(j.json,'$.provenance') p WHERE json_extract(p.value,'$.fields.registryId')=?))",
+        s.sourceId,
+      );
+      params.push(s.sourceId);
+    }
+    if (s.availability && s.availability !== 'all')
+      add(
+        "COALESCE(json_extract(j.json,'$.discovery.availability'),CASE WHEN json_extract(j.json,'$.activeStatus')='open' THEN 'verified' ELSE 'unverified' END)=?",
+        s.availability,
+      );
     if (s.workMode !== 'all') add('m.mode=?', s.workMode);
     if (s.roleFamily && s.roleFamily !== 'all') add('m.role=?', s.roleFamily);
     if (s.season && s.season !== 'all') add('m.season=?', s.season);
@@ -806,12 +835,19 @@ export class CareerStore {
         "COALESCE(json_extract(t.json,'$.seenAt'),0)<json_extract(j.json,'$.firstSeenAt')",
       );
     const from = `career_job j JOIN job_search_metadata m ON m.job_id=j.id LEFT JOIN job_marker t ON t.job_id=j.id ${words.length ? 'JOIN job_fts ON job_fts.rowid=j.rowid' : ''}`;
-    return this.db
-      .prepare(
-        `SELECT j.json,${words.length ? 'bm25(job_fts,4,2,1)' : '0'} AS rank FROM ${from} ${where.length ? `WHERE ${where.join(' AND ')}` : ''} ORDER BY ${words.length ? 'rank,' : ''}j.id`,
-      )
-      .all(...params)
-      .map((r) => ({ job: JobSchema.parse(JSON.parse(String(r.json))), bm25Raw: Number(r.rank) }));
+    return {
+      sql: `SELECT j.json,${words.length ? 'bm25(job_fts,4,2,1)' : '0'} AS rank FROM ${from} ${where.length ? `WHERE ${where.join(' AND ')}` : ''} ORDER BY ${words.length ? 'rank,' : ''}j.id`,
+      params,
+    };
+  }
+  searchFiltered(input: JobSearch): { job: Job; bm25Raw: number }[] {
+    return [...this.iterateFiltered(input)];
+  }
+  /** SQLite streams rows; neither retrieval nor cache preparation needs a whole-search job array. */
+  *iterateFiltered(input: JobSearch): Generator<{ job: Job; bm25Raw: number }> {
+    const q = this.filteredQuery(input);
+    for (const row of this.db.prepare(q.sql).iterate(...q.params))
+      yield { job: JobSchema.parse(JSON.parse(String(row.json))), bm25Raw: Number(row.rank) };
   }
   // Bind every scoring input and behavior-policy version so stale results cannot survive semantic changes.
   private cacheKey(
@@ -894,19 +930,30 @@ export class CareerStore {
     };
   }
   rankedPage(
-    rows: { job: Job; bm25Raw: number }[],
+    rows: Iterable<{ job: Job; bm25Raw: number }>,
     profile: CandidateProfile,
     config: RankingProfile,
     asOf: string,
     search: JobSearch,
-  ): { matches: JobMatch[]; total: number } {
+    budget = Number.POSITIVE_INFINITY,
+  ): { matches: JobMatch[]; total: number; pending: number } {
     this.db.exec(
       'CREATE TEMP TABLE IF NOT EXISTS current_search(job_id TEXT PRIMARY KEY,cache_key TEXT,bm25 REAL); DELETE FROM current_search;',
     );
     const insert = this.db.prepare('INSERT INTO current_search VALUES(?,?,?)');
+    let scored = 0;
     this.transaction(() => {
-      for (const row of rows)
-        insert.run(row.job.id, this.cacheKey(row, profile, config, asOf), row.bm25Raw);
+      for (const row of rows) {
+        const key = this.cacheKey(row, profile, config, asOf);
+        if (
+          !this.db.prepare('SELECT 1 FROM rank_cache WHERE cache_key=?').get(key) &&
+          scored < budget
+        ) {
+          this.cachedRanking(row, profile, config, asOf);
+          scored++;
+        }
+        insert.run(row.job.id, key, row.bm25Raw);
+      }
     });
     const conditions = [search.includeExcluded ? '1' : 'r.excluded=0', 'r.score>=?'];
     const params: (string | number)[] = [search.minimumScore ?? 0];
@@ -923,16 +970,48 @@ export class CareerStore {
     const total = Number(this.db.prepare(`SELECT COUNT(*) AS n ${base}`).get(...params)!.n);
     const page = this.db
       .prepare(
-        `SELECT s.job_id,s.bm25 ${base} ORDER BY r.excluded,r.score DESC,${config.method === 'legacy-v1' ? 's.bm25,' : 'r.confidence DESC,'}s.job_id LIMIT 50 OFFSET ?`,
+        `SELECT s.job_id,s.bm25 ${base} ORDER BY r.excluded,${search.sort === 'newest' ? "json_extract(r.json,'$.job.postedAt') DESC," : search.sort === 'salary' ? "COALESCE(json_extract(r.json,'$.job.salary.max'),json_extract(r.json,'$.job.salary.min')) DESC," : search.sort === 'company' ? "json_extract(r.json,'$.job.company')," : ''}r.score DESC,${config.method === 'legacy-v1' ? 's.bm25,' : 'r.confidence DESC,'}s.job_id LIMIT 50 OFFSET ?`,
       )
       .all(...params, search.offset ?? 0);
-    const byId = new Map(rows.map((r) => [r.job.id, r]));
+
     return {
       total,
+      pending: Number(
+        this.db
+          .prepare(
+            'SELECT COUNT(*) n FROM current_search s LEFT JOIN rank_cache r ON r.cache_key=s.cache_key WHERE r.cache_key IS NULL',
+          )
+          .get()!.n,
+      ),
       matches: page.map((r) =>
-        this.cachedRanking(byId.get(String(r.job_id))!, profile, config, asOf),
+        this.cachedRanking(
+          { job: this.job(String(r.job_id)), bm25Raw: Number(r.bm25) },
+          profile,
+          config,
+          asOf,
+        ),
       ),
     };
+  }
+  /** Count only definite exclusions; scores still being prepared are not filtered jobs. */
+  discoveryFiltered(runId: string, search: JobSearch): number {
+    const conditions = [search.includeExcluded ? '1' : 'r.excluded=0', 'r.score>=?'];
+    if (search.eligibility === 'pass')
+      conditions.push(
+        "r.excluded=0 AND NOT EXISTS(SELECT 1 FROM json_each(r.json,'$.checks') c WHERE json_extract(c.value,'$.result')='UNKNOWN')",
+      );
+    if (search.eligibility === 'review')
+      conditions.push(
+        "EXISTS(SELECT 1 FROM json_each(r.json,'$.checks') c WHERE json_extract(c.value,'$.result')='UNKNOWN')",
+      );
+    if (search.eligibility === 'fail') conditions.push('r.excluded=1');
+    return Number(
+      this.db
+        .prepare(
+          `SELECT COUNT(DISTINCT d.job_id) n FROM discovery_job d LEFT JOIN current_search s ON s.job_id=d.job_id LEFT JOIN rank_cache r ON r.cache_key=s.cache_key WHERE d.run_id=? AND (s.job_id IS NULL OR (r.cache_key IS NOT NULL AND NOT (${conditions.join(' AND ')})))`,
+        )
+        .get(runId, search.minimumScore ?? 0)!.n,
+    );
   }
   markers(): JobMarker[] {
     return this.db
@@ -959,7 +1038,17 @@ export class CareerStore {
     return this.db
       .prepare('SELECT json FROM saved_search ORDER BY id')
       .all()
-      .map((r) => SavedSearchSchema.parse(JSON.parse(String(r.json))));
+      .map((r) =>
+        SavedSearchSchema.parse(
+          (() => {
+            const raw = JSON.parse(String(r.json)) as SavedSearch;
+            return {
+              ...raw,
+              search: { ...raw.search, scope: raw.search.scope ?? 'saved-companies' },
+            };
+          })(),
+        ),
+      );
   }
   saveSearch(name: string, search: JobSearch): SavedSearch {
     const saved = SavedSearchSchema.parse({
