@@ -465,7 +465,12 @@ export class CareerStore {
           firstSeenAt: old?.firstSeenAt ?? now,
           lastSeenAt: now,
           provenance: old
-            ? [...old.provenance.filter((p) => p.sourceKey !== key), provenance].slice(-100)
+            ? [
+                ...old.provenance.filter(
+                  (p) => p.sourceId !== provenance.sourceId || p.sourceKey !== provenance.sourceKey,
+                ),
+                provenance,
+              ]
             : [provenance],
           id: old?.id ?? raw.id,
         };
@@ -530,7 +535,11 @@ export class CareerStore {
   }
   /** Virtual membership reuses ingestion/provenance without adding a saved employer or poll grant. */
   globalSource(key: string, name: string, url: string): SourceConfig {
-    const tenant = ('discovery-' + key).replace(/[^a-zA-Z0-9_-]/g, '-').slice(0, 120);
+    const tenant =
+      'discovery-' +
+      key.replace(/[^a-zA-Z0-9_-]/g, '-').slice(0, 64) +
+      '-' +
+      createHash('sha256').update(key).digest('hex').slice(0, 32);
     const existing = this.sources().find(
       (s) => s.config.collection === 'global' && s.config.tenant === tenant,
     );

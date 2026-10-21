@@ -5,7 +5,7 @@ import { DiscoveryRecordSchema, normalizeDiscoveryJob, plain, sha256 } from '@ro
  * Validates career IPC commands and coordinates local profile, job and source operations.
  * Returns a consistent view after mutations while keeping optional AI review separate from discovery.
  */
-import { emptyProfile, expandSearch } from '@rovdo/career';
+import { emptyProfile, expandSearch, exportJobs } from '@rovdo/career';
 import { CareerCommandSchema, CareerResultSchema, JobSearchSchema } from '@rovdo/shared';
 import type { CareerCommand, JobSearch } from '@rovdo/shared';
 import type { CareerStore } from '@rovdo/storage';
@@ -25,6 +25,7 @@ export function createCareerService(
   engine: DiscoveryEngine,
   evaluate: (request: Extract<CareerCommand, { op: 'evaluate' }>) => Promise<void>,
   global = new GlobalDiscoveryEngine(store),
+  writeExport: (format: 'csv' | 'json', data: string) => Promise<boolean> = async () => false,
 ) {
   const controller = new AbortController();
   let discovering: Promise<void> | null = null;
@@ -95,6 +96,16 @@ export function createCareerService(
       if (!parsed.success) return CareerResultSchema.parse({ ok: false, code: 'VALIDATION_ERROR' });
       const cmd = parsed.data;
       try {
+        if (cmd.op === 'exportJobs') {
+          const current = view(cmd.search);
+          const output = exportJobs(current.matches, cmd.format);
+          const saved = await writeExport(cmd.format, output.data);
+          return CareerResultSchema.parse({
+            ok: true,
+            view: current,
+            exported: { saved, skipped: output.skipped },
+          });
+        }
         if (cmd.op === 'saveProfile') store.saveProfile(cmd.profile);
         if (cmd.op === 'proposeFacts') store.proposeFacts(cmd.facts);
         if (cmd.op === 'startDiscovery') {

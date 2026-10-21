@@ -2,7 +2,7 @@
  * Electron composition root: constructs stores, privileged services and the main window.
  * Registers owned-frame IPC handlers, serves local assets, and drains active work before closing SQLite.
  */
-import { mkdir, readFile } from 'node:fs/promises';
+import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { extname, join, resolve } from 'node:path';
 import { app, nativeTheme, BrowserWindow, ipcMain, protocol, session, dialog } from 'electron';
 import { improveImport } from './import-assistance';
@@ -135,8 +135,23 @@ async function initialize(): Promise<void> {
   );
   careerStore.seedDirectory(EMPLOYERS);
   discovery = new DiscoveryEngine(careerStore);
-  careerService = createCareerService(careerStore, discovery, (request) =>
-    reviewShortlist(request, careerStore!, store!, vault, reviewController.signal),
+  careerService = createCareerService(
+    careerStore,
+    discovery,
+    (request) => reviewShortlist(request, careerStore!, store!, vault, reviewController.signal),
+    undefined,
+    async (format, data) => {
+      if (!mainWindow) return false;
+      const result = await dialog.showSaveDialog(mainWindow, {
+        title: 'Export job results',
+        defaultPath: `rovdo-jobs.${format}`,
+        filters: [{ name: format.toUpperCase(), extensions: [format] }],
+      });
+      if (result.canceled || !result.filePath) return false;
+      // The native dialog grants this exact destination; renderer IPC accepts no paths or arbitrary content.
+      await writeFile(result.filePath, data, { encoding: 'utf8' });
+      return true;
+    },
   );
   globalTimer = setInterval(() => {
     void careerService?.global.tick().catch(() => {});

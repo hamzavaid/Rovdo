@@ -1,5 +1,5 @@
 /** Capability catalog, not a claim that every listed website has a working scraper. */
-import boards from './boards.json';
+import boards from './boards.json' with { type: 'json' };
 import { RegistryEntrySchema } from '@rovdo/shared';
 const ats = new Set(['Greenhouse', 'Lever', 'Ashby', 'SmartRecruiters']);
 const scrapers = new Set([

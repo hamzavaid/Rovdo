@@ -59,7 +59,7 @@ export function parseGithubListings(text: string) {
   const result: {
     url: string;
     title: string;
-    company: string;
+    company: string | null;
     location: string;
     description: string;
   }[] = [];
@@ -74,8 +74,11 @@ export function parseGithubListings(text: string) {
     ].map((m) => m[1] ?? m[2]!);
     const url = links[0];
     const title = clean(cells[1]!),
-      company = clean(cells[0]!);
-    if (url && title && company && !/\uD83D\uDD12|closed|no longer/i.test(cells[3]!))
+      rawCompany = clean(cells[0]!);
+    const company = /^(?:[\u21b3\u21aa\u2192\u2193?\s-]+|n\/a|unknown)?$/i.test(rawCompany)
+      ? null
+      : rawCompany;
+    if (url && title && !/\uD83D\uDD12|closed|no longer/i.test(cells[3]!))
       result.push({ url, title, company, location: clean(cells[2]!), description: '' });
   };
   for (const row of text.matchAll(/<tr\b[^>]*>([\s\S]*?)<\/tr>/gi))
@@ -338,7 +341,15 @@ export function normalizeDiscoveryJob(
     activeStatus: 'unknown',
     salary: record.salary,
     contentSha256: sha256(
-      [record.title, record.description, record.location, JSON.stringify(record.salary)].join('\n'),
+      [
+        record.title,
+        record.description,
+        record.location,
+        record.workMode,
+        record.employmentType,
+        record.postedAt,
+        JSON.stringify(record.salary),
+      ].join('\n'),
     ),
     rawSha256: rawHash,
     parserVersion: 'ats-v1',

@@ -140,3 +140,111 @@ it('obeys robots exclusions and isolates a malformed provider from healthy feeds
     store.close();
   }
 });
+
+it('bounds transient retries and leaves source recovery available through a new search', async () => {
+  const store = new CareerStore(':memory:');
+  const engine = new GlobalDiscoveryEngine(store, {
+    sleep: async () => {},
+    transport: async () => {
+      throw new Error('offline');
+    },
+  });
+  try {
+    const id = engine.start({ sourceIds: ['remotive'], overrides: {} });
+    const task = store.global.ready(id, Date.now())[0]!;
+    store.global.saveTask({ ...task, attempts: 4 });
+    await engine.tick();
+    expect(store.global.coverage(id)[0]?.status).toBe('blocked');
+    expect(store.global.run(id).status).toBe('completed');
+    const next = engine.start({ sourceIds: ['remotive'], overrides: {} });
+    expect(next).not.toBe(id);
+  } finally {
+    await engine.shutdown();
+    store.close();
+  }
+});
+
+it('collects paginated jobs beyond starter employers and reuses cached feeds across idempotent searches', async () => {
+  const store = new CareerStore(':memory:');
+  let requests = 0;
+  const engine = new GlobalDiscoveryEngine(store, {
+    sleep: async () => {},
+    transport: async () => {
+      requests++;
+      return response({
+        jobs: Array.from({ length: 205 }, (_, i) => ({
+          url: `https://remotive.com/jobs/${i}`,
+          title: `TypeScript Engineer ${i}`,
+          company_name: `Employer ${i % 17}`,
+          description: 'Required: TypeScript',
+          candidate_required_location: 'Remote',
+        })),
+      });
+    },
+  });
+  try {
+    const options = { sourceIds: ['remotive'], overrides: {} };
+    const first = engine.start(options);
+    for (let i = 0; i < 3; i++) await engine.tick();
+    expect(store.global.stats(first)).toMatchObject({ jobs: 205, companies: 17, pending: 0 });
+    store.saveJob(store.jobs()[0]!.id, true);
+    const second = engine.start(options);
+    for (let i = 0; i < 3; i++) await engine.tick();
+    expect(store.global.stats(second).jobs).toBe(205);
+    expect(store.jobCount()).toBe(205);
+    expect(requests).toBe(1);
+    expect(store.savedIds()).toHaveLength(1);
+    expect(
+      store.sources().every((s) => s.config.collection === 'global' && !s.config.enabled),
+    ).toBe(true);
+  } finally {
+    await engine.shutdown();
+    store.close();
+  }
+});
+
+it('quarantines a malformed JSON-LD posting without losing valid siblings', async () => {
+  const store = new CareerStore(':memory:');
+  const engine = new GlobalDiscoveryEngine(store, {
+    sleep: async () => {},
+    transport: async (url) => {
+      if (url.includes('index.example'))
+        return response({
+          results: url.includes('pageno=2')
+            ? []
+            : [{ title: 'Engineer', url: 'https://careers.example/jobs' }],
+        });
+      if (url.endsWith('robots.txt')) return response('User-agent: *\nAllow: /');
+      return response(
+        '<script type="application/ld+json">' +
+          JSON.stringify([
+            {
+              '@type': 'JobPosting',
+              title: 'Broken',
+              hiringOrganization: { name: 'Example', url: 'https://careers.example' },
+            },
+            {
+              '@type': 'JobPosting',
+              title: 'Engineer',
+              description: 'TypeScript required',
+              url: 'https://careers.example/jobs/1',
+              hiringOrganization: { name: 'Example', url: 'https://careers.example' },
+            },
+          ]) +
+          '</script>',
+      );
+    },
+  });
+  try {
+    engine.start({
+      sourceIds: ['web-index'],
+      overrides: {},
+      indexUrl: 'https://index.example/search',
+    });
+    for (let i = 0; i < 4; i++) await engine.tick();
+    expect(store.jobs().map((j) => j.title)).toEqual(['Engineer']);
+  } finally {
+    await engine.shutdown();
+    store.close();
+  }
+});

@@ -1,6 +1,6 @@
 import { resolve } from 'node:path';
 import { _electron as electron, expect, test } from '@playwright/test';
-test('Search All Companies collects fixture feeds without employer identifiers or AI', async () => {
+test('Search All Saved Companies collects fixture feeds without employer identifiers or AI', async () => {
   const env = Object.fromEntries(
     Object.entries(process.env).filter((e): e is [string, string] => e[1] !== undefined),
   );
@@ -82,6 +82,7 @@ test('Search All Companies collects fixture feeds without employer identifiers o
     });
     const page = await app.firstWindow();
     await page.getByRole('button', { name: 'Jobs', exact: true }).click();
+    await page.getByLabel('Search scope', { exact: true }).selectOption('saved-companies');
     await page.getByRole('button', { name: 'Search', exact: true }).click();
     await expect(
       page.getByText('Collecting and parsing job feeds...', { exact: true }),

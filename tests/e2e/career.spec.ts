@@ -76,7 +76,7 @@ test('edits a verified profile and discovers, filters and saves fixture jobs wit
     await expect(page.getByText('Profile version 2')).toBeVisible();
     await page.getByRole('button', { name: 'Jobs', exact: true }).click();
     await page.getByLabel('Search jobs').fill('TypeScript');
-    await page.getByRole('button', { name: 'Search', exact: true }).click();
+    await page.getByRole('button', { name: 'Apply filters to cached jobs', exact: true }).click();
     await expect(page.getByRole('heading', { name: 'TypeScript Engineer' })).toBeVisible();
     await expect(page.getByText('Qualification gaps: Rust')).toBeVisible();
     await page.getByRole('button', { name: 'Save opportunity' }).click();

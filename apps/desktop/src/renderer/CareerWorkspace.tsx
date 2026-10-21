@@ -15,6 +15,7 @@ import type {
   SourceConfig,
 } from '@rovdo/shared';
 import type { z } from 'zod';
+import { GlobalDiscovery, defaultDiscovery } from './GlobalDiscovery';
 import { AdvancedFilters, DiscoveryControls } from './DiscoveryControls';
 import { LegacyFacts } from './LegacyFacts';
 import { ProfileDialog } from './ProfileDialog';
@@ -25,6 +26,8 @@ import { ProfileQualifications } from './ProfileQualifications';
 import { ProfileIntelligence } from './ProfileIntelligence';
 
 const initialSearch: JobSearch = {
+  scope: 'global',
+  discovery: defaultDiscovery,
   query: '',
   company: '',
   workMode: 'all',
@@ -78,7 +81,8 @@ export function CareerWorkspace({
   const [region, setRegion] = useState<SourceConfig['region']>('global');
   const [interval, setIntervalMinutes] = useState(1440);
   const [terms, setTerms] = useState(false);
-  const [searchScope, setSearchScope] = useState<'all' | 'company'>('all');
+  const searchScope = search.scope ?? 'saved-companies';
+  const [exportStatus, setExportStatus] = useState('');
   const [jobView, setJobView] = useState<'results' | 'ranking' | 'sources'>('results');
   const [profileSection, setProfileSection] = useState('skills');
   const [previewRankingId, setPreviewRankingId] = useState('builtin:legacy-v1');
@@ -119,19 +123,26 @@ export function CareerWorkspace({
     // Search changes are submitted explicitly; the polling loop reads a ref.
   }, [tab]);
   async function command(cmd: CareerCommand) {
-    if (view?.polling && ['searchAll', 'poll', 'discoverFeeds'].includes(cmd.op)) return;
-    const label =
-      cmd.op === 'searchAll'
-        ? 'Checking employer feeds...'
-        : cmd.op === 'discoverFeeds'
-          ? 'Verifying employer source...'
-          : cmd.op === 'compare'
-            ? 'Calculating ranking comparison...'
-            : cmd.op === 'evaluate'
-              ? 'Evaluating saved job...'
-              : cmd.op === 'saveProfile'
-                ? 'Saving candidate profile...'
-                : 'Saving changes...';
+    if (
+      view?.polling &&
+      ['searchAll', 'searchSavedCompanies', 'pollCompany', 'poll', 'discoverFeeds'].includes(cmd.op)
+    )
+      return;
+    const label = ['searchAll', 'searchSavedCompanies', 'pollCompany'].includes(cmd.op)
+      ? 'Checking employer feeds...'
+      : cmd.op === 'startDiscovery'
+        ? 'Starting qualification-driven discovery...'
+        : cmd.op === 'controlDiscovery'
+          ? 'Updating collection checkpoint...'
+          : cmd.op === 'discoverFeeds'
+            ? 'Verifying employer source...'
+            : cmd.op === 'compare'
+              ? 'Calculating ranking comparison...'
+              : cmd.op === 'evaluate'
+                ? 'Evaluating saved job...'
+                : cmd.op === 'saveProfile'
+                  ? 'Saving candidate profile...'
+                  : 'Saving changes...';
     await run(label, async () => {
       setError('');
       try {
@@ -143,7 +154,11 @@ export function CareerWorkspace({
         setView(result.view);
         if ((cmd.op === 'saveProfile' || cmd.op === 'proposeFacts') && result.view.profile)
           setDraft(result.view.profile);
-        if (tab === 'jobs' && cmd.op !== 'compare') await refresh();
+        if (cmd.op === 'exportJobs' && result.exported)
+          setExportStatus(
+            `${result.exported.saved ? 'File saved for this page' : 'Export canceled'}; ${result.exported.skipped} source-restricted records omitted.`,
+          );
+        if (tab === 'jobs' && !['compare', 'exportJobs'].includes(cmd.op)) await refresh();
       } catch {
         setError('Invalid input or desktop unavailable');
       }
@@ -185,7 +200,6 @@ export function CareerWorkspace({
             ? 'projects'
             : 'identity';
   function resetFilters() {
-    setSearchScope('all');
     void applySearch(initialSearch);
   }
   const reviewJob = view?.matches.find((m) => m.job.id === reviewId)?.job;
@@ -576,28 +590,37 @@ export function CareerWorkspace({
                   className="job-filters"
                   onSubmit={(e) => {
                     e.preventDefault();
-                    searchRef.current = {
-                      ...search,
-                      company: searchScope === 'all' ? '' : search.company,
-                      offset: 0,
-                    };
+                    searchRef.current = { ...search, offset: 0 };
                     setSearch(searchRef.current);
-                    if (!view?.totalJobs && !view?.sources.length)
-                      void command({ op: 'searchAll' });
+                    if (searchScope === 'global')
+                      void command({
+                        op: 'startDiscovery',
+                        options: search.discovery ?? defaultDiscovery,
+                        consent: true,
+                      });
+                    else if (searchScope === 'company' && search.selectedSourceId)
+                      void command({ op: 'pollCompany', id: search.selectedSourceId });
+                    else if (searchScope === 'saved-companies')
+                      void command({ op: 'searchSavedCompanies' });
                     else void searchJobs();
                   }}
                 >
                   <label>
                     Search scope
                     <select
+                      aria-label="Search scope"
                       value={searchScope}
                       onChange={(e) => {
-                        const scope = e.target.value as 'all' | 'company';
-                        setSearchScope(scope);
-                        if (scope === 'all') setSearch({ ...search, company: '' });
+                        setSearch({
+                          ...search,
+                          scope: e.target.value as JobSearch['scope'],
+                          selectedSourceId: undefined,
+                          offset: 0,
+                        });
                       }}
                     >
-                      <option value="all">Search All Companies</option>
+                      <option value="global">Search All</option>
+                      <option value="saved-companies">Search All Saved Companies</option>
                       <option value="company">Selected company</option>
                     </select>
                   </label>
@@ -610,12 +633,22 @@ export function CareerWorkspace({
                   </label>
                   {searchScope === 'company' && (
                     <label>
-                      Company filter
-                      <input
-                        placeholder="Employer name"
-                        value={search.company}
-                        onChange={(e) => setSearch({ ...search, company: e.target.value })}
-                      />
+                      Selected employer
+                      <select
+                        required
+                        value={search.selectedSourceId ?? ''}
+                        onChange={(e) =>
+                          setSearch({ ...search, selectedSourceId: e.target.value || undefined })
+                        }
+                      >
+                        <option value="">Choose a saved company</option>
+                        {view?.sources.map((s) => (
+                          <option key={s.config.id} value={s.config.id}>
+                            {s.config.company}
+                            {s.config.enabled ? '' : ' (disabled)'}
+                          </option>
+                        ))}
+                      </select>
                     </label>
                   )}
                   <label>
@@ -652,10 +685,36 @@ export function CareerWorkspace({
                     </label>
                   </div>
                   <AdvancedFilters search={search} setSearch={setSearch} />
+                  <label>
+                    Source filter
+                    <select
+                      value={search.sourceId ?? ''}
+                      onChange={(e) =>
+                        setSearch({ ...search, sourceId: e.target.value || undefined })
+                      }
+                    >
+                      <option value="">All collected sources</option>
+                      {view?.discovery?.registry.map((s) => (
+                        <option key={s.id} value={s.id}>
+                          {s.name}
+                        </option>
+                      ))}
+                      {['jsonld', 'jobspy-import'].map((s) => (
+                        <option key={'native-' + s} value={s}>
+                          {s}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
                   <div className="search-actions">
                     <button
                       className="primary-button"
-                      disabled={busy || view?.polling}
+                      disabled={
+                        busy ||
+                        (searchScope !== 'global' && view?.polling) ||
+                        (searchScope === 'global' &&
+                          !(search.discovery ?? defaultDiscovery).sourceIds.length)
+                      }
                       type="submit"
                     >
                       Search
@@ -664,9 +723,10 @@ export function CareerWorkspace({
                       Reset all filters
                     </button>
                     <button
+                      hidden={searchScope !== 'saved-companies'}
                       type="button"
                       disabled={busy || view?.polling}
-                      onClick={() => void command({ op: 'searchAll' })}
+                      onClick={() => void command({ op: 'searchSavedCompanies' })}
                     >
                       Refresh employer feeds
                     </button>
@@ -686,6 +746,59 @@ export function CareerWorkspace({
                 </p>
               </section>
 
+              {searchScope === 'global' && (
+                <GlobalDiscovery
+                  view={view?.discovery}
+                  options={search.discovery ?? defaultDiscovery}
+                  onOptions={(options) => setSearch({ ...search, discovery: options })}
+                  command={command}
+                  refresh={refresh}
+                  busy={busy}
+                />
+              )}
+              <div className="button-row">
+                <button type="button" disabled={busy} onClick={() => void searchJobs()}>
+                  Apply filters to cached jobs
+                </button>
+                <label>
+                  Sort results
+                  <select
+                    value={search.sort ?? 'qualification'}
+                    onChange={(e) =>
+                      void applySearch({
+                        ...search,
+                        sort: e.target.value as JobSearch['sort'],
+                        offset: 0,
+                      })
+                    }
+                  >
+                    {['qualification', 'newest', 'salary', 'company'].map((v) => (
+                      <option key={v} value={v}>
+                        {v}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <button
+                  disabled={!view?.matches.length}
+                  onClick={() => void command({ op: 'exportJobs', format: 'csv', search })}
+                >
+                  Export page CSV
+                </button>
+                <button
+                  disabled={!view?.matches.length}
+                  onClick={() => void command({ op: 'exportJobs', format: 'json', search })}
+                >
+                  Export page JSON
+                </button>
+              </div>
+              {exportStatus && <p role="status">{exportStatus}</p>}
+              {!!view?.rankingPending && (
+                <p role="status">
+                  Preparing deterministic scores for {view.rankingPending} remaining jobs. Results
+                  appear in bounded batches.
+                </p>
+              )}
               <details className="comparison-control">
                 <summary>Compare ranking methods</summary>
                 <label>
@@ -749,7 +862,7 @@ export function CareerWorkspace({
                   <p>
                     {view.totalJobs
                       ? `${view.totalJobs} jobs are indexed, but none match the current query, filters and eligibility visibility.`
-                      : 'Search the verified directory to collect jobs. An empty or failed feed does not mean there are no opportunities elsewhere.'}
+                      : 'Start Search All to discover public feeds and employers, or choose Search All Saved Companies for the approved directory. Inspect coverage for incomplete or blocked sources.'}
                   </p>
                   {search.savedOnly && <p>This search is restricted to saved opportunities.</p>}
                   {!view.profile && (
@@ -806,6 +919,26 @@ export function CareerWorkspace({
                     <p>Matched skills: {m.matchedSkills.join(', ') || 'None verified'}</p>
                     <p>Qualification gaps: {m.gaps.join(', ') || 'No explicit gaps extracted'}</p>
                     <p className="job-url">{m.job.canonicalUrl}</p>
+                    <p className="help-text">
+                      {m.job.discovery?.availability ??
+                        (m.job.activeStatus === 'open' ? 'verified' : 'unverified')}{' '}
+                      posting / {m.job.discovery?.sourceName ?? m.job.source} /{' '}
+                      {m.job.postedAt
+                        ? new Date(m.job.postedAt).toLocaleDateString()
+                        : 'Posting date unknown'}
+                    </p>
+                    {m.job.salary && (
+                      <p>
+                        Compensation: {m.job.salary.currency} {m.job.salary.min ?? 'unknown'} -{' '}
+                        {m.job.salary.max ?? 'unknown'} / {m.job.salary.interval}
+                      </p>
+                    )}
+                    {m.job.discovery && (
+                      <p className="job-url">
+                        Source credit / application: {m.job.discovery.sourceName} /{' '}
+                        {m.job.discovery.attributionUrl}
+                      </p>
+                    )}
                     <div className="button-row">
                       <button
                         onClick={() =>
@@ -1072,8 +1205,7 @@ export function CareerWorkspace({
                 command={command}
                 busy={busy}
                 loadSearch={(s) => {
-                  setSearchScope(s.company ? 'company' : 'all');
-                  void applySearch(s);
+                  void applySearch({ ...s, scope: s.scope ?? 'saved-companies' });
                 }}
               />
             </div>
@@ -1309,8 +1441,7 @@ export function CareerWorkspace({
                 command={command}
                 busy={busy}
                 loadSearch={(s) => {
-                  setSearchScope(s.company ? 'company' : 'all');
-                  void applySearch(s);
+                  void applySearch({ ...s, scope: s.scope ?? 'saved-companies' });
                 }}
               />
             </section>

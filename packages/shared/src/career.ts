@@ -222,18 +222,16 @@ export const JobSchema = z.strictObject({
   rawSha256: z.string().length(64),
   parserVersion: z.literal('ats-v1'),
   duplicateGroup: z.string().nullable(),
-  provenance: z
-    .array(
-      z.strictObject({
-        sourceId: z.uuid(),
-        sourceKey: z.string(),
-        url: z.string().url(),
-        collectedAt: z.number(),
-        rawSha256: z.string().length(64),
-        fields: z.record(z.string(), z.string()),
-      }),
-    )
-    .max(100),
+  provenance: z.array(
+    z.strictObject({
+      sourceId: z.uuid(),
+      sourceKey: z.string(),
+      url: z.string().url(),
+      collectedAt: z.number(),
+      rawSha256: z.string().length(64),
+      fields: z.record(z.string(), z.string()),
+    }),
+  ),
 });
 export type Job = z.infer<typeof JobSchema>;
 export const EligibilityCheckSchema = z.strictObject({
@@ -380,6 +378,11 @@ export const CareerCommandSchema = z.discriminatedUnion('op', [
   }),
   z.strictObject({ op: z.literal('deleteSearch'), id: z.uuid() }),
   z.strictObject({
+    op: z.literal('exportJobs'),
+    format: z.enum(['csv', 'json']),
+    search: JobSearchSchema,
+  }),
+  z.strictObject({
     op: z.literal('markJob'),
     jobId: z.string().max(300),
     feedback: z.enum(['none', 'relevant', 'irrelevant']).optional(),
@@ -401,7 +404,13 @@ export const CareerCommandSchema = z.discriminatedUnion('op', [
 ]);
 export type CareerCommand = z.infer<typeof CareerCommandSchema>;
 export const CareerResultSchema = z.discriminatedUnion('ok', [
-  z.strictObject({ ok: z.literal(true), view: CareerViewSchema }),
+  z.strictObject({
+    ok: z.literal(true),
+    view: CareerViewSchema,
+    exported: z
+      .strictObject({ saved: z.boolean(), skipped: z.number().int().nonnegative() })
+      .optional(),
+  }),
   z.strictObject({
     ok: z.literal(false),
     code: z.enum(['IPC_FORBIDDEN', 'VALIDATION_ERROR', 'CAREER_ERROR', 'AI_REVIEW_FAILED']),

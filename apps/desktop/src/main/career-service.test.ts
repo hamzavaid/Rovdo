@@ -362,3 +362,121 @@ describe('career IPC and optional inference', () => {
     }
   });
 });
+
+it('exports only stored result-page jobs through the native save capability, never renderer paths or candidate contacts', async () => {
+  const store = new CareerStore(':memory:');
+  const engine = new DiscoveryEngine(store);
+  let content = '';
+  const service = createCareerService(
+    store,
+    engine,
+    async () => {
+      throw new Error('No AI');
+    },
+    undefined,
+    async (_format, data) => {
+      content = data;
+      return true;
+    },
+  );
+  try {
+    expect(
+      (
+        await service.command(
+          {
+            op: 'importDiscovery',
+            rows: [
+              {
+                job_url: 'https://careers.example/jobs/1',
+                title: 'Engineer',
+                company: 'Example',
+                description: 'TypeScript required',
+              },
+            ],
+            permitted: true,
+          },
+          sender,
+        )
+      ).ok,
+    ).toBe(true);
+    const search = {
+      query: '',
+      company: '',
+      workMode: 'all',
+      savedOnly: false,
+      includeExcluded: true,
+    };
+    const result = await service.command({ op: 'exportJobs', format: 'csv', search }, sender);
+    expect(result.ok).toBe(true);
+    expect(content).toContain('Engineer');
+    expect(content).not.toContain('profile');
+    expect(
+      await service.command(
+        { op: 'exportJobs', format: 'csv', search, path: 'C:/unauthorized.csv' },
+        sender,
+      ),
+    ).toEqual({ ok: false, code: 'VALIDATION_ERROR' });
+  } finally {
+    await service.shutdown();
+    await engine.shutdown();
+    store.close();
+  }
+});
+
+it('polls only the selected saved company and keeps global source grants independent', async () => {
+  const store = new CareerStore(':memory:');
+  store.seedDirectory(EMPLOYERS);
+  store.enableDirectory();
+  const seen: string[] = [];
+  const engine = new DiscoveryEngine(
+    store,
+    (s) =>
+      new AtsAdapter(s, async () => {
+        seen.push(s.id);
+        return {
+          status: 200,
+          headers: {},
+          body: Buffer.from(
+            s.ats === 'lever'
+              ? '[]'
+              : s.ats === 'smartrecruiters'
+                ? '{"content":[],"totalFound":0}'
+                : '{"jobs":[]}',
+          ),
+        };
+      }),
+    { sleep: async () => {} },
+  );
+  const service = createCareerService(store, engine, async () => {
+    throw new Error('No AI');
+  });
+  try {
+    const selected = store.sources()[0]!.config.id;
+    expect((await service.command({ op: 'pollCompany', id: selected }, sender)).ok).toBe(true);
+    await engine.poll(selected);
+    expect([...new Set(seen)]).toEqual([selected]);
+    const global = store.globalSource('fixture', 'Outside', 'https://outside.example/jobs');
+    expect((await service.command({ op: 'pollCompany', id: global.id }, sender)).ok).toBe(false);
+    expect(
+      (
+        await service.command(
+          {
+            op: 'view',
+            search: {
+              query: '',
+              company: '',
+              workMode: 'all',
+              savedOnly: false,
+              includeExcluded: false,
+            },
+          },
+          sender,
+        )
+      ).ok,
+    ).toBe(true);
+  } finally {
+    await service.shutdown();
+    await engine.shutdown();
+    store.close();
+  }
+});

@@ -107,3 +107,11 @@ it('constrains board-specific indexes but leaves the open web index unrestricted
     ).records,
   ).toHaveLength(1);
 });
+
+it('retains continuation-row application leads without inventing a company from arrow markers', () => {
+  const rows = parseGithubListings(
+    '| \u21b3 | Firmware Intern | Remote | [Apply](https://jobs.lever.co/example/2) |',
+  );
+  expect(rows[0]?.company).toBeNull();
+  expect(rows[0]?.url).toBe('https://jobs.lever.co/example/2');
+});

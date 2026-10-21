@@ -217,3 +217,59 @@ h1 {
     flex-direction: column;
   }
 }
+
+/* Global collection keeps the 126-source catalog secondary and its live progress visible. */
+.global-discovery {
+  margin-block: var(--space-4, 16px);
+}
+.discovery-source-list {
+  max-height: 26rem;
+  overflow: auto;
+  overscroll-behavior: contain;
+  display: grid;
+  gap: 8px;
+  padding: 4px;
+}
+.discovery-source {
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+.discovery-source summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.discovery-source summary label {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+}
+.discovery-source summary small {
+  color: var(--muted);
+}
+.coverage-table {
+  max-width: 100%;
+  overflow: auto;
+}
+.coverage-table th,
+.coverage-table td {
+  padding: 8px;
+  text-align: left;
+  vertical-align: top;
+  overflow-wrap: anywhere;
+}
+.query-preview {
+  max-height: 12rem;
+  overflow: auto;
+}
+.discovery-progress {
+  margin-block: 12px;
+}
+@media (max-width: 900px) {
+  .discovery-source summary {
+    flex-wrap: wrap;
+  }
+}

@@ -143,7 +143,20 @@ export class GlobalDiscoveryEngine {
       else {
         this.enqueue(run, id, 'provider', {});
         if (source.adapter === 'himalayas')
-          for (const query of queries) this.enqueue(run, id, 'provider', { query, page: 1 }, -1);
+          for (const query of queries)
+            this.enqueue(
+              run,
+              id,
+              'provider',
+              {
+                query: [query, options.overrides[id]?.keywords, options.overrides[id]?.location]
+                  .filter(Boolean)
+                  .join(' ')
+                  .slice(0, 500),
+                page: 1,
+              },
+              -1,
+            );
       }
     }
     return run.id;
@@ -205,6 +218,7 @@ export class GlobalDiscoveryEngine {
           reason:
             'Accessible selected sources completed; blocked, incomplete and unconfigured coverage is reported separately.',
         });
+      if (this.store.global.run(run.id).status !== 'running') this.controllers.delete(run.id);
     }
   }
   private reader(run: DiscoveryRun, task: DiscoveryTask, signal: AbortSignal): DiscoveryRead {
@@ -215,7 +229,7 @@ export class GlobalDiscoveryEngine {
       if (cached)
         return {
           status: cached.status,
-          headers: cached.headers,
+          headers: { ...cached.headers, 'x-rovdo-observed-at': String(cached.capturedAt) },
           body: Buffer.from(cached.body, 'base64'),
         };
       const origin = new URL(url).origin;
@@ -227,7 +241,10 @@ export class GlobalDiscoveryEngine {
           if (cachedAgain)
             return {
               status: cachedAgain.status,
-              headers: cachedAgain.headers,
+              headers: {
+                ...cachedAgain.headers,
+                'x-rovdo-observed-at': String(cachedAgain.capturedAt),
+              },
               body: Buffer.from(cachedAgain.body, 'base64'),
             };
           const blocked = this.store.originBlockedUntil(origin);
@@ -265,7 +282,10 @@ export class GlobalDiscoveryEngine {
               Date.now() + ttl,
             );
           }
-          return response;
+          return {
+            ...response,
+            headers: { ...response.headers, 'x-rovdo-observed-at': String(Date.now()) },
+          };
         });
       this.origins.set(origin, work);
       try {
@@ -360,6 +380,7 @@ export class GlobalDiscoveryEngine {
               ? `HTTP_${status}`
               : 'SOURCE_RESPONSE_ERROR';
       const blocked =
+        task.attempts >= 4 ||
         [400, 401, 403, 404, 410].includes(status) ||
         [
           'POLICY_BLOCKED',
@@ -390,10 +411,15 @@ export class GlobalDiscoveryEngine {
     }
   }
   private priority(run: DiscoveryRun, record: DiscoveryRecord) {
-    const text = (record.title + ' ' + record.description).toLowerCase();
+    const text = (record.title + ' ' + record.description + ' ' + record.location).toLowerCase();
+    const override = run.options.overrides[record.sourceId];
+    const priorities = [
+      ...run.queries,
+      ...[override?.keywords, override?.location].filter((v): v is string => !!v),
+    ];
     return (
       (feedFromUrl(record.url) ? 1000 : 0) +
-      run.queries.reduce(
+      priorities.reduce(
         (n, q) =>
           n + Number(q.split(' ').some((w) => w.length > 3 && text.includes(w.toLowerCase()))),
         0,
@@ -447,7 +473,13 @@ export class GlobalDiscoveryEngine {
         url,
       );
       const config = { ...virtual, company: name, pageUrl: url, directoryId: 'dynamic-page' };
-      const normalized = new AtsAdapter(config).normalize({ jobs: [raw] });
+      let normalized: Job[];
+      try {
+        normalized = new AtsAdapter(config).normalize({ jobs: [raw] });
+      } catch {
+        this.store.global.note(run.id, task.sourceId, 'partial', 0, 1, 'MALFORMED_POSTING');
+        continue;
+      }
       const board = BOARD_REGISTRY.some(
         (b) =>
           new URL(b.url).hostname.replace(/^www\./, '') ===
@@ -469,7 +501,7 @@ export class GlobalDiscoveryEngine {
           sourceName: name,
           sourceUrl: url,
           attributionUrl: url,
-          checkedAt: Date.now(),
+          checkedAt: Number(response.headers['x-rovdo-observed-at']) || Date.now(),
           runId: run.id,
           exportAllowed: true,
         },
@@ -517,9 +549,12 @@ export class GlobalDiscoveryEngine {
       company,
       String(task.payload.pageUrl),
     );
-    const adapter = new AtsAdapter({ ...virtual, ...feed, company }, async (url, options) =>
-      read(url, options?.headers),
-    );
+    let observedAt = Date.now();
+    const adapter = new AtsAdapter({ ...virtual, ...feed, company }, async (url, options) => {
+      const response = await read(url, options?.headers);
+      observedAt = Number(response.headers['x-rovdo-observed-at']) || Date.now();
+      return response;
+    });
     const state = task.payload.state ? SourceStateSchema.parse(task.payload.state) : initialState();
     const page = await adapter.fetchPage(state, signal);
     this.assertActive(run, signal);
@@ -531,7 +566,7 @@ export class GlobalDiscoveryEngine {
         sourceName: company,
         sourceUrl: String(task.payload.pageUrl),
         attributionUrl: job.canonicalUrl,
-        checkedAt: Date.now(),
+        checkedAt: observedAt,
         runId: run.id,
         exportAllowed: true,
       },
@@ -573,6 +608,7 @@ export class GlobalDiscoveryEngine {
     });
     this.controllers.get(id)?.abort();
     await this.work;
+    this.controllers.delete(id);
   }
   view() {
     const runs = this.store.global.runs();

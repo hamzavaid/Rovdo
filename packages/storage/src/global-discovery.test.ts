@@ -117,3 +117,87 @@ it('keeps ranking warm-up incremental rather than retaining a whole-search array
     store.close();
   }
 });
+
+it('merges an employer posting over an aggregator, retains stable saved identity and idempotent evidence', async () => {
+  const { sampleJob } = await import('../../../tests/fixtures/ranking-v2');
+  const store = new CareerStore(':memory:');
+  try {
+    const id = randomUUID();
+    store.global.saveRun({
+      id,
+      status: 'completed',
+      createdAt: 1,
+      updatedAt: 1,
+      profileVersion: null,
+      queries: [],
+      options: { sourceIds: ['himalayas'], overrides: {} },
+      reason: null,
+    });
+    const agg = store.globalSource('agg', 'Aggregate', 'https://aggregate.example');
+    const employer = store.globalSource('employer', 'Employer', 'https://careers.example');
+    const base = sampleJob();
+    const job = (source: typeof agg, kind: 'aggregate' | 'employer') => ({
+      ...base,
+      id: kind,
+      source: kind === 'employer' ? ('lever' as const) : ('public-api' as const),
+      canonicalUrl: 'https://careers.example/jobs/1',
+      provenance: [
+        {
+          sourceId: source.id,
+          sourceKey: 'record-' + kind,
+          url: 'https://careers.example/jobs/1',
+          collectedAt: 1,
+          rawSha256: 'a'.repeat(64),
+          fields: {},
+        },
+      ],
+      discovery: {
+        kind,
+        availability: kind === 'employer' ? ('verified' as const) : ('unverified' as const),
+        sourceName: source.company,
+        sourceUrl: source.pageUrl!,
+        attributionUrl: 'https://careers.example/jobs/1',
+        checkedAt: 1,
+        runId: id,
+        exportAllowed: true,
+      },
+    });
+    store.ingestDiscovered(id, agg, [job(agg, 'aggregate')]);
+    store.saveJob('aggregate', true);
+    store.ingestDiscovered(id, employer, [job(employer, 'employer')]);
+    for (let i = 0; i < 3; i++) store.ingestDiscovered(id, agg, [job(agg, 'aggregate')]);
+    expect(store.jobCount()).toBe(1);
+    expect(store.savedIds()).toEqual(['aggregate']);
+    expect(store.job('aggregate').discovery?.kind).toBe('employer');
+    expect(store.job('aggregate').provenance).toHaveLength(2);
+  } finally {
+    store.close();
+  }
+});
+
+it('keeps long ATS tenant identities distinct and migrates old saved searches to directory scope', () => {
+  const store = new CareerStore(':memory:');
+  try {
+    const a = store.globalSource(
+      'lever-' + 'x'.repeat(115) + 'a',
+      'A',
+      'https://careers.example/a',
+    );
+    const b = store.globalSource(
+      'lever-' + 'x'.repeat(115) + 'b',
+      'B',
+      'https://careers.example/b',
+    );
+    expect(a.id).not.toBe(b.id);
+    store.saveSearch('Before global discovery', {
+      query: 'TypeScript',
+      company: 'Example',
+      workMode: 'all',
+      savedOnly: false,
+      includeExcluded: false,
+    });
+    expect(store.savedSearches()[0]?.search.scope).toBe('saved-companies');
+  } finally {
+    store.close();
+  }
+});

@@ -11,7 +11,7 @@ A local-first, open-source desktop workspace for AI-assisted browser workflows, 
 
 Rovdo is being built to help users discover relevant jobs, prepare fact-grounded application documents, and review browser actions before submission. Its discovery engine uses deterministic qualification matching, filters and local search without requiring an AI key. Optional model-assisted work uses a provider selected by the user.
 
-**Status: v0.3.8 - Pre-Phase 4 Stabilization.** Discover and rank jobs across a verified directory of public Greenhouse, Lever, Ashby and SmartRecruiters employer feeds without AI. Maintain a verified candidate profile and save opportunities. Optional BYOK models support streaming chat, advisory shortlist review and scoped browser tasks with human approvals. Document generation and application submission are planned for later milestones.
+**Status: v0.3.8 - Pre-Phase 4 Stabilization.** Discover jobs beyond a saved employer directory using public APIs, feeds, internship lists and a permitted search index, then rank complete records without AI. Existing Greenhouse, Lever, Ashby, SmartRecruiters and public JSON-LD integrations remain available. Maintain a verified candidate profile and save opportunities. Optional BYOK models support streaming chat, advisory shortlist review and scoped browser tasks with human approvals. Document generation and application submission are planned for later milestones.
 
 ## Quick start
 
@@ -70,22 +70,47 @@ Default limits are 20 actions, 50,000 tokens, an estimated $0.50 and five minute
 ## Candidate profile and job discovery
 
 1. Open **Profile**, choose Skills, Experience, Education, Projects or Identity & eligibility, and add facts with an evidence reference or explicit assertion, check each fact you verify, and save. Unverified facts do not affect matching. Legal work authorization and citizenship must be your own assertions. Use **Preferences** for roles, exclusions, locations, work modes, seniority levels and salary preferences; ranking configurations are selected in Jobs. Under **Imports**, import a local PDF, DOCX, TXT, Markdown or structured JSON profile, paste your LinkedIn content, or choose your LinkedIn archive ZIP. Public GitHub imports read repository metadata, languages and README files only after consent. Edit the preview, select qualifications to verify, and merge; verified originals are preserved. Citizenship, authorization and clearance need separate explicit confirmation. Scanned PDFs require text or a different source; OCR is not included.
-2. Open **Jobs**, choose a **Search scope**, and select **Search**. **Search All Companies** is the default scope; no employer name or ATS tenant identifier is required. The finite starter directory contains Figma (Greenhouse), Palantir Technologies (Lever), Linear (Ashby), and SmartRecruiters, validated on 18 October 2026. Sources start daily polling after the first search and remain enabled across restarts. Coverage reflects these supported employers, not every company worldwide. Choose **Selected company** to search one employer using the same filters. Jobs separates **Search & results**, **Ranking & matching**, and **Sources & coverage**. Compact **Saved searches** stay below the results; source controls are in Sources & coverage. Disable a source beside its title in the verified directory, or remove it with the small **x** in its Source health card; subsequent searches preserve your opt-out. Removal keeps collected jobs, saved opportunities and source evidence. Enable it again explicitly in the directory or add it under Advanced Source Management.
-3. Results appear as sources finish. Use **Refresh employer feeds** in the search section to collect due verified feeds. Rovdo also checks due sources each minute while running. It respects persisted deadlines, one request per second per ATS origin, Retry-After cooldowns, bounded pages and failure backoff. Public reads require no model or private recruiter credentials. Source health distinguishes failures, empty feeds and searches with zero matches.
-4. Search and expand **Advanced search filters** for role family, internship season, graduation window, experience level, location/remote jurisdiction, work mode, published annual salary/currency, posting age, minimum score and eligibility outcome. Unknown salary or posting dates do not pass explicit numeric/freshness filters. Graduation filtering retains unspecified windows for review. Filters narrow results without changing the candidate profile or ranking configuration. Results show a bounded score, verified skill matches, explicit gaps, tri-state eligibility evidence, provenance and scoring/profile versions. Browse in pages of 50 after score ordering. Save named searches, mark jobs relevant/irrelevant, record an applied marker, or mark postings as read. Feedback and applied markers never change technical qualification scores or submit an application. Hard failures are excluded by default; unknown requirements stay visible for review. Possible duplicates need review, while identical canonical targets are merged with their provenance preserved.
+2. Open **Jobs** and choose one of three scopes. **Search All** is the default: discover public jobs and employers dynamically, guided by verified skills, experience, projects, education and role/location preferences. **Search All Saved Companies** keeps the original approved-directory behavior (the starter directory contains Figma, Palantir Technologies, Linear and SmartRecruiters). **Selected company** collects due feeds from one saved employer. Disabled sources remain disabled; **Apply filters to cached jobs** searches retained results without collecting. Older saved searches retain their saved-company scope. Global discovery never automatically grants discovered employers permission to join scheduled saved-company polling.
+3. Results appear as sources finish. Use **Refresh employer feeds** in the search section to collect due verified feeds. Rovdo also checks due saved sources each minute while running; global work advances in bounded batches while running. It respects persisted deadlines, one request per second per ATS origin, Retry-After cooldowns, bounded pages and failure backoff. Public reads require no model or private recruiter credentials. Source health distinguishes failures, empty feeds and searches with zero matches.
+4. Search and expand **Advanced search filters** for role family, internship season, graduation window, experience level, location/remote jurisdiction, work mode, published annual salary/currency, posting age, minimum score and eligibility outcome. Unknown salary or posting dates do not pass explicit numeric/freshness filters. Graduation filtering retains unspecified windows for review. Filters narrow results without changing the candidate profile or ranking configuration. Results show a bounded score, verified skill matches, explicit gaps, tri-state eligibility evidence, provenance and scoring/profile versions. Choose qualification, newest, salary or company ordering and browse in pages of 50. Employment type, source and verification filters are also available. Salary sorting uses published numeric amounts without currency conversion; use the salary-currency filter when comparing amounts. Save named searches, mark jobs relevant/irrelevant, record an applied marker, or mark postings as read. Feedback and applied markers never change technical qualification scores or submit an application. Hard failures are excluded by default; unknown requirements stay visible for review. Possible duplicates need review, while identical canonical targets are merged with their provenance preserved.
 5. Save opportunities independently of any model. For optional AI notes, choose **Preview optional AI review**, select a model, review the exact outbound facts/job excerpt and destination, and approve transmission. UI reviews one saved job with an estimated $0.10 cap; the service supports at most five. Advisory notes cannot alter eligibility, ranking or source facts. Reviews are cached by content, profile and model versions.
+
+### Global discovery coverage and controls
+
+Expand **Sources, queries and collection settings** to select sources, inspect capability/policy limitations and preview technical search queries. Per-source keyword/location overrides guide index/API searches and collection priority; result filters remain separate. Search never uses a model, and query planning excludes contact details, legal assertions and raw profile documents. With no verified profile, discovery uses a broad generic query and still collects accessible feeds.
+
+| Integration                               | Working behavior                                                                     | Limitations                                                                                                            |
+| ----------------------------------------- | ------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------- |
+| Greenhouse, Lever, Ashby, SmartRecruiters | Resolve discovered public application URLs into employer-scoped API feeds            | No universal ATS endpoint; unknown employer identity stays unverified                                                  |
+| Public employer JSON-LD                   | Read permitted `JobPosting` metadata and known ATS links                             | Robots checks, same-origin posting validation, no scripts/browser scraping                                             |
+| Himalayas / Remotive                      | Public job APIs, pagination/cache, complete records through the existing scorer      | Cached/delayed data; supplied application links and visible source credit retained; redistribution exports disabled    |
+| We Work Remotely                          | Public RSS with retained descriptions and source URLs                                | Aggregator availability remains unverified until employer evidence is available                                        |
+| Four GitHub internship/new-grad lists     | Application-column links from public repository tables                               | Incomplete links remain unscored leads until a complete public posting resolves                                        |
+| Permitted SearXNG JSON instance           | Qualification-driven, paginated open-web and optional board-specific search          | Configure an operator-authorized public HTTPS `/search` endpoint; JSON access may be disabled by the operator          |
+| JobSpy interchange                        | Import permitted CSV/JSON exports in batches under Global discovery                  | Direct JobSpy scraping and a Python worker are **not enabled**; restricted platforms are never scraped                 |
+| 126-website registry                      | Distinguishes native API, feed, repository, indexed, scraper and unsupported entries | A catalog entry is not a claim of a working direct scraper; credentialed/unimplemented and blocked sources are labeled |
+
+Without a configured index, accessible APIs and repository feeds still search beyond saved employers. The open-web index has no company or website allowlist; policy restrictions, public-address checks, robots rules, authentication challenges and rate limits still apply. Search-engine HTML scraping, CAPTCHA solving, authentication bypass and automatic redirects are disabled. The registry is extensible in `packages/job-sources/src/registry.ts`; additional sites are not silently treated as supported scrapers.
+
+The collection panel reports discovered companies, sources searched, unique jobs collected, definite filtered jobs, pending work, quarantined rows and source errors. These are coverage statistics for selected accessible sources, **not every job on the internet**. Partial results appear before all sources finish. Pause, resume or cancel collection; checkpoints, queries, cached responses and collected jobs persist locally. Interrupted runs pause at restart rather than silently resume outbound requests. Concurrent searches have independent queues and share per-origin throttling. A task stops after five consecutive transient failures; start a new search to retry a recovered source.
+
+There is no total jobs/employers/results ceiling. Safety bounds apply to individual response bodies, pages, file imports, concurrent requests and scoring batches. Large result sets are paginated and scores warm incrementally; the UI identifies pending scoring. Unresolved discovery previews show the latest 20 leads, separately from all scored results. Public feeds are cached (Himalayas 24 hours, Remotive 6 hours, others 1 hour); these are not live availability guarantees. Source-specific records remain stored, duplicates retain provenance, and authoritative employer fields take precedence over aggregator fields.
+
+Use **Export page CSV** or **Export page JSON** for the current result page, including scores and application URLs. Source-restricted records are omitted with an explicit count; candidate contact information is not exported. CSV cells are protected against spreadsheet formulas. Job imports stay unverified, never visit their listed websites, and never invent missing employer names, descriptions, dates or compensation. Incomplete imported rows remain unscored discoveries.
+
+Public API usage follows the [Himalayas documentation](https://himalayas.app/docs/remote-jobs-api) and [Remotive API terms](https://github.com/remotive-com/remote-jobs-api); index configuration follows the [SearXNG search API](https://docs.searxng.org/dev/search_api.html). Automated tests use fixtures, not paid providers or real job applications. Live provider availability and individual site permissions still require operational review.
 
 ### Choose a ranking method
 
 Open **Jobs / Ranking & matching / Ranking preset**, select a method, then **Use as default ranking**. The default persists locally; selecting a preset for inspection does not change the active ranking.
 
-| Preset | Purpose |
-| --- | --- |
-| Legacy v1 | Original deterministic-v1 scoring and 35/20/15/20/10 weights |
-| Technical Balanced v2 | Requirement-centric skills/experience/projects/seniority/role/depth/education/lexical weights of 30/19/14/10/8/7/4/3, normalized over active criteria |
-| Technical Conservative v2 | Stronger verified-evidence thresholds and direct requirements |
-| Technical Lenient v2 | More project and curated transferable-skill credit; hard legal restrictions still apply |
-| Opportunity Hybrid | Separate opportunity-fit method including location, salary and company preferences |
+| Preset                    | Purpose                                                                                                                                               |
+| ------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Legacy v1                 | Original deterministic-v1 scoring and 35/20/15/20/10 weights                                                                                          |
+| Technical Balanced v2     | Requirement-centric skills/experience/projects/seniority/role/depth/education/lexical weights of 30/19/14/10/8/7/4/3, normalized over active criteria |
+| Technical Conservative v2 | Stronger verified-evidence thresholds and direct requirements                                                                                         |
+| Technical Lenient v2      | More project and curated transferable-skill credit; hard legal restrictions still apply                                                               |
+| Opportunity Hybrid        | Separate opportunity-fit method including location, salary and company preferences                                                                    |
 
 Technical Skills uses searchable category chips with verification indicators. Select a chip to open a centered editor for practice depth, optional self-assessed proficiency, evidence and verification; **+ Add** opens evidence-backed entry. Experience, education, projects and certifications use compact searchable rows. The close button or Escape returns to your workspace. Save candidate profile to persist edits.
 
@@ -103,7 +128,7 @@ Provisional hand-authored comparison fixtures measure Precision@10/NDCG@10 for r
 
 ### Source coverage and reliability
 
-The directory stores stable employer identities/aliases, board identifiers, provenance, policy status, verification hashes and refresh dates. **Verified source directory** shows coverage and health. Expired verification metadata on approved sources is refreshed during Search All Companies; policy blocks and user opt-outs are preserved. An unsuccessful refresh cannot erase cached or saved jobs.
+The directory stores stable employer identities/aliases, board identifiers, provenance, policy status, verification hashes and refresh dates. **Verified source directory** shows coverage and health. Expired verification metadata on approved sources is refreshed during Search All Saved Companies; policy blocks and user opt-outs are preserved. An unsuccessful refresh cannot erase cached or saved jobs.
 
 **Discover another permitted employer source** accepts a public careers URL or supported board URL and a reviewed access-policy reference. With your explicit permission it checks robots restrictions, reads one bounded page, and validates up to three supported feeds or same-origin `JobPosting` JSON-LD records. It does not recursively crawl or open restricted platforms. Manual tenant registration remains under **Advanced Source Management**. Workday is not enabled: no documented, authorized employer-specific integration was supplied, and there is no assumed universal Workday search API.
 
@@ -133,16 +158,16 @@ An optional HTTPS CONNECT proxy can be configured without embedded credentials. 
 
 ## Development commands
 
-| Command | Purpose |
-| --- | --- |
-| `npm run dev` | Build and open the desktop application |
-| `npm run build` | Compile renderer, main process, preload and bounded import worker into `apps/desktop/dist` |
-| `npm run lint` | Lint source and configuration with zero warnings allowed |
-| `npm run typecheck` | Check strict TypeScript contracts |
-| `npm test` | Run Vitest unit and boundary tests |
-| `npm run test:watch` | Run unit tests in watch mode |
-| `npm run test:e2e` | Verify Electron isolation, native-vault use, settings restart, and mock-provider chat |
-| `npm run check` | Run lint, typecheck, unit tests, build, and desktop smoke |
+| Command              | Purpose                                                                                    |
+| -------------------- | ------------------------------------------------------------------------------------------ |
+| `npm run dev`        | Build and open the desktop application                                                     |
+| `npm run build`      | Compile renderer, main process, preload and bounded import worker into `apps/desktop/dist` |
+| `npm run lint`       | Lint source and configuration with zero warnings allowed                                   |
+| `npm run typecheck`  | Check strict TypeScript contracts                                                          |
+| `npm test`           | Run Vitest unit and boundary tests                                                         |
+| `npm run test:watch` | Run unit tests in watch mode                                                               |
+| `npm run test:e2e`   | Verify Electron isolation, native-vault use, settings restart, and mock-provider chat      |
+| `npm run check`      | Run lint, typecheck, unit tests, build, and desktop smoke                                  |
 
 Build before running E2E tests directly. Playwright drives Electron and isolated Chromium fixtures; install Chromium with `npx playwright install chromium`. Tests use synthetic credentials in the real OS vault and remove them afterward. Provider HTTP responses are mocked or served by an explicit loopback fixture; no paid provider requests are made. On headless Linux, install system libraries and run an isolated D-Bus/keyring session with a virtual display:
 
@@ -163,8 +188,8 @@ packages/agent-core/  Policy, approvals, bounded browser loop, safe diagnostics
 packages/browser-worker/ Disposable Chromium sessions and semantic DOM tools
 packages/career/      Versioned requirements, eligibility, taxonomy and pure ranking
 packages/profile-import/ Bounded document, LinkedIn archive and public GitHub imports
-packages/job-sources/ Greenhouse, Lever and Ashby public-feed adapters
-packages/job-discovery/ Durable polling, origin quotas and failure recovery
+packages/job-sources/ ATS/API/feed/list/index adapters and source capability registry
+packages/job-discovery/ Saved polling, qualification queries and resumable global collection
 packages/providers/   Provider-independent gateway and official SDK adapters
 packages/storage/     SQLite WAL settings, run checkpoints, jobs and FTS5
 tests/e2e/            Electron, vault, browser and career checks with synthetic data

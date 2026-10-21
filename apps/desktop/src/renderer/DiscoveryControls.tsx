@@ -40,6 +40,40 @@ export function AdvancedFilters({
       </p>
       <div className="career-fields">
         <label>
+          Company name
+          <input value={search.company} onChange={(e) => set('company', e.target.value)} />
+        </label>
+        <label>
+          Employment type
+          <select
+            value={search.employmentType ?? 'all'}
+            onChange={(e) => set('employmentType', e.target.value)}
+          >
+            {[
+              'all',
+              'full-time',
+              'part-time',
+              'contract',
+              'internship',
+              'temporary',
+              'unknown',
+            ].map((v) => (
+              <option key={v}>{v}</option>
+            ))}
+          </select>
+        </label>
+        <label>
+          Posting verification
+          <select
+            value={search.availability ?? 'all'}
+            onChange={(e) => set('availability', e.target.value)}
+          >
+            {['all', 'verified', 'unverified'].map((v) => (
+              <option key={v}>{v}</option>
+            ))}
+          </select>
+        </label>
+        <label>
           Technical role family
           <select
             value={search.roleFamily ?? 'all'}
@@ -198,8 +232,8 @@ export function DiscoveryControls({
             <summary>Verified source directory</summary>
             <p>
               Feed verification freshness is separate from policy permission and collection health.
-              Approved stale feeds are revalidated on Search All Companies. Opting out stays in
-              effect on subsequent searches.
+              Approved stale feeds are revalidated on Search All Saved Companies. Opting out stays
+              in effect on subsequent searches.
             </p>
             {view?.directory.map((e) => {
               const source = view.sources.find(

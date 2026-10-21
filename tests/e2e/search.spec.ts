@@ -59,19 +59,16 @@ test('filters and pages cached jobs, saves searches, tracks feedback and compare
   try {
     const page = await app.firstWindow();
     await page.getByRole('button', { name: 'Jobs', exact: true }).click();
-    await expect(page.getByLabel('Search scope')).toHaveValue('all');
-    await expect(page.getByLabel('Company filter')).toHaveCount(0);
-    await page.getByLabel('Search scope').selectOption('company');
-    await page.getByLabel('Company filter').fill('No such employer');
-    await page.getByRole('button', { name: 'Search', exact: true }).click();
+    await expect(page.getByLabel('Search scope')).toHaveValue('global');
+    await page.getByText('Advanced search filters', { exact: true }).click();
+    await page.getByLabel('Company name', { exact: true }).fill('No such employer');
+    await page.getByRole('button', { name: 'Apply filters to cached jobs', exact: true }).click();
     await expect(page.locator('.job-card')).toHaveCount(0);
     await expect(page.getByRole('heading', { name: 'No matching jobs' })).toBeVisible();
-    await expect(page.getByRole('button', { name: 'Reset all filters' })).toBeVisible();
-    await page.getByLabel('Search scope').selectOption('all');
-    await page.getByText('Advanced search filters', { exact: true }).click();
+    await page.getByLabel('Company name', { exact: true }).fill('');
     await page.getByLabel('Technical role family').selectOption('software');
     await page.getByLabel('Minimum qualification score').fill('50');
-    await page.getByRole('button', { name: 'Search', exact: true }).click();
+    await page.getByRole('button', { name: 'Apply filters to cached jobs', exact: true }).click();
     await expect(page.locator('.job-card')).toHaveCount(50);
     await page.getByRole('button', { name: 'Next 50' }).click();
     await expect(page.locator('.job-card')).toHaveCount(5);
