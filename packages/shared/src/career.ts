@@ -1,3 +1,4 @@
+import { DiscoveryOptionsSchema, DiscoveryViewSchema } from './discovery';
 /**
  * Candidate, employer, source, job and search/management IPC contracts.
  * Legacy facts remain readable alongside structured intelligence and provenance-bearing normalized jobs.
@@ -113,6 +114,7 @@ export const SourceConfigSchema = z.strictObject({
   directoryId: z.string().max(200).optional(),
   companyId: z.string().max(200).optional(),
   pageUrl: z.string().url().max(2048).optional(),
+  collection: z.enum(['saved', 'global']).optional(),
 });
 export type SourceConfig = z.infer<typeof SourceConfigSchema>;
 export const SourceStateSchema = z.strictObject({
@@ -152,7 +154,29 @@ export const SourceViewSchema = z.strictObject({
 export type SourceView = z.infer<typeof SourceViewSchema>;
 export const JobSchema = z.strictObject({
   id: z.string().min(1).max(300),
-  source: SourceConfigSchema.shape.ats,
+  source: z.enum([
+    'greenhouse',
+    'lever',
+    'ashby',
+    'smartrecruiters',
+    'jsonld',
+    'public-api',
+    'github-list',
+    'search-index',
+    'jobspy',
+  ]),
+  discovery: z
+    .strictObject({
+      kind: z.enum(['employer', 'aggregate', 'repository', 'index', 'import']),
+      availability: z.enum(['verified', 'unverified', 'closed']),
+      sourceName: z.string().max(200),
+      sourceUrl: z.string().url(),
+      attributionUrl: z.string().url(),
+      checkedAt: z.number(),
+      runId: z.uuid(),
+      exportAllowed: z.boolean(),
+    })
+    .optional(),
   tenant: z.string(),
   sourceJobId: z.string().max(200),
   requisitionId: z.string().max(200).nullable(),
@@ -237,6 +261,13 @@ export const JobMatchSchema = z.strictObject({
 });
 export type JobMatch = z.infer<typeof JobMatchSchema>;
 export const JobSearchSchema = z.strictObject({
+  scope: z.enum(['global', 'saved-companies', 'company']).optional(),
+  selectedSourceId: z.uuid().optional(),
+  discovery: DiscoveryOptionsSchema.optional(),
+  employmentType: z.string().max(40).optional(),
+  sourceId: z.string().max(200).optional(),
+  availability: z.enum(['all', 'verified', 'unverified']).optional(),
+  sort: z.enum(['qualification', 'newest', 'salary', 'company']).optional(),
   query: z.string().max(500),
   company: z.string().max(200),
   workMode: z.enum(['all', 'remote', 'hybrid', 'onsite']),
@@ -297,6 +328,7 @@ export const CareerViewSchema = z.strictObject({
   totalJobs: z.number().int(),
   matchedCount: z.number().int(),
   polling: z.boolean(),
+  discovery: DiscoveryViewSchema.optional(),
   directory: z.array(EmployerSchema).default([]),
   savedSearches: z.array(SavedSearchSchema).default([]),
   markers: z.array(JobMarkerSchema).default([]),
@@ -312,7 +344,26 @@ export const CareerCommandSchema = z.discriminatedUnion('op', [
   z.strictObject({ op: z.literal('poll') }),
   z.strictObject({ op: z.literal('saveJob'), jobId: z.string().max(300), saved: z.boolean() }),
   z.strictObject({ op: z.literal('deleteSource'), id: z.uuid() }),
+  // Legacy clients retain saved-directory behavior; the new global scope is explicit.
   z.strictObject({ op: z.literal('searchAll') }),
+  z.strictObject({ op: z.literal('searchSavedCompanies') }),
+  z.strictObject({ op: z.literal('pollCompany'), id: z.uuid() }),
+  z.strictObject({
+    op: z.literal('startDiscovery'),
+    options: DiscoveryOptionsSchema,
+    consent: z.literal(true),
+  }),
+  z.strictObject({
+    op: z.literal('controlDiscovery'),
+    id: z.uuid(),
+    action: z.enum(['pause', 'resume', 'cancel']),
+  }),
+  z.strictObject({
+    op: z.literal('importDiscovery'),
+    rows: z.array(z.record(z.string(), z.unknown())).max(100),
+    permitted: z.literal(true),
+  }),
+
   z.strictObject({
     op: z.literal('discoverFeeds'),
     url: z.string().url().max(2048),

@@ -94,3 +94,5 @@ export const DiagnosticEventSchema = z.strictObject({
   errorCode: ErrorCodeSchema.optional(),
   runId: z.uuid().optional(),
 });
+
+export * from './discovery';

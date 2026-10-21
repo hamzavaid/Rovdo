@@ -1,0 +1,506 @@
+[
+  {
+    "name": "a16z Portfolio Jobs",
+    "url": "https://jobs.a16z.com/jobs"
+  },
+  {
+    "name": "Academic Positions",
+    "url": "https://academicpositions.com"
+  },
+  {
+    "name": "ADP Recruiting",
+    "url": "https://workforcenow.adp.com"
+  },
+  {
+    "name": "Adzuna",
+    "url": "https://www.adzuna.com"
+  },
+  {
+    "name": "AerospaceJobs",
+    "url": "https://www.aerospacejobs.com"
+  },
+  {
+    "name": "AfterCollege",
+    "url": "https://www.aftercollege.com"
+  },
+  {
+    "name": "AI Jobs",
+    "url": "https://ai-jobs.net"
+  },
+  {
+    "name": "Arc",
+    "url": "https://arc.dev"
+  },
+  {
+    "name": "Ashby",
+    "url": "https://jobs.ashbyhq.com"
+  },
+  {
+    "name": "ASME Career Center",
+    "url": "https://careercenter.asme.org"
+  },
+  {
+    "name": "Avature",
+    "url": "https://www.avature.net"
+  },
+  {
+    "name": "BambooHR",
+    "url": "https://www.bamboohr.com"
+  },
+  {
+    "name": "Bayt",
+    "url": "https://www.bayt.com"
+  },
+  {
+    "name": "BioSpace",
+    "url": "https://www.biospace.com/jobs"
+  },
+  {
+    "name": "BrassRing",
+    "url": "https://www.brassring.com"
+  },
+  {
+    "name": "Breezy HR",
+    "url": "https://breezy.hr"
+  },
+  {
+    "name": "Built In",
+    "url": "https://builtin.com/jobs"
+  },
+  {
+    "name": "CalCareers",
+    "url": "https://calcareers.ca.gov"
+  },
+  {
+    "name": "CareerBuilder",
+    "url": "https://www.careerbuilder.com"
+  },
+  {
+    "name": "Chronicle Jobs",
+    "url": "https://jobs.chronicle.com"
+  },
+  {
+    "name": "ClearanceJobs",
+    "url": "https://www.clearancejobs.com"
+  },
+  {
+    "name": "Climatebase",
+    "url": "https://www.climatebase.org/jobs"
+  },
+  {
+    "name": "College Recruiter",
+    "url": "https://www.collegerecruiter.com"
+  },
+  {
+    "name": "CollegeGrad",
+    "url": "https://collegegrad.com"
+  },
+  {
+    "name": "Contra",
+    "url": "https://contra.com"
+  },
+  {
+    "name": "CV-Library",
+    "url": "https://www.cv-library.co.uk"
+  },
+  {
+    "name": "devITjobs",
+    "url": "https://devitjobs.us"
+  },
+  {
+    "name": "Dice",
+    "url": "https://www.dice.com"
+  },
+  {
+    "name": "Dynamite Jobs",
+    "url": "https://dynamitejobs.com"
+  },
+  {
+    "name": "Eightfold AI",
+    "url": "https://eightfold.ai"
+  },
+  {
+    "name": "Energy Jobline",
+    "url": "https://www.energyjobline.com"
+  },
+  {
+    "name": "EngineeringJobs",
+    "url": "https://www.engineeringjobs.com"
+  },
+  {
+    "name": "EURES",
+    "url": "https://eures.europa.eu"
+  },
+  {
+    "name": "Fiverr",
+    "url": "https://www.fiverr.com"
+  },
+  {
+    "name": "FlexJobs",
+    "url": "https://www.flexjobs.com"
+  },
+  {
+    "name": "Foundit",
+    "url": "https://www.foundit.in"
+  },
+  {
+    "name": "Freelancer",
+    "url": "https://www.freelancer.com"
+  },
+  {
+    "name": "Getwork",
+    "url": "https://getwork.com"
+  },
+  {
+    "name": "Glassdoor",
+    "url": "https://www.glassdoor.com"
+  },
+  {
+    "name": "Google for Jobs",
+    "url": "https://www.google.com/search?q=jobs"
+  },
+  {
+    "name": "GovernmentJobs",
+    "url": "https://www.governmentjobs.com"
+  },
+  {
+    "name": "GradConnection",
+    "url": "https://au.gradconnection.com"
+  },
+  {
+    "name": "Greenhouse",
+    "url": "https://job-boards.greenhouse.io"
+  },
+  {
+    "name": "GulfTalent",
+    "url": "https://www.gulftalent.com"
+  },
+  {
+    "name": "Guru",
+    "url": "https://www.guru.com"
+  },
+  {
+    "name": "Hacker News - Who Is Hiring?",
+    "url": "https://news.ycombinator.com"
+  },
+  {
+    "name": "Handshake",
+    "url": "https://joinhandshake.com"
+  },
+  {
+    "name": "Hardware FYI Jobs",
+    "url": "https://jobs.hardwarefyi.com"
+  },
+  {
+    "name": "HigherEdJobs",
+    "url": "https://www.higheredjobs.com"
+  },
+  {
+    "name": "Himalayas",
+    "url": "https://himalayas.app/jobs"
+  },
+  {
+    "name": "iCIMS",
+    "url": "https://www.icims.com"
+  },
+  {
+    "name": "Idealist",
+    "url": "https://www.idealist.org"
+  },
+  {
+    "name": "IEEE Job Site",
+    "url": "https://jobs.ieee.org"
+  },
+  {
+    "name": "Indeed",
+    "url": "https://www.indeed.com"
+  },
+  {
+    "name": "Infosec Jobs",
+    "url": "https://infosec-jobs.com"
+  },
+  {
+    "name": "Internshala",
+    "url": "https://internshala.com"
+  },
+  {
+    "name": "JazzHR",
+    "url": "https://applytojob.com"
+  },
+  {
+    "name": "Job Bank",
+    "url": "https://www.jobbank.gc.ca"
+  },
+  {
+    "name": "Jobcase",
+    "url": "https://www.jobcase.com"
+  },
+  {
+    "name": "JobGet",
+    "url": "https://www.jobget.com"
+  },
+  {
+    "name": "Jobrapido",
+    "url": "https://www.jobrapido.com"
+  },
+  {
+    "name": "Jobright",
+    "url": "https://jobright.ai"
+  },
+  {
+    "name": "Jobspresso",
+    "url": "https://jobspresso.co"
+  },
+  {
+    "name": "JobStreet",
+    "url": "https://www.jobstreet.com"
+  },
+  {
+    "name": "Jobvite",
+    "url": "https://jobs.jobvite.com"
+  },
+  {
+    "name": "Jooble",
+    "url": "https://jooble.org"
+  },
+  {
+    "name": "Jora",
+    "url": "https://www.jora.com"
+  },
+  {
+    "name": "JustRemote",
+    "url": "https://justremote.co"
+  },
+  {
+    "name": "Lensa",
+    "url": "https://lensa.com"
+  },
+  {
+    "name": "Levels.fyi Jobs",
+    "url": "https://www.levels.fyi/jobs"
+  },
+  {
+    "name": "Lever",
+    "url": "https://jobs.lever.co"
+  },
+  {
+    "name": "LinkedIn Jobs",
+    "url": "https://www.linkedin.com/jobs"
+  },
+  {
+    "name": "Monster",
+    "url": "https://www.monster.com"
+  },
+  {
+    "name": "NASA Careers",
+    "url": "https://www.nasa.gov/careers/"
+  },
+  {
+    "name": "Nature Careers",
+    "url": "https://www.nature.com/naturecareers"
+  },
+  {
+    "name": "Naukri",
+    "url": "https://www.naukri.com"
+  },
+  {
+    "name": "Nexxt",
+    "url": "https://www.nexxt.com"
+  },
+  {
+    "name": "Oracle Recruiting Cloud",
+    "url": "https://www.oraclecloud.com"
+  },
+  {
+    "name": "Oracle Taleo",
+    "url": "https://www.taleo.net"
+  },
+  {
+    "name": "Parker Dewey",
+    "url": "https://www.parkerdewey.com"
+  },
+  {
+    "name": "PeoplePerHour",
+    "url": "https://www.peopleperhour.com"
+  },
+  {
+    "name": "Personio",
+    "url": "https://jobs.personio.de"
+  },
+  {
+    "name": "Prosple",
+    "url": "https://prosple.com"
+  },
+  {
+    "name": "Recruitee",
+    "url": "https://recruitee.com"
+  },
+  {
+    "name": "Reed",
+    "url": "https://www.reed.co.uk"
+  },
+  {
+    "name": "Remote OK",
+    "url": "https://remoteok.com"
+  },
+  {
+    "name": "Remote Rocketship",
+    "url": "https://www.remoterocketship.com"
+  },
+  {
+    "name": "Remote.co",
+    "url": "https://remote.co"
+  },
+  {
+    "name": "Remotive",
+    "url": "https://remotive.com"
+  },
+  {
+    "name": "RippleMatch",
+    "url": "https://ripplematch.com"
+  },
+  {
+    "name": "Rippling",
+    "url": "https://ats.rippling.com"
+  },
+  {
+    "name": "RoboticsCareer.org",
+    "url": "https://www.roboticscareer.org"
+  },
+  {
+    "name": "SAP SuccessFactors",
+    "url": "https://www.successfactors.com"
+  },
+  {
+    "name": "SEEK",
+    "url": "https://www.seek.com.au"
+  },
+  {
+    "name": "Simplify",
+    "url": "https://simplify.jobs"
+  },
+  {
+    "name": "Simplify - New Grad Positions",
+    "url": "https://github.com/SimplifyJobs/New-Grad-Positions"
+  },
+  {
+    "name": "Simplify/Pitt CSC - Summer 2027 Internships",
+    "url": "https://github.com/SimplifyJobs/Summer2027-Internships"
+  },
+  {
+    "name": "SimplyHired",
+    "url": "https://www.simplyhired.com"
+  },
+  {
+    "name": "SmartRecruiters",
+    "url": "https://jobs.smartrecruiters.com"
+  },
+  {
+    "name": "Snagajob",
+    "url": "https://www.snagajob.com"
+  },
+  {
+    "name": "SpaceCrew",
+    "url": "https://spacecrew.com"
+  },
+  {
+    "name": "Startup Jobs",
+    "url": "https://startup.jobs"
+  },
+  {
+    "name": "StepStone",
+    "url": "https://www.stepstone.de"
+  },
+  {
+    "name": "Talent.com",
+    "url": "https://www.talent.com"
+  },
+  {
+    "name": "Teamtailor",
+    "url": "https://www.teamtailor.com"
+  },
+  {
+    "name": "TechFetch",
+    "url": "https://www.techfetch.com"
+  },
+  {
+    "name": "Toptal",
+    "url": "https://www.toptal.com"
+  },
+  {
+    "name": "Totaljobs",
+    "url": "https://www.totaljobs.com"
+  },
+  {
+    "name": "TrueUp",
+    "url": "https://www.trueup.io"
+  },
+  {
+    "name": "UKG Recruiting",
+    "url": "https://www.ultipro.com"
+  },
+  {
+    "name": "Upwork",
+    "url": "https://www.upwork.com"
+  },
+  {
+    "name": "USAJOBS",
+    "url": "https://www.usajobs.gov"
+  },
+  {
+    "name": "Vansh - New Grad 2027",
+    "url": "https://github.com/vanshb03/New-Grad-2027"
+  },
+  {
+    "name": "Vansh - Summer 2027 Internships",
+    "url": "https://github.com/vanshb03/Summer2027-Internships"
+  },
+  {
+    "name": "VentureLoop",
+    "url": "https://www.ventureloop.com"
+  },
+  {
+    "name": "WayUp",
+    "url": "https://www.wayup.com"
+  },
+  {
+    "name": "We Work Remotely",
+    "url": "https://weworkremotely.com"
+  },
+  {
+    "name": "Welcome to the Jungle",
+    "url": "https://www.welcometothejungle.com"
+  },
+  {
+    "name": "Wellfound",
+    "url": "https://wellfound.com"
+  },
+  {
+    "name": "WhatJobs",
+    "url": "https://www.whatjobs.com"
+  },
+  {
+    "name": "Workable",
+    "url": "https://apply.workable.com"
+  },
+  {
+    "name": "Workday",
+    "url": "https://www.myworkdayjobs.com"
+  },
+  {
+    "name": "Working Nomads",
+    "url": "https://www.workingnomads.com/jobs"
+  },
+  {
+    "name": "XING Jobs",
+    "url": "https://www.xing.com/jobs"
+  },
+  {
+    "name": "Y Combinator Jobs",
+    "url": "https://www.ycombinator.com/jobs"
+  },
+  {
+    "name": "ZipRecruiter",
+    "url": "https://www.ziprecruiter.com"
+  }
+]

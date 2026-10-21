@@ -1,3 +1,4 @@
+import { DiscoveryStore } from './discovery';
 /**
  * SQLite career persistence: profile history, jobs, sources, imports, ranking revisions and search caches.
  * Additive migrations and transactions preserve historical data; cache keys bind scoring inputs and policy versions.
@@ -75,6 +76,7 @@ const signature = (j: Job) =>
     .digest('hex');
 export class CareerStore {
   private readonly db: DatabaseSync;
+  readonly global: DiscoveryStore;
   constructor(path: string) {
     this.db = new DatabaseSync(path);
     this.db.exec(
@@ -139,6 +141,7 @@ export class CareerStore {
           'CREATE TABLE source_origin_block(origin TEXT PRIMARY KEY,until_at INTEGER NOT NULL); INSERT INTO career_schema VALUES(5);',
         );
       });
+    this.global = new DiscoveryStore(this.db);
     // An interrupted page keeps its cursor and completed rows; no disappearance
     // decision is made until a complete authoritative snapshot succeeds.
     for (const source of this.sources())
@@ -518,6 +521,46 @@ export class CareerStore {
       }
       this.setState(source.id, state);
     });
+  }
+  /** Virtual membership reuses ingestion/provenance without adding a saved employer or poll grant. */
+  globalSource(key: string, name: string, url: string): SourceConfig {
+    const tenant = ('discovery-' + key).replace(/[^a-zA-Z0-9_-]/g, '-').slice(0, 120);
+    const existing = this.sources().find(
+      (s) => s.config.collection === 'global' && s.config.tenant === tenant,
+    );
+    if (existing) return existing.config;
+    const source: SourceConfig = {
+      id: randomUUID(),
+      ats: 'jsonld',
+      tenant,
+      company: name.slice(0, 200),
+      enabled: false,
+      collection: 'global',
+      region: 'global',
+      intervalMs: 86400000,
+      termsReviewedAt: new Date().toISOString(),
+      timezone: 'UTC',
+      priority: 0,
+      missingGracePolls: 3,
+      pageUrl: url,
+    };
+    this.saveSource(source);
+    return source;
+  }
+  ingestDiscovered(runId: string, source: SourceConfig, jobs: Job[]): void {
+    const state = {
+      ...initialState(),
+      status: 'OK' as const,
+      parsed: jobs.length,
+      lastSuccessAt: Date.now(),
+    };
+    this.batch(source, jobs, state, runId, false, Date.now());
+    for (const raw of jobs) {
+      const row = this.db
+        .prepare('SELECT job_id FROM job_source_snapshot WHERE source_id=? AND source_key=?')
+        .get(source.id, raw.id);
+      if (row) this.global.link(runId, String(row.job_id), source.tenant);
+    }
   }
   audit(sourceId: string, state: SourceState): void {
     this.db
