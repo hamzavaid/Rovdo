@@ -1,3 +1,4 @@
+import { setImmediate as yieldTurn } from 'node:timers/promises';
 /**
  * ATS-specific public endpoints, schema validation and normalized job records.
  * Malformed entries are quarantined individually where possible; adapters retain source-specific provenance.
@@ -259,7 +260,7 @@ export class AtsAdapter implements JobSourceAdapter {
       }
       payload = { content: details, totalFound: list.totalFound };
     }
-    const normalized = this.normalizeDetailed(payload);
+    const normalized = await this.normalizeDetailedAsync(payload, signal);
     const jobs = normalized.jobs;
     for (const job of jobs) this.observed.add(job.sourceJobId);
     const count = Array.isArray(payload)
@@ -290,330 +291,361 @@ export class AtsAdapter implements JobSourceAdapter {
   }
   normalizeDetailed(payload: unknown): { jobs: Job[]; quarantine: Quarantine[] } {
     try {
-      const records =
-        this.source.ats === 'smartrecruiters'
-          ? z.object({ content: z.array(z.unknown()).max(10000) }).parse(payload).content
-          : this.source.ats === 'lever'
-            ? z.array(z.unknown()).max(10000).parse(payload)
-            : z.object({ jobs: z.array(z.unknown()).max(10000) }).parse(payload).jobs;
+      const records = this.records(payload);
       const quarantine: Quarantine[] = [];
-      const jobs = records.flatMap((raw, index): Job[] => {
-        try {
-          const s = this.source;
-          let title: string;
-          let url: string;
-          let sourceId: string;
-          let location: string;
-          let description: string;
-          let mode: string;
-          let commitment = '';
-          let posted: string | null = null;
-          let updated: string | null = null;
-          let requisition: string | null = null;
-          let salary: Job['salary'] = null;
-          let country = '';
-          let extraCountries: string[] = [];
-          const timestamp = (v: string | number | null | undefined) =>
-            v !== null && v !== undefined && Number.isFinite(new Date(v).getTime())
-              ? new Date(v).toISOString()
-              : null;
-          if (s.ats === 'greenhouse') {
-            const r = gh.parse(raw);
-            title = r.title;
-            url = r.absolute_url;
-            sourceId = String(r.id);
-            location = r.location.name;
-            description = plain(r.content);
-            mode = /remote/i.test(location) ? 'remote' : 'unknown';
-            updated = timestamp(r.updated_at);
-            posted = timestamp((raw as { first_published?: string }).first_published);
-            requisition = r.requisition_id ?? null;
-            const metadata = z
-              .array(z.looseObject({ name: text, value: z.unknown() }))
-              .max(100)
-              .safeParse((raw as { metadata?: unknown }).metadata);
-            const employment = metadata.success
-              ? metadata.data.find((m) => /employment[ _-]?type/i.test(m.name))?.value
-              : null;
-            commitment = typeof employment === 'string' ? employment : '';
-          } else if (s.ats === 'lever') {
-            const r = lever.parse(raw);
-            title = r.text;
-            url = r.hostedUrl;
-            sourceId = String(r.id);
-            location = r.categories?.location ?? '';
-            description = plain(
-              [
-                r.descriptionPlain ?? r.description ?? '',
-                ...(r.lists ?? []).map((l) => `${l.text}: ${l.content}`),
-              ].join('\n'),
-            );
-            mode = r.workplaceType ?? (/remote/i.test(location) ? 'remote' : 'unknown');
-            commitment = r.categories?.commitment ?? '';
-            posted = timestamp(r.createdAt);
-            country = String((raw as { country?: string }).country ?? '').slice(0, 100);
-            if (r.salaryRange)
-              salary = {
-                min: r.salaryRange.min ?? null,
-                max: r.salaryRange.max ?? null,
-                currency: r.salaryRange.currency,
-                interval: r.salaryRange.interval,
-                source: 'explicit',
-              };
-          } else if (s.ats === 'smartrecruiters') {
-            const r = z
-              .looseObject({
-                id,
-                name: text,
-                location: z
-                  .looseObject({
-                    city: text.optional(),
-                    region: text.optional(),
-                    country: text.optional(),
-                    remote: z.boolean().optional(),
-                  })
-                  .optional(),
-                company: z.looseObject({ identifier: text }).optional(),
-                jobAd: z.object({ sections: z.record(z.string(), z.object({ text })) }).optional(),
-                releasedDate: text.optional(),
-                typeOfEmployment: z.object({ label: text }).optional(),
-              })
-              .parse(raw);
-            if (r.company && r.company.identifier.toLowerCase() !== s.tenant.toLowerCase())
-              throw new Error('EMPLOYER_MISMATCH');
-            title = r.name;
-            sourceId = String(r.id);
-            url = `https://jobs.smartrecruiters.com/${s.tenant}/${sourceId}`;
-            location = [r.location?.city, r.location?.region, r.location?.country]
-              .filter(Boolean)
-              .join(', ');
-            country = r.location?.country ?? '';
-            description = plain(
-              Object.values(r.jobAd?.sections ?? {})
-                .map((x) => x.text)
-                .join('\n'),
-            );
-            mode = r.location?.remote ? 'remote' : 'unknown';
-            posted = timestamp(r.releasedDate);
-            commitment = r.typeOfEmployment?.label ?? '';
-          } else if (s.ats === 'jsonld') {
-            const r = z
-              .looseObject({
-                title: text,
-                url: text,
-                description: text,
-                datePosted: text.optional(),
-                employmentType: z.union([text, z.array(text)]).optional(),
-                jobLocationType: text.optional(),
-                applicantLocationRequirements: z.unknown().optional(),
-                jobLocation: z.unknown().optional(),
-                baseSalary: z.unknown().optional(),
-                validThrough: text.optional(),
-              })
-              .parse(raw);
-            if (!s.pageUrl || new URL(r.url).origin !== new URL(s.pageUrl).origin)
-              throw new Error('ORIGIN_MISMATCH');
-            title = r.title;
-            url = r.url;
-            sourceId = sha256(canonicalUrl(url));
-            description = plain(r.description);
-            posted = timestamp(r.datePosted);
-            commitment = String(r.employmentType ?? '');
-            const places = Array.isArray(r.jobLocation) ? r.jobLocation : [r.jobLocation];
-            location = places
-              .flatMap((p) => {
-                const result = z
-                  .object({
-                    address: z.object({
-                      addressLocality: text.optional(),
-                      addressRegion: text.optional(),
-                      addressCountry: text.optional(),
-                    }),
-                  })
-                  .safeParse(p);
-                return result.success ? [Object.values(result.data.address).join(', ')] : [];
-              })
-              .join('; ');
-            const jurisdictions = Array.isArray(r.applicantLocationRequirements)
-              ? r.applicantLocationRequirements
-              : [r.applicantLocationRequirements];
-            if (r.jobLocationType === 'TELECOMMUTE')
-              location =
-                'Remote ' +
-                jurisdictions
-                  .flatMap((x) => {
-                    const p = z.object({ name: text }).safeParse(x);
-                    return p.success ? [p.data.name] : [];
-                  })
-                  .join(', ');
-            mode = r.jobLocationType === 'TELECOMMUTE' ? 'remote' : location ? 'onsite' : 'unknown';
-            const pay = z
-              .object({
-                currency: text,
-                value: z.object({
-                  minValue: z.number().optional(),
-                  maxValue: z.number().optional(),
-                  value: z.number().optional(),
-                  unitText: text,
-                }),
-              })
-              .safeParse(r.baseSalary);
-            if (pay.success)
-              salary = {
-                min: pay.data.value.minValue ?? pay.data.value.value ?? null,
-                max: pay.data.value.maxValue ?? pay.data.value.value ?? null,
-                currency: pay.data.currency,
-                interval: pay.data.value.unitText,
-                source: 'explicit',
-              };
-          } else {
-            const r = ashby.parse(raw);
-            if (r.isListed === false) return [];
-            title = r.title;
-            url = r.jobUrl;
-            sourceId = String(r.id ?? sha256(canonicalUrl(r.jobUrl)));
-            const secondary = z
-              .array(
-                z.looseObject({
-                  location: text.optional(),
-                  address: z.looseObject({ addressCountry: text.optional() }).optional(),
-                }),
-              )
-              .max(20)
-              .safeParse((raw as { secondaryLocations?: unknown }).secondaryLocations);
-            extraCountries = secondary.success
-              ? secondary.data.flatMap((x) =>
-                  x.address?.addressCountry ? [x.address.addressCountry] : [],
-                )
-              : [];
-            location = [
-              r.location ?? '',
-              ...(secondary.success ? secondary.data.map((x) => x.location ?? '') : []),
-            ]
-              .filter(Boolean)
-              .join('; ')
-              .slice(0, 500);
-            description = r.descriptionPlain.slice(0, 100000);
-            mode = r.isRemote ? 'remote' : (r.workplaceType?.toLowerCase() ?? 'unknown');
-            commitment = r.employmentType ?? '';
-            posted = timestamp(r.publishedAt);
-            country = String(
-              (raw as { address?: { postalAddress?: { addressCountry?: string } } }).address
-                ?.postalAddress?.addressCountry ?? '',
-            ).slice(0, 100);
-            const salaryPart = r.compensation?.summaryComponents?.find(
-              (c) => c.compensationType === 'Salary',
-            );
-            if (salaryPart?.currencyCode && salaryPart.interval)
-              salary = {
-                min: salaryPart.minValue ?? null,
-                max: salaryPart.maxValue ?? null,
-                currency: salaryPart.currencyCode,
-                interval: salaryPart.interval,
-                source: 'explicit',
-              };
-          }
-          const canonical = canonicalUrl(url);
-          const now = Date.now();
-          const hash = sha256(JSON.stringify(raw));
-          const key = `${s.ats}:${s.tenant}:${sourceId}`;
-          return [
-            JobSchema.parse({
-              id: key,
-              source: s.ats,
-              tenant: s.tenant,
-              sourceJobId: sourceId,
-              requisitionId: requisition,
-              canonicalUrl: canonical,
-              company: s.company,
-              title: plain(title),
-              location: plain(location),
-              descriptionText: description,
-              workMode: ['remote', 'hybrid', 'onsite'].includes(mode.toLowerCase())
-                ? mode.toLowerCase()
-                : 'unknown',
-              level: careerLevel(title, commitment),
-              postedAt: posted,
-              updatedAt: updated,
-              firstSeenAt: now,
-              lastSeenAt: now,
-              activeStatus: 'open',
-              salary,
-              contentSha256: sha256(
-                JSON.stringify([
-                  title,
-                  description,
-                  location,
-                  mode,
-                  commitment,
-                  salary,
-                  posted,
-                  country,
-                ]),
-              ),
-              rawSha256: hash,
-              parserVersion: 'ats-v1',
-              duplicateGroup: null,
-              details: {
-                employmentType: /\bintern(?:ship)?\b/i.test(`${title} ${commitment}`)
-                  ? 'internship'
-                  : /part.?time/i.test(commitment)
-                    ? 'part-time'
-                    : /full.?time/i.test(commitment)
-                      ? 'full-time'
-                      : /contract/i.test(commitment)
-                        ? 'contract'
-                        : /temp/i.test(commitment)
-                          ? 'temporary'
-                          : 'unknown',
-                roleFamily: roleOf(title).family,
-                remoteJurisdiction:
-                  /remote/i.test(`${mode} ${location}`) && location
-                    ? [
-                        ...new Set(
-                          [
-                            country,
-                            ...extraCountries,
-                            plain(location)
-                              .replace(/remote\s*[-:?]?\s*/i, '')
-                              .trim(),
-                          ].filter(Boolean),
-                        ),
-                      ].slice(0, 20)
-                    : [],
-                season:
-                  /\b(summer|spring|fall|winter)\b/i
-                    .exec(`${title} ${description.slice(0, 200)}`)?.[1]
-                    ?.toLowerCase() ?? 'unknown',
-                country,
-                requirements: extractRequirements(description, title),
-              },
-              provenance: [
-                {
-                  sourceId: s.id,
-                  sourceKey: key,
-                  url,
-                  collectedAt: now,
-                  rawSha256: hash,
-                  fields: {
-                    title: s.ats === 'lever' ? 'text' : 'title',
-                    description: s.ats === 'greenhouse' ? 'content' : 'descriptionPlain',
-                    eligibility: 'explicit description excerpts only',
-                  },
-                },
-              ],
-            }),
-          ];
-        } catch {
-          quarantine.push({ hash: sha256(JSON.stringify(raw)), code: 'INVALID_RECORD', index });
-          return [];
-        }
-      });
+      const jobs = records.flatMap((raw, index) => this.normalizeRecord(raw, index, quarantine));
       if (records.length && !jobs.length && quarantine.length)
         throw new SourceError(200, 0, 'SCHEMA_DRIFT');
       return { jobs, quarantine };
     } catch {
       throw new SourceError(200, 0, 'SCHEMA_DRIFT');
+    }
+  }
+  private records(payload: unknown): unknown[] {
+    try {
+      return this.source.ats === 'smartrecruiters'
+        ? z.object({ content: z.array(z.unknown()).max(10000) }).parse(payload).content
+        : this.source.ats === 'lever'
+          ? z.array(z.unknown()).max(10000).parse(payload)
+          : z.object({ jobs: z.array(z.unknown()).max(10000) }).parse(payload).jobs;
+    } catch {
+      throw new SourceError(200, 0, 'SCHEMA_DRIFT');
+    }
+  }
+
+  /** Network-fed normalization is cooperative; retain the synchronous adapter API for pure fixtures. */
+  async normalizeDetailedAsync(
+    payload: unknown,
+    signal: AbortSignal,
+  ): Promise<{ jobs: Job[]; quarantine: Quarantine[] }> {
+    const records = this.records(payload);
+    const jobs: Job[] = [],
+      quarantine: Quarantine[] = [];
+    await yieldTurn();
+    let started = performance.now();
+    for (let index = 0; index < records.length; index++) {
+      signal.throwIfAborted();
+      jobs.push(...this.normalizeRecord(records[index], index, quarantine));
+      if (index % 8 === 7 || performance.now() - started >= 8) {
+        await yieldTurn();
+        started = performance.now();
+      }
+    }
+    signal.throwIfAborted();
+    if (records.length && !jobs.length && quarantine.length)
+      throw new SourceError(200, 0, 'SCHEMA_DRIFT');
+    return { jobs, quarantine };
+  }
+  private normalizeRecord(raw: unknown, index: number, quarantine: Quarantine[]): Job[] {
+    try {
+      const s = this.source;
+      let title: string;
+      let url: string;
+      let sourceId: string;
+      let location: string;
+      let description: string;
+      let mode: string;
+      let commitment = '';
+      let posted: string | null = null;
+      let updated: string | null = null;
+      let requisition: string | null = null;
+      let salary: Job['salary'] = null;
+      let country = '';
+      let extraCountries: string[] = [];
+      const timestamp = (v: string | number | null | undefined) =>
+        v !== null && v !== undefined && Number.isFinite(new Date(v).getTime())
+          ? new Date(v).toISOString()
+          : null;
+      if (s.ats === 'greenhouse') {
+        const r = gh.parse(raw);
+        title = r.title;
+        url = r.absolute_url;
+        sourceId = String(r.id);
+        location = r.location.name;
+        description = plain(r.content);
+        mode = /remote/i.test(location) ? 'remote' : 'unknown';
+        updated = timestamp(r.updated_at);
+        posted = timestamp((raw as { first_published?: string }).first_published);
+        requisition = r.requisition_id ?? null;
+        const metadata = z
+          .array(z.looseObject({ name: text, value: z.unknown() }))
+          .max(100)
+          .safeParse((raw as { metadata?: unknown }).metadata);
+        const employment = metadata.success
+          ? metadata.data.find((m) => /employment[ _-]?type/i.test(m.name))?.value
+          : null;
+        commitment = typeof employment === 'string' ? employment : '';
+      } else if (s.ats === 'lever') {
+        const r = lever.parse(raw);
+        title = r.text;
+        url = r.hostedUrl;
+        sourceId = String(r.id);
+        location = r.categories?.location ?? '';
+        description = plain(
+          [
+            r.descriptionPlain ?? r.description ?? '',
+            ...(r.lists ?? []).map((l) => `${l.text}: ${l.content}`),
+          ].join('\n'),
+        );
+        mode = r.workplaceType ?? (/remote/i.test(location) ? 'remote' : 'unknown');
+        commitment = r.categories?.commitment ?? '';
+        posted = timestamp(r.createdAt);
+        country = String((raw as { country?: string }).country ?? '').slice(0, 100);
+        if (r.salaryRange)
+          salary = {
+            min: r.salaryRange.min ?? null,
+            max: r.salaryRange.max ?? null,
+            currency: r.salaryRange.currency,
+            interval: r.salaryRange.interval,
+            source: 'explicit',
+          };
+      } else if (s.ats === 'smartrecruiters') {
+        const r = z
+          .looseObject({
+            id,
+            name: text,
+            location: z
+              .looseObject({
+                city: text.optional(),
+                region: text.optional(),
+                country: text.optional(),
+                remote: z.boolean().optional(),
+              })
+              .optional(),
+            company: z.looseObject({ identifier: text }).optional(),
+            jobAd: z.object({ sections: z.record(z.string(), z.object({ text })) }).optional(),
+            releasedDate: text.optional(),
+            typeOfEmployment: z.object({ label: text }).optional(),
+          })
+          .parse(raw);
+        if (r.company && r.company.identifier.toLowerCase() !== s.tenant.toLowerCase())
+          throw new Error('EMPLOYER_MISMATCH');
+        title = r.name;
+        sourceId = String(r.id);
+        url = `https://jobs.smartrecruiters.com/${s.tenant}/${sourceId}`;
+        location = [r.location?.city, r.location?.region, r.location?.country]
+          .filter(Boolean)
+          .join(', ');
+        country = r.location?.country ?? '';
+        description = plain(
+          Object.values(r.jobAd?.sections ?? {})
+            .map((x) => x.text)
+            .join('\n'),
+        );
+        mode = r.location?.remote ? 'remote' : 'unknown';
+        posted = timestamp(r.releasedDate);
+        commitment = r.typeOfEmployment?.label ?? '';
+      } else if (s.ats === 'jsonld') {
+        const r = z
+          .looseObject({
+            title: text,
+            url: text,
+            description: text,
+            datePosted: text.optional(),
+            employmentType: z.union([text, z.array(text)]).optional(),
+            jobLocationType: text.optional(),
+            applicantLocationRequirements: z.unknown().optional(),
+            jobLocation: z.unknown().optional(),
+            baseSalary: z.unknown().optional(),
+            validThrough: text.optional(),
+          })
+          .parse(raw);
+        if (!s.pageUrl || new URL(r.url).origin !== new URL(s.pageUrl).origin)
+          throw new Error('ORIGIN_MISMATCH');
+        title = r.title;
+        url = r.url;
+        sourceId = sha256(canonicalUrl(url));
+        description = plain(r.description);
+        posted = timestamp(r.datePosted);
+        commitment = String(r.employmentType ?? '');
+        const places = Array.isArray(r.jobLocation) ? r.jobLocation : [r.jobLocation];
+        location = places
+          .flatMap((p) => {
+            const result = z
+              .object({
+                address: z.object({
+                  addressLocality: text.optional(),
+                  addressRegion: text.optional(),
+                  addressCountry: text.optional(),
+                }),
+              })
+              .safeParse(p);
+            return result.success ? [Object.values(result.data.address).join(', ')] : [];
+          })
+          .join('; ');
+        const jurisdictions = Array.isArray(r.applicantLocationRequirements)
+          ? r.applicantLocationRequirements
+          : [r.applicantLocationRequirements];
+        if (r.jobLocationType === 'TELECOMMUTE')
+          location =
+            'Remote ' +
+            jurisdictions
+              .flatMap((x) => {
+                const p = z.object({ name: text }).safeParse(x);
+                return p.success ? [p.data.name] : [];
+              })
+              .join(', ');
+        mode = r.jobLocationType === 'TELECOMMUTE' ? 'remote' : location ? 'onsite' : 'unknown';
+        const pay = z
+          .object({
+            currency: text,
+            value: z.object({
+              minValue: z.number().optional(),
+              maxValue: z.number().optional(),
+              value: z.number().optional(),
+              unitText: text,
+            }),
+          })
+          .safeParse(r.baseSalary);
+        if (pay.success)
+          salary = {
+            min: pay.data.value.minValue ?? pay.data.value.value ?? null,
+            max: pay.data.value.maxValue ?? pay.data.value.value ?? null,
+            currency: pay.data.currency,
+            interval: pay.data.value.unitText,
+            source: 'explicit',
+          };
+      } else {
+        const r = ashby.parse(raw);
+        if (r.isListed === false) return [];
+        title = r.title;
+        url = r.jobUrl;
+        sourceId = String(r.id ?? sha256(canonicalUrl(r.jobUrl)));
+        const secondary = z
+          .array(
+            z.looseObject({
+              location: text.optional(),
+              address: z.looseObject({ addressCountry: text.optional() }).optional(),
+            }),
+          )
+          .max(20)
+          .safeParse((raw as { secondaryLocations?: unknown }).secondaryLocations);
+        extraCountries = secondary.success
+          ? secondary.data.flatMap((x) =>
+              x.address?.addressCountry ? [x.address.addressCountry] : [],
+            )
+          : [];
+        location = [
+          r.location ?? '',
+          ...(secondary.success ? secondary.data.map((x) => x.location ?? '') : []),
+        ]
+          .filter(Boolean)
+          .join('; ')
+          .slice(0, 500);
+        description = r.descriptionPlain.slice(0, 100000);
+        mode = r.isRemote ? 'remote' : (r.workplaceType?.toLowerCase() ?? 'unknown');
+        commitment = r.employmentType ?? '';
+        posted = timestamp(r.publishedAt);
+        country = String(
+          (raw as { address?: { postalAddress?: { addressCountry?: string } } }).address
+            ?.postalAddress?.addressCountry ?? '',
+        ).slice(0, 100);
+        const salaryPart = r.compensation?.summaryComponents?.find(
+          (c) => c.compensationType === 'Salary',
+        );
+        if (salaryPart?.currencyCode && salaryPart.interval)
+          salary = {
+            min: salaryPart.minValue ?? null,
+            max: salaryPart.maxValue ?? null,
+            currency: salaryPart.currencyCode,
+            interval: salaryPart.interval,
+            source: 'explicit',
+          };
+      }
+      const canonical = canonicalUrl(url);
+      const now = Date.now();
+      const hash = sha256(JSON.stringify(raw));
+      const key = `${s.ats}:${s.tenant}:${sourceId}`;
+      return [
+        JobSchema.parse({
+          id: key,
+          source: s.ats,
+          tenant: s.tenant,
+          sourceJobId: sourceId,
+          requisitionId: requisition,
+          canonicalUrl: canonical,
+          company: s.company,
+          title: plain(title),
+          location: plain(location),
+          descriptionText: description,
+          workMode: ['remote', 'hybrid', 'onsite'].includes(mode.toLowerCase())
+            ? mode.toLowerCase()
+            : 'unknown',
+          level: careerLevel(title, commitment),
+          postedAt: posted,
+          updatedAt: updated,
+          firstSeenAt: now,
+          lastSeenAt: now,
+          activeStatus: 'open',
+          salary,
+          contentSha256: sha256(
+            JSON.stringify([
+              title,
+              description,
+              location,
+              mode,
+              commitment,
+              salary,
+              posted,
+              country,
+            ]),
+          ),
+          rawSha256: hash,
+          parserVersion: 'ats-v1',
+          duplicateGroup: null,
+          details: {
+            employmentType: /\bintern(?:ship)?\b/i.test(`${title} ${commitment}`)
+              ? 'internship'
+              : /part.?time/i.test(commitment)
+                ? 'part-time'
+                : /full.?time/i.test(commitment)
+                  ? 'full-time'
+                  : /contract/i.test(commitment)
+                    ? 'contract'
+                    : /temp/i.test(commitment)
+                      ? 'temporary'
+                      : 'unknown',
+            roleFamily: roleOf(title).family,
+            remoteJurisdiction:
+              /remote/i.test(`${mode} ${location}`) && location
+                ? [
+                    ...new Set(
+                      [
+                        country,
+                        ...extraCountries,
+                        plain(location)
+                          .replace(/remote\s*[-:?]?\s*/i, '')
+                          .trim(),
+                      ].filter(Boolean),
+                    ),
+                  ].slice(0, 20)
+                : [],
+            season:
+              /\b(summer|spring|fall|winter)\b/i
+                .exec(`${title} ${description.slice(0, 200)}`)?.[1]
+                ?.toLowerCase() ?? 'unknown',
+            country,
+            requirements: extractRequirements(description, title),
+          },
+          provenance: [
+            {
+              sourceId: s.id,
+              sourceKey: key,
+              url,
+              collectedAt: now,
+              rawSha256: hash,
+              fields: {
+                title: s.ats === 'lever' ? 'text' : 'title',
+                description: s.ats === 'greenhouse' ? 'content' : 'descriptionPlain',
+                eligibility: 'explicit description excerpts only',
+              },
+            },
+          ],
+        }),
+      ];
+    } catch {
+      quarantine.push({ hash: sha256(JSON.stringify(raw)), code: 'INVALID_RECORD', index });
+      return [];
     }
   }
   async verifyActive(job: Job, signal: AbortSignal): Promise<'open' | 'closed' | 'unknown'> {

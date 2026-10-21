@@ -1,6 +1,6 @@
 /** Incremental global collection. Each tick processes bounded pages; durable tasks have no total results/employers cap. */
 import { randomUUID } from 'node:crypto';
-import { setTimeout as delay } from 'node:timers/promises';
+import { setTimeout as delay, setImmediate as yieldTurn } from 'node:timers/promises';
 import { z } from 'zod';
 import { DiscoveryOptionsSchema, DiscoveryViewSchema, SourceStateSchema } from '@rovdo/shared';
 import type {
@@ -311,7 +311,12 @@ export class GlobalDiscoveryEngine {
         const source = DISCOVERY_SOURCES.find((s) => s.id === task.sourceId)!;
         const config = this.store.globalSource(source.id, source.name, source.url);
         const jobs: Job[] = [];
+        let parsed = 0;
         for (const record of page.records) {
+          if (parsed++ % 8 === 0) {
+            await yieldTurn();
+            this.assertActive(run, signal);
+          }
           const url = canonicalUrl(record.url);
           const listing: DiscoveryListing = {
             id: sha256(run.id + url),
@@ -340,7 +345,7 @@ export class GlobalDiscoveryEngine {
               this.priority(run, record),
             );
         }
-        if (jobs.length) this.store.ingestDiscovered(run.id, config, jobs);
+        if (jobs.length) await this.store.ingestDiscoveredAsync(run.id, config, jobs, signal);
         this.store.global.note(run.id, source.id, 'ready', page.records.length, page.rejected);
         const hash = sha256(JSON.stringify(page.records.map((r) => r.url)));
         if (page.next && task.payload.lastPageHash === hash) throw new Error('NON_ADVANCING_PAGE');
@@ -507,7 +512,7 @@ export class GlobalDiscoveryEngine {
         },
       }));
       if (jobs.length) {
-        this.store.ingestDiscovered(run.id, virtual, jobs);
+        await this.store.ingestDiscoveredAsync(run.id, virtual, jobs, signal);
         resolved = true;
       }
       for (const feed of inspection.feeds)
@@ -571,7 +576,7 @@ export class GlobalDiscoveryEngine {
         exportAllowed: true,
       },
     }));
-    this.store.ingestDiscovered(run.id, virtual, jobs);
+    await this.store.ingestDiscoveredAsync(run.id, virtual, jobs, signal);
     this.store.global.note(
       run.id,
       registry?.id ?? task.sourceId,

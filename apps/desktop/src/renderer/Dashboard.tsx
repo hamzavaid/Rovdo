@@ -33,6 +33,7 @@ export function Dashboard({
     const results = await Promise.allSettled([
       window.rovdo!.careerCommand({
         op: 'view',
+        summary: true,
         search: {
           query: '',
           company: '',

@@ -31,19 +31,29 @@ export function createCareerService(
   let discovering: Promise<void> | null = null;
   let reviewing = false;
   let pendingReview: Promise<void> | null = null;
-  function view(input: JobSearch = defaultSearch) {
+  async function readView(input: JobSearch = defaultSearch, summary = false) {
     const search = JobSearchSchema.parse(input);
     const profile = store.profile();
     const saved = store.savedIds();
     const sources = store.sources().filter((s) => s.config.collection !== 'global');
-    const rows = store.iterateFiltered({ ...search, query: expandSearch(search.query) });
+
     const config = store
       .rankings()
       .find((p) => p.id === (search.rankingId ?? store.defaultRanking()));
     if (!config) throw new Error('RANKING_NOT_FOUND');
     const candidate = profile ?? emptyProfile();
     const asOf = new Date().toISOString().slice(0, 10);
-    const page = store.rankedPage(rows, candidate, config, asOf, search, 200);
+    const page = summary
+      ? { matches: [], total: 0, pending: 0 }
+      : await store.rankedPageAsync(
+          store.iterateFiltered({ ...search, query: expandSearch(search.query) }),
+          candidate,
+          config,
+          asOf,
+          search,
+          200,
+          true,
+        );
     const visible = page.matches;
     const totalJobs = store.jobCount();
     const discovery = global.view();
@@ -55,7 +65,7 @@ export function createCareerService(
       rankingPending: page.pending,
       discovery: {
         ...discovery,
-        filtered: discovery.run ? store.discoveryFiltered(discovery.run.id, search) : 0,
+        filtered: !summary && discovery.run ? store.discoveryFiltered(discovery.run.id, search) : 0,
       },
       directory: store.directory(),
       rankingProfiles: store.rankings(),
@@ -84,6 +94,21 @@ export function createCareerService(
               : ('ZERO_MATCHES' as const),
     };
   }
+  let viewQueue: Promise<void> = Promise.resolve();
+  async function view(input: JobSearch = defaultSearch, summary = false) {
+    if (summary) return readView(input, true);
+    const previous = viewQueue;
+    let release!: () => void;
+    viewQueue = new Promise((resolve) => {
+      release = resolve;
+    });
+    await previous;
+    try {
+      return await readView(input);
+    } finally {
+      release();
+    }
+  }
   return {
     global,
     async command(
@@ -97,7 +122,7 @@ export function createCareerService(
       const cmd = parsed.data;
       try {
         if (cmd.op === 'exportJobs') {
-          const current = view(cmd.search);
+          const current = await view(cmd.search);
           const output = exportJobs(current.matches, cmd.format);
           const saved = await writeExport(cmd.format, output.data);
           return CareerResultSchema.parse({
@@ -234,7 +259,7 @@ export function createCareerService(
               rejected++;
             }
           }
-          store.ingestDiscovered(id, source, jobs);
+          await store.ingestDiscoveredAsync(id, source, jobs, controller.signal);
           store.global.note(id, 'jobspy-import', 'imported', jobs.length, rejected);
         }
         if (cmd.op === 'saveSearch') store.saveSearch(cmd.name, cmd.search);
@@ -258,7 +283,10 @@ export function createCareerService(
             pendingReview = null;
           }
         }
-        const current = view(cmd.op === 'view' ? cmd.search : defaultSearch);
+        const current = await view(
+          cmd.op === 'view' ? cmd.search : defaultSearch,
+          cmd.op !== 'view' || cmd.summary === true,
+        );
         if (cmd.op === 'compare') {
           const job = store.job(cmd.jobId);
           current.comparisons = cmd.rankingIds.map((id) => {
@@ -286,6 +314,7 @@ export function createCareerService(
         pendingReview?.catch(() => {}),
         discovering?.catch(() => {}),
         global.shutdown(),
+        viewQueue.catch(() => {}),
       ]);
     },
   };

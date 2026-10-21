@@ -91,21 +91,32 @@ export function CareerWorkspace({
   const [model, setModel] = useState('');
   const [reviewId, setReviewId] = useState('');
   const [consent, setConsent] = useState(false);
-  const refresh = async () => {
-    const result = await window.rovdo!.careerCommand({ op: 'view', search: searchRef.current });
-    if (result.ok) {
-      setView(result.view);
-      if (!loaded.current) {
-        setDraft(result.view.profile ?? emptyProfile());
-        loaded.current = true;
-      }
-    } else setError(result.code);
+  const refreshPending = useRef(0);
+  const refresh = async (background = false) => {
+    if (background && refreshPending.current) return;
+    refreshPending.current++;
+    try {
+      const result = await window.rovdo!.careerCommand({
+        op: 'view',
+        search: searchRef.current,
+        summary: tab === 'profile',
+      });
+      if (result.ok) {
+        setView(result.view);
+        if (!loaded.current) {
+          setDraft(result.view.profile ?? emptyProfile());
+          loaded.current = true;
+        }
+      } else setError(result.code);
+    } finally {
+      refreshPending.current--;
+    }
   };
   useEffect(() => {
     loaded.current = false;
     const load = async () => {
       try {
-        await refresh();
+        await refresh(true);
       } catch {
         setError('Desktop unavailable');
       }

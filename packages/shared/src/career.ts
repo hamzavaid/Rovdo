@@ -336,7 +336,11 @@ export const CareerViewSchema = z.strictObject({
   cache: z.object({ hits: z.number(), misses: z.number() }).optional(),
 });
 export const CareerCommandSchema = z.discriminatedUnion('op', [
-  z.strictObject({ op: z.literal('view'), search: JobSearchSchema }),
+  z.strictObject({
+    op: z.literal('view'),
+    search: JobSearchSchema,
+    summary: z.boolean().optional(),
+  }),
   z.strictObject({ op: z.literal('saveProfile'), profile: CandidateProfileSchema }),
   z.strictObject({ op: z.literal('proposeFacts'), facts: z.array(ProfileFactSchema).max(100) }),
   z.strictObject({ op: z.literal('saveSource'), source: SourceConfigSchema }),

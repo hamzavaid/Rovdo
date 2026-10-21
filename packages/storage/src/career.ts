@@ -1,3 +1,4 @@
+import { setImmediate as yieldTurn } from 'node:timers/promises';
 import { DiscoveryStore } from './discovery';
 /**
  * SQLite career persistence: profile history, jobs, sources, imports, ranking revisions and search caches.
@@ -76,6 +77,9 @@ const signature = (j: Job) =>
     .digest('hex');
 export class CareerStore {
   private readonly db: DatabaseSync;
+  private searchRevision = 0;
+  private preparedSearch: string | null = null;
+  private preparedPending = 0;
   readonly global: DiscoveryStore;
   constructor(path: string) {
     this.db = new DatabaseSync(path);
@@ -307,6 +311,7 @@ export class CareerStore {
     return `source-removed:${config.ats}:${config.region}:${config.tenant}`;
   }
   deleteSource(id: string): void {
+    this.searchRevision++;
     const source = this.sources().find((s) => s.config.id === id);
     if (!source) throw new Error('SOURCE_NOT_FOUND');
     this.transaction(() => {
@@ -317,6 +322,7 @@ export class CareerStore {
     });
   }
   saveSource(input: unknown): void {
+    this.searchRevision++;
     const config = SourceConfigSchema.parse(input);
     const old = this.sources().find((s) => s.config.id === config.id);
     if (
@@ -402,6 +408,7 @@ export class CareerStore {
     });
   }
   private writeJob(job: Job): void {
+    this.searchRevision++;
     JobSchema.parse(job);
     const previous = this.db.prepare('SELECT json FROM career_job WHERE id=?').get(job.id);
     this.db
@@ -533,6 +540,52 @@ export class CareerStore {
       this.setState(source.id, state);
     });
   }
+  /** Commit small pages of rows, but publish the next cursor/missing-job decision only after all rows succeed. */
+  async batchAsync(
+    source: SourceConfig,
+    jobs: Job[],
+    state: SourceState,
+    pollId: string,
+    complete: boolean,
+    now: number,
+    signal?: AbortSignal,
+    allowed: () => boolean = () => true,
+  ): Promise<void> {
+    const before = this.sources().find((s) => s.config.id === source.id)?.state ?? initialState();
+    for (let offset = 0; offset < jobs.length; offset += 8) {
+      await yieldTurn();
+      signal?.throwIfAborted();
+      if (!allowed()) throw new Error('SOURCE_REVOKED');
+      const partial = {
+        ...state,
+        status: 'POLLING' as const,
+        cursor: before.cursor,
+        lastSuccessAt: before.lastSuccessAt,
+        nextPollAt: before.nextPollAt,
+        accepted: state.accepted,
+        duplicates: state.duplicates,
+      };
+      this.batch(source, jobs.slice(offset, offset + 8), partial, pollId, false, now);
+      state.accepted = partial.accepted;
+      state.duplicates = partial.duplicates;
+    }
+    signal?.throwIfAborted();
+    if (!allowed()) throw new Error('SOURCE_REVOKED');
+    this.batch(source, [], state, pollId, complete, now);
+  }
+  async ingestDiscoveredAsync(
+    runId: string,
+    source: SourceConfig,
+    jobs: Job[],
+    signal?: AbortSignal,
+  ): Promise<void> {
+    // Membership is committed with each chunk so partial results and run counts advance together.
+    for (let offset = 0; offset < jobs.length; offset += 8) {
+      await yieldTurn();
+      signal?.throwIfAborted();
+      this.ingestDiscovered(runId, source, jobs.slice(offset, offset + 8));
+    }
+  }
   /** Virtual membership reuses ingestion/provenance without adding a saved employer or poll grant. */
   globalSource(key: string, name: string, url: string): SourceConfig {
     const tenant =
@@ -623,6 +676,7 @@ export class CareerStore {
     });
   }
   saveJob(id: string, saved: boolean): void {
+    this.searchRevision++;
     this.job(id);
     if (saved)
       this.db
@@ -858,13 +912,8 @@ export class CareerStore {
     for (const row of this.db.prepare(q.sql).iterate(...q.params))
       yield { job: JobSchema.parse(JSON.parse(String(row.json))), bm25Raw: Number(row.rank) };
   }
-  // Bind every scoring input and behavior-policy version so stale results cannot survive semantic changes.
-  private cacheKey(
-    row: { job: Job; bm25Raw: number },
-    profile: CandidateProfile,
-    config: RankingProfile,
-    asOf: string,
-  ): string {
+  /** Serialize the candidate/config once per search instead of once for every indexed job. */
+  private rankingBinding(profile: CandidateProfile, config: RankingProfile, asOf: string): string {
     const intel = intelligenceOf(profile);
     const dynamic =
       intel.experience.some((w) => !w.end || w.end >= asOf) ||
@@ -875,6 +924,30 @@ export class CareerStore {
     return createHash('sha256')
       .update(
         stable({
+          evidence: intel,
+          facts: profile.facts.filter((f) => !['name', 'email', 'phone', 'link'].includes(f.field)),
+          preferences: profile.preferences,
+          config,
+          scorer: SCORING_POLICY_VERSION,
+          candidatePolicy: CANDIDATE_POLICY_VERSION,
+          taxonomy: TAXONOMY_VERSION,
+          parser: REQUIREMENTS_PARSER_VERSION,
+          date: dynamic ? asOf : 'static',
+        }),
+      )
+      .digest('hex');
+  }
+  private cacheKey(
+    row: { job: Job; bm25Raw: number },
+    profile: CandidateProfile,
+    config: RankingProfile,
+    asOf: string,
+    binding = this.rankingBinding(profile, config, asOf),
+  ): string {
+    return createHash('sha256')
+      .update(
+        stable({
+          binding,
           job: [
             row.job.id,
             row.job.company,
@@ -887,15 +960,6 @@ export class CareerStore {
             row.job.activeStatus,
             row.job.duplicateGroup,
           ],
-          evidence: intel,
-          facts: profile.facts.filter((f) => !['name', 'email', 'phone', 'link'].includes(f.field)),
-          preferences: profile.preferences,
-          config,
-          scorer: SCORING_POLICY_VERSION,
-          candidatePolicy: CANDIDATE_POLICY_VERSION,
-          taxonomy: TAXONOMY_VERSION,
-          parser: REQUIREMENTS_PARSER_VERSION,
-          date: dynamic ? asOf : 'static',
           lexical: config.method === 'legacy-v1' ? row.bm25Raw : 0,
         }),
       )
@@ -908,8 +972,9 @@ export class CareerStore {
     config: RankingProfile,
     asOf: string,
     ranker: typeof rankWithProfile = rankWithProfile,
+    preparedKey?: string,
   ): JobMatch {
-    const key = this.cacheKey(row, profile, config, asOf);
+    const key = preparedKey ?? this.cacheKey(row, profile, config, asOf);
     const cached = this.db.prepare('SELECT json FROM rank_cache WHERE cache_key=?').get(key);
     let match: JobMatch;
     if (cached) {
@@ -946,24 +1011,133 @@ export class CareerStore {
     search: JobSearch,
     budget = Number.POSITIVE_INFINITY,
   ): { matches: JobMatch[]; total: number; pending: number } {
+    this.preparedSearch = null;
     this.db.exec(
       'CREATE TEMP TABLE IF NOT EXISTS current_search(job_id TEXT PRIMARY KEY,cache_key TEXT,bm25 REAL); DELETE FROM current_search;',
     );
     const insert = this.db.prepare('INSERT INTO current_search VALUES(?,?,?)');
     let scored = 0;
+    const binding = this.rankingBinding(profile, config, asOf);
     this.transaction(() => {
       for (const row of rows) {
-        const key = this.cacheKey(row, profile, config, asOf);
+        const key = this.cacheKey(row, profile, config, asOf, binding);
         if (
           !this.db.prepare('SELECT 1 FROM rank_cache WHERE cache_key=?').get(key) &&
           scored < budget
         ) {
-          this.cachedRanking(row, profile, config, asOf);
+          this.cachedRanking(row, profile, config, asOf, undefined, key);
           scored++;
         }
         insert.run(row.job.id, key, row.bm25Raw);
       }
     });
+    return this.selectRankedPage(profile, config, asOf, search, binding);
+  }
+  private rankingWork: Promise<void> = Promise.resolve();
+  /** Small transactions yield between batches; scratch-table users serialize without blocking Electron. */
+  async rankedPageAsync(
+    rows: Iterable<{ job: Job; bm25Raw: number }>,
+    profile: CandidateProfile,
+    config: RankingProfile,
+    asOf: string,
+    search: JobSearch,
+    budget = Number.POSITIVE_INFINITY,
+    reuse = false,
+  ): Promise<{ matches: JobMatch[]; total: number; pending: number }> {
+    const previous = this.rankingWork;
+    let release!: () => void;
+    this.rankingWork = new Promise((resolve) => {
+      release = resolve;
+    });
+    await previous;
+    try {
+      await yieldTurn();
+      const binding = this.rankingBinding(profile, config, asOf);
+      const stamp = stable({
+        binding,
+        search,
+        revision: this.searchRevision,
+        database: this.db.prepare('PRAGMA data_version').get(),
+      });
+      if (reuse && this.preparedSearch === stamp) {
+        if (this.preparedPending) {
+          const pending = this.db
+            .prepare(
+              'SELECT j.json,s.bm25,s.cache_key FROM current_search s JOIN career_job j ON j.id=s.job_id LEFT JOIN rank_cache r ON r.cache_key=s.cache_key WHERE r.cache_key IS NULL LIMIT ?',
+            )
+            .iterate(Number.isFinite(budget) ? budget : -1);
+          let n = 0;
+          try {
+            for (const row of pending) {
+              this.cachedRanking(
+                { job: JobSchema.parse(JSON.parse(String(row.json))), bm25Raw: Number(row.bm25) },
+                profile,
+                config,
+                asOf,
+                undefined,
+                String(row.cache_key),
+              );
+              if (++n % 8 === 0) await yieldTurn();
+            }
+          } finally {
+            pending.return?.();
+          }
+        }
+        const page = this.selectRankedPage(profile, config, asOf, search, binding);
+        this.preparedPending = page.pending;
+        return page;
+      }
+      this.preparedSearch = null;
+      this.db.exec(
+        'CREATE TEMP TABLE IF NOT EXISTS current_search(job_id TEXT PRIMARY KEY,cache_key TEXT,bm25 REAL); DELETE FROM current_search;',
+      );
+      const insert = this.db.prepare('INSERT INTO current_search VALUES(?,?,?)');
+      const cached = this.db.prepare('SELECT 1 FROM rank_cache WHERE cache_key=?');
+      const iterator = rows[Symbol.iterator]();
+      let done = false,
+        scored = 0;
+      try {
+        while (!done) {
+          const started = performance.now();
+          this.transaction(() => {
+            for (let n = 0; n < 8; n++) {
+              const next = iterator.next();
+              if (next.done) {
+                done = true;
+                break;
+              }
+              const row = next.value;
+              const key = this.cacheKey(row, profile, config, asOf, binding);
+              if (scored < budget && !cached.get(key)) {
+                this.cachedRanking(row, profile, config, asOf, undefined, key);
+                scored++;
+              }
+              insert.run(row.job.id, key, row.bm25Raw);
+              if (performance.now() - started >= 8) break;
+            }
+          });
+          if (!done) await yieldTurn();
+        }
+      } finally {
+        iterator.return?.();
+      }
+      const page = this.selectRankedPage(profile, config, asOf, search, binding);
+      if (reuse) {
+        this.preparedSearch = stamp;
+        this.preparedPending = page.pending;
+      }
+      return page;
+    } finally {
+      release();
+    }
+  }
+  private selectRankedPage(
+    profile: CandidateProfile,
+    config: RankingProfile,
+    asOf: string,
+    search: JobSearch,
+    binding: string,
+  ): { matches: JobMatch[]; total: number; pending: number } {
     const conditions = [search.includeExcluded ? '1' : 'r.excluded=0', 'r.score>=?'];
     const params: (string | number)[] = [search.minimumScore ?? 0];
     if (search.eligibility === 'pass')
@@ -992,14 +1166,17 @@ export class CareerStore {
           )
           .get()!.n,
       ),
-      matches: page.map((r) =>
-        this.cachedRanking(
-          { job: this.job(String(r.job_id)), bm25Raw: Number(r.bm25) },
+      matches: page.map((r) => {
+        const row = { job: this.job(String(r.job_id)), bm25Raw: Number(r.bm25) };
+        return this.cachedRanking(
+          row,
           profile,
           config,
           asOf,
-        ),
-      ),
+          undefined,
+          this.cacheKey(row, profile, config, asOf, binding),
+        );
+      }),
     };
   }
   /** Count only definite exclusions; scores still being prepared are not filtered jobs. */
@@ -1029,6 +1206,7 @@ export class CareerStore {
       .map((r) => JobMarkerSchema.parse(JSON.parse(String(r.json))));
   }
   markJob(jobId: string, change: Partial<Omit<JobMarker, 'jobId'>>): void {
+    this.searchRevision++;
     this.job(jobId);
     const old = this.markers().find((m) => m.jobId === jobId) ?? {
       jobId,

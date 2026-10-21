@@ -160,6 +160,12 @@ export class DiscoveryEngine {
         if (this.stopping) throw new Error('INTERRUPTED');
         if (!adapter.setReadGate) await gate(sourceEndpoint(config), signal);
         const page = await adapter.fetchPage(state, signal);
+        const checkpoint = {
+          cursor: state.cursor,
+          lastSuccessAt: state.lastSuccessAt,
+          etag: state.etag,
+          lastModified: state.lastModified,
+        };
         state.responseStatus = page.status;
         if (page.status === 304 && state.lastSuccessAt === null)
           throw new SourceError(304, 0, 'CACHE_MISS');
@@ -188,14 +194,21 @@ export class DiscoveryEngine {
               (page.status === 304 ? state.lastModified : null));
         }
         // A partial/quarantined feed may add valid rows, but cannot declare unseen historical jobs missing.
-        this.store.batch(
-          config,
-          page.jobs,
-          state,
-          state.pollId!,
-          complete && page.status !== 304 && state.rejected === 0,
-          this.now(),
-        );
+        try {
+          await this.store.batchAsync(
+            config,
+            page.jobs,
+            state,
+            state.pollId!,
+            complete && page.status !== 304 && state.rejected === 0,
+            this.now(),
+            signal,
+            () => this.store.sources().some((s) => s.config.id === id && s.config.enabled),
+          );
+        } catch (error) {
+          Object.assign(state, checkpoint);
+          throw error;
+        }
         if (complete) {
           this.store.audit(id, state);
           return;

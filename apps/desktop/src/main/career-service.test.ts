@@ -480,3 +480,36 @@ it('polls only the selected saved company and keeps global source grants indepen
     store.close();
   }
 });
+
+it('loads overview statistics without scanning jobs or preparing any rankings', async () => {
+  const store = new CareerStore(':memory:');
+  const engine = new DiscoveryEngine(store);
+  const service = createCareerService(store, engine, async () => {});
+  const iterate = store.iterateFiltered;
+  store.iterateFiltered = () => {
+    throw new Error('Overview must not scan/rank jobs');
+  };
+  try {
+    const result = await service.command(
+      {
+        op: 'view',
+        summary: true,
+        search: {
+          query: '',
+          company: '',
+          workMode: 'all',
+          savedOnly: false,
+          includeExcluded: false,
+        },
+      },
+      sender,
+    );
+    expect(result.ok).toBe(true);
+    expect(store.cacheStats.misses).toBe(0);
+  } finally {
+    store.iterateFiltered = iterate;
+    await service.shutdown();
+    await engine.shutdown();
+    store.close();
+  }
+});
