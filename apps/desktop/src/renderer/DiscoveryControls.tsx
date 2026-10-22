@@ -2,6 +2,7 @@
  * Secondary job filters, saved-search controls and advanced employer/source management.
  * These controls update the existing career command/search contracts rather than fetching feeds directly.
  */
+import { ProfileDialog } from './ProfileDialog';
 import { useState } from 'react';
 import type { CareerCommand, JobSearch, CareerViewSchema } from '@rovdo/shared';
 import type { z } from 'zod';
@@ -9,165 +10,241 @@ type View = z.infer<typeof CareerViewSchema>;
 export function AdvancedFilters({
   search,
   setSearch,
+  onApply,
 }: {
   search: JobSearch;
   setSearch: (s: JobSearch) => void;
+  onApply?: (s: JobSearch) => Promise<void>;
 }) {
-  const set = (key: keyof JobSearch, value: unknown) => setSearch({ ...search, [key]: value });
+  const [open, setOpen] = useState(false);
+  const [draft, setDraft] = useState(search);
+  const set = (key: keyof JobSearch, value: unknown) => setDraft({ ...draft, [key]: value });
   const numeric = (key: keyof JobSearch, label: string, min: number, max: number) => (
     <label>
       {label}
+      {['minimumScore', 'minimumSalary', 'freshnessDays'].includes(key) && (
+        <input
+          type="range"
+          aria-label={`${label} slider`}
+          min={min}
+          max={max}
+          value={Number(draft[key] ?? min)}
+          onChange={(e) => set(key, Number(e.target.value))}
+        />
+      )}
       <input
+        aria-label={label}
         type="number"
         min={min}
         max={max}
-        value={String(search[key] ?? '')}
+        value={String(draft[key] ?? '')}
         onChange={(e) => {
-          const next = { ...search };
+          const next = { ...draft };
           if (e.target.value) Object.assign(next, { [key]: Number(e.target.value) });
           else delete next[key];
-          setSearch(next);
+          setDraft(next);
         }}
       />
     </label>
   );
   return (
-    <details className="advanced-filters">
-      <summary>Advanced search filters</summary>
-      <p>
-        These filters narrow results without changing candidate evidence or the saved ranking
-        method. Unknown eligibility remains reviewable.
-      </p>
-      <div className="career-fields">
-        <label>
-          Company name
-          <input value={search.company} onChange={(e) => set('company', e.target.value)} />
-        </label>
-        <label>
-          Employment type
-          <select
-            value={search.employmentType ?? 'all'}
-            onChange={(e) => set('employmentType', e.target.value)}
-          >
-            {[
-              'all',
-              'full-time',
-              'part-time',
-              'contract',
-              'internship',
-              'temporary',
-              'unknown',
-            ].map((v) => (
-              <option key={v}>{v}</option>
-            ))}
-          </select>
-        </label>
-        <label>
-          Posting verification
-          <select
-            value={search.availability ?? 'all'}
-            onChange={(e) => set('availability', e.target.value)}
-          >
-            {['all', 'verified', 'unverified'].map((v) => (
-              <option key={v}>{v}</option>
-            ))}
-          </select>
-        </label>
-        <label>
-          Technical role family
-          <select
-            value={search.roleFamily ?? 'all'}
-            onChange={(e) => set('roleFamily', e.target.value)}
-          >
-            {[
-              'all',
-              'software',
-              'platform',
-              'data-science',
-              'security',
-              'analytics',
-              'unknown',
-            ].map((x) => (
-              <option key={x}>{x}</option>
-            ))}
-          </select>
-        </label>
-        <label>
-          Internship season
-          <select value={search.season ?? 'all'} onChange={(e) => set('season', e.target.value)}>
-            {['all', 'spring', 'summer', 'fall', 'winter'].map((x) => (
-              <option key={x}>{x}</option>
-            ))}
-          </select>
-        </label>
-        {numeric('graduationYear', 'Graduation eligibility year', 2000, 2100)}
-        <label>
-          Experience level
-          <select
-            value={search.experienceLevel ?? 'all'}
-            onChange={(e) => set('experienceLevel', e.target.value)}
-          >
-            {['all', 'internship', 'new-grad', 'junior', 'mid', 'senior', 'unknown'].map((x) => (
-              <option key={x}>{x}</option>
-            ))}
-          </select>
-        </label>
-        <label>
-          Location or remote jurisdiction
-          <input value={search.location ?? ''} onChange={(e) => set('location', e.target.value)} />
-        </label>
-        {numeric('minimumSalary', 'Minimum published annual salary', 0, 10000000)}
-        <label>
-          Salary filter currency
-          <input
-            value={search.salaryCurrency ?? 'USD'}
-            maxLength={3}
-            onChange={(e) => set('salaryCurrency', e.target.value.toUpperCase())}
-          />
-        </label>
-        {numeric('freshnessDays', 'Posted within days', 1, 3650)}
-        {numeric('minimumScore', 'Minimum qualification score', 0, 100)}
-        <label>
-          Eligibility constraint
-          <select
-            value={search.eligibility ?? 'all'}
-            onChange={(e) => set('eligibility', e.target.value)}
-          >
-            <option value="all">All eligibility outcomes</option>
-            <option value="pass">Published checks passed</option>
-            <option value="review">Needs review</option>
-            <option value="fail">Explicit failure (enable Show excluded)</option>
-          </select>
-        </label>
-        <label>
-          My relevance feedback
-          <select
-            value={search.feedback ?? 'all'}
-            onChange={(e) => set('feedback', e.target.value)}
-          >
-            {['all', 'relevant', 'irrelevant'].map((x) => (
-              <option key={x}>{x}</option>
-            ))}
-          </select>
-        </label>
-        <label>
-          <input
-            type="checkbox"
-            checked={search.hideApplied ?? false}
-            onChange={(e) => set('hideApplied', e.target.checked)}
-          />
-          Hide applied jobs
-        </label>
-        <label>
-          <input
-            type="checkbox"
-            checked={search.newOnly ?? false}
-            onChange={(e) => set('newOnly', e.target.checked)}
-          />
-          New postings only
-        </label>
-      </div>
-    </details>
+    <>
+      <button
+        type="button"
+        className="filter-launch"
+        onClick={() => {
+          setDraft(search);
+          setOpen(true);
+        }}
+      >
+        Advanced search filters
+      </button>
+      {open && (
+        <ProfileDialog
+          closeLabel="Close search filters"
+          title="Search filters"
+          onClose={() => setOpen(false)}
+        >
+          <div className="advanced-filters">
+            <p>
+              These filters narrow results without changing candidate evidence or the saved ranking
+              method. Unknown eligibility remains reviewable.
+            </p>
+            <div className="career-fields">
+              <label>
+                Company name
+                <input value={draft.company} onChange={(e) => set('company', e.target.value)} />
+              </label>
+              <label>
+                Employment type
+                <select
+                  value={draft.employmentType ?? 'all'}
+                  onChange={(e) => set('employmentType', e.target.value)}
+                >
+                  {[
+                    'all',
+                    'full-time',
+                    'part-time',
+                    'contract',
+                    'internship',
+                    'temporary',
+                    'unknown',
+                  ].map((v) => (
+                    <option key={v}>{v}</option>
+                  ))}
+                </select>
+              </label>
+              <label>
+                Posting verification
+                <select
+                  value={draft.availability ?? 'all'}
+                  onChange={(e) => set('availability', e.target.value)}
+                >
+                  {['all', 'verified', 'unverified'].map((v) => (
+                    <option key={v}>{v}</option>
+                  ))}
+                </select>
+              </label>
+              <label>
+                Technical role family
+                <select
+                  value={draft.roleFamily ?? 'all'}
+                  onChange={(e) => set('roleFamily', e.target.value)}
+                >
+                  {[
+                    'all',
+                    'software',
+                    'platform',
+                    'data-science',
+                    'security',
+                    'analytics',
+                    'unknown',
+                  ].map((x) => (
+                    <option key={x}>{x}</option>
+                  ))}
+                </select>
+              </label>
+              <label>
+                Internship season
+                <select
+                  value={draft.season ?? 'all'}
+                  onChange={(e) => set('season', e.target.value)}
+                >
+                  {['all', 'spring', 'summer', 'fall', 'winter'].map((x) => (
+                    <option key={x}>{x}</option>
+                  ))}
+                </select>
+              </label>
+              {numeric('graduationYear', 'Graduation eligibility year', 2000, 2100)}
+              <label>
+                Experience level
+                <select
+                  value={draft.experienceLevel ?? 'all'}
+                  onChange={(e) => set('experienceLevel', e.target.value)}
+                >
+                  {['all', 'internship', 'new-grad', 'junior', 'mid', 'senior', 'unknown'].map(
+                    (x) => (
+                      <option key={x}>{x}</option>
+                    ),
+                  )}
+                </select>
+              </label>
+              <label>
+                Location or remote jurisdiction
+                <input
+                  value={draft.location ?? ''}
+                  onChange={(e) => set('location', e.target.value)}
+                />
+              </label>
+              {numeric('minimumSalary', 'Minimum published annual salary', 0, 10000000)}
+              <label>
+                Salary filter currency
+                <input
+                  value={draft.salaryCurrency ?? 'USD'}
+                  maxLength={3}
+                  onChange={(e) => set('salaryCurrency', e.target.value.toUpperCase())}
+                />
+              </label>
+              {numeric('freshnessDays', 'Posted within days', 1, 3650)}
+              {numeric('minimumScore', 'Minimum qualification score', 0, 100)}
+              <label>
+                Eligibility constraint
+                <select
+                  value={draft.eligibility ?? 'all'}
+                  onChange={(e) => set('eligibility', e.target.value)}
+                >
+                  <option value="all">All eligibility outcomes</option>
+                  <option value="pass">Published checks passed</option>
+                  <option value="review">Needs review</option>
+                  <option value="fail">Explicit failure (enable Show excluded)</option>
+                </select>
+              </label>
+              <label>
+                My relevance feedback
+                <select
+                  value={draft.feedback ?? 'all'}
+                  onChange={(e) => set('feedback', e.target.value)}
+                >
+                  {['all', 'relevant', 'irrelevant'].map((x) => (
+                    <option key={x}>{x}</option>
+                  ))}
+                </select>
+              </label>
+              <label>
+                <input
+                  type="checkbox"
+                  checked={draft.hideApplied ?? false}
+                  onChange={(e) => set('hideApplied', e.target.checked)}
+                />
+                Hide applied jobs
+              </label>
+              <label>
+                <input
+                  type="checkbox"
+                  checked={draft.newOnly ?? false}
+                  onChange={(e) => set('newOnly', e.target.checked)}
+                />
+                New postings only
+              </label>
+            </div>
+            <div className="dialog-actions">
+              <button type="button" onClick={() => setOpen(false)}>
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() =>
+                  setDraft({
+                    query: search.query,
+                    company: '',
+                    workMode: 'all',
+                    savedOnly: false,
+                    includeExcluded: false,
+                    scope: search.scope,
+                    discovery: search.discovery,
+                    rankingId: search.rankingId,
+                  })
+                }
+              >
+                Reset filter details
+              </button>
+              <button
+                type="button"
+                className="primary-button"
+                onClick={() => {
+                  const next = { ...draft, offset: 0 };
+                  setSearch(next);
+                  setOpen(false);
+                  void onApply?.(next);
+                }}
+              >
+                Apply filters
+              </button>
+            </div>
+          </div>
+        </ProfileDialog>
+      )}
+    </>
   );
 }
 export function DiscoveryControls({

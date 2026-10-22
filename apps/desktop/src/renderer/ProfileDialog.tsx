@@ -9,10 +9,14 @@ export function ProfileDialog({
   title,
   onClose,
   children,
+  className = '',
+  closeLabel = 'Close qualification editor',
 }: {
   title: string;
   onClose: () => void;
   children: ReactNode;
+  className?: string;
+  closeLabel?: string;
 }) {
   const ref = useRef<HTMLDialogElement>(null);
   const id = useId();
@@ -28,7 +32,7 @@ export function ProfileDialog({
   return createPortal(
     <dialog
       ref={ref}
-      className="profile-dialog"
+      className={`profile-dialog ${className}`}
       aria-labelledby={id}
       onCancel={(e) => {
         e.preventDefault();
@@ -37,12 +41,7 @@ export function ProfileDialog({
     >
       <div className="dialog-heading">
         <h2 id={id}>{title}</h2>
-        <button
-          type="button"
-          className="dialog-close"
-          aria-label="Close qualification editor"
-          onClick={onClose}
-        >
+        <button type="button" className="dialog-close" aria-label={closeLabel} onClick={onClose}>
           &times;
         </button>
       </div>

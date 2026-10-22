@@ -157,7 +157,10 @@ function docx(bytes: Buffer): DocumentBlock[] {
   });
   return blocks;
 }
-export function pdfBlocks(pages: Page[]): { blocks: DocumentBlock[]; warnings: string[] } {
+export function pdfBlocks(
+  pages: Page[],
+  tableLayout = false,
+): { blocks: DocumentBlock[]; warnings: string[] } {
   const blocks: DocumentBlock[] = [];
   const warnings: string[] = [];
   pages.forEach((page, index) => {
@@ -173,6 +176,7 @@ export function pdfBlocks(pages: Page[]): { blocks: DocumentBlock[]; warnings: s
     const left = text.filter((t) => t.x < split);
     const right = text.filter((t) => t.x >= split);
     const columns =
+      !tableLayout &&
       left.length >= 3 &&
       right.length >= 3 &&
       left.filter((t) => t.x + t.w < split - 0.3).length / left.length > 0.8;
@@ -194,9 +198,14 @@ export function pdfBlocks(pages: Page[]): { blocks: DocumentBlock[]; warnings: s
       rows.forEach((row) => {
         row.sort((a, b) => a.x - b.x);
         blocks.push({
+          // Transcript tables read across the page. Recover only visibly separated cells;
+          // ordinary profile imports retain their existing column-aware reading order.
           text: row
-            .map((t) => t.text)
-            .join(' ')
+            .map(
+              (t, i) =>
+                `${i ? (tableLayout && t.x - (row[i - 1]!.x + row[i - 1]!.w) > 0.75 ? ' | ' : ' ') : ''}${t.text}`,
+            )
+            .join('')
             .trim(),
           kind: 'paragraph',
           page: index + 1,
@@ -209,7 +218,11 @@ export function pdfBlocks(pages: Page[]): { blocks: DocumentBlock[]; warnings: s
   });
   return { blocks, warnings };
 }
-export async function extractDocument(format: string, bytes: Buffer): Promise<ParsedDocument> {
+export async function extractDocument(
+  format: string,
+  bytes: Buffer,
+  tableLayout = false,
+): Promise<ParsedDocument> {
   if (!bytes.length || bytes.length > 5_000_000) throw new Error('FILE_LIMIT');
   let doc: ParsedDocument = { format, blocks: [], tables: [], warnings: [] };
   if (format === 'pdf') {
@@ -228,7 +241,7 @@ export async function extractDocument(format: string, bytes: Buffer): Promise<Pa
         clearTimeout(timer);
         try {
           if (data.Pages.length > 100) throw new Error('PDF_LIMIT');
-          resolve(pdfBlocks(data.Pages));
+          resolve(pdfBlocks(data.Pages, tableLayout));
         } catch {
           reject(new Error('PDF_PARSE_FAILED'));
         } finally {

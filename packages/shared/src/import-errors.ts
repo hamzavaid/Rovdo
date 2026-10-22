@@ -5,6 +5,7 @@
 import { z } from 'zod';
 export const ImportFailureCodeSchema = z.enum([
   'UNSUPPORTED_FILE',
+  'TRANSCRIPT_UNRECOGNIZED',
   'SCANNED_PDF',
   'EMPTY_DOCUMENT',
   'MALFORMED_DOCUMENT',
@@ -27,6 +28,8 @@ export const ImportFailureCodeSchema = z.enum([
 ]);
 export type ImportFailureCode = z.infer<typeof ImportFailureCodeSchema>;
 export const IMPORT_FAILURE_MESSAGES: Record<ImportFailureCode, string> = {
+  TRANSCRIPT_UNRECOGNIZED:
+    'No course table could be identified reliably. Use a text-based transcript with Course Code and Course Title columns, or add coursework manually.',
   UNSUPPORTED_FILE: 'Choose a supported PDF, DOCX, TXT, Markdown, JSON or LinkedIn CSV/ZIP file.',
   SCANNED_PDF:
     'This PDF has no readable text. Export a text-based PDF or paste its text; OCR is not available.',

@@ -63,7 +63,7 @@ export function ProfileIntelligence({
     await run(
       input.op === 'assistImport'
         ? 'Preparing AI extraction suggestions...'
-        : ['paste', 'github', 'importFile'].includes(input.op)
+        : ['paste', 'github', 'importFile', 'importTranscript'].includes(input.op)
           ? 'Preparing import preview...'
           : input.op === 'applyImport'
             ? 'Verifying and merging qualifications...'
@@ -91,7 +91,9 @@ export function ProfileIntelligence({
             setManageOpen(true);
             setConfigureOpen(true);
           }
-          if (['paste', 'github', 'importFile', 'assistImport'].includes(input.op)) {
+          if (
+            ['paste', 'github', 'importFile', 'importTranscript', 'assistImport'].includes(input.op)
+          ) {
             const next = r.view.previews.find((p) => p.status === 'ready');
             setDraft(next ?? null);
           }
@@ -165,6 +167,9 @@ export function ProfileIntelligence({
                 <div className="button-row">
                   <button disabled={busy} onClick={() => void command({ op: 'importFile' })}>
                     Choose profile file
+                  </button>
+                  <button disabled={busy} onClick={() => void command({ op: 'importTranscript' })}>
+                    Import academic transcript
                   </button>
                   <span>PDF, DOCX, TXT, Markdown, JSON or LinkedIn archive ZIP · up to 5 MB</span>
                 </div>

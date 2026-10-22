@@ -12,6 +12,73 @@ import { sampleCandidate } from '../../../../tests/fixtures/ranking-v2';
 import { EMPLOYERS } from '@rovdo/job-sources';
 
 const sender = { url: 'rovdo://app/index.html', isMainFrame: true, ownsWindow: true };
+it('stores scraping consent atomically and treats corrupt local settings as disabled', () => {
+  const store = new CareerStore(':memory:');
+  try {
+    expect(store.jobSpySettings()).toEqual({ enabled: false, riskAccepted: false });
+    store.setJobSpySettings({ enabled: true, riskAccepted: true });
+    expect(store.jobSpySettings().enabled).toBe(true);
+    expect(() => store.setJobSpySettings({ enabled: true, riskAccepted: false })).toThrow();
+    expect(store.jobSpySettings().enabled).toBe(true);
+    store.setting('jobspy-settings', '{"enabled":true,"riskAccepted":false}');
+    expect(store.jobSpySettings()).toEqual({ enabled: false, riskAccepted: false });
+  } finally {
+    store.close();
+  }
+});
+it('keeps JobSpy off by default and requires explicit risk acknowledgment before persisting opt-in', async () => {
+  const store = new CareerStore(':memory:'),
+    engine = new DiscoveryEngine(store);
+  const service = createCareerService(store, engine, async () => {});
+  try {
+    const before = await service.command(
+      {
+        op: 'view',
+        summary: true,
+        search: {
+          query: '',
+          company: '',
+          workMode: 'all',
+          savedOnly: false,
+          includeExcluded: false,
+        },
+      },
+      sender,
+    );
+    expect(before.ok && before.view.jobspy).toEqual({ enabled: false, riskAccepted: false });
+    expect(
+      (
+        await service.command(
+          { op: 'jobspySettings', settings: { enabled: true, riskAccepted: false } },
+          sender,
+        )
+      ).ok,
+    ).toBe(false);
+    expect(
+      (
+        await service.command(
+          { op: 'jobspySettings', settings: { enabled: true, riskAccepted: true } },
+          { ...sender, ownsWindow: false },
+        )
+      ).ok,
+    ).toBe(false);
+    const saved = await service.command(
+      { op: 'jobspySettings', settings: { enabled: true, riskAccepted: true } },
+      sender,
+    );
+    expect(saved.ok && saved.view.jobspy?.enabled).toBe(true);
+    expect(store.jobSpySettings().enabled).toBe(true);
+    await service.command(
+      { op: 'jobspySettings', settings: { enabled: false, riskAccepted: true } },
+      sender,
+    );
+    expect(store.jobSpySettings().enabled).toBe(false);
+  } finally {
+    await service.shutdown();
+    await engine.shutdown();
+    store.close();
+  }
+});
 describe('career IPC and optional inference', () => {
   it('validates source deletion and only permits the owning trusted renderer', async () => {
     const store = new CareerStore(':memory:');
@@ -508,6 +575,49 @@ it('loads overview statistics without scanning jobs or preparing any rankings', 
     expect(store.cacheStats.misses).toBe(0);
   } finally {
     store.iterateFiltered = iterate;
+    await service.shutdown();
+    await engine.shutdown();
+    store.close();
+  }
+});
+
+it('opens only a stored job application URL through the native capability', async () => {
+  const store = new CareerStore(':memory:');
+  const engine = new DiscoveryEngine(store);
+  let opened = '';
+  const service = createCareerService(
+    store,
+    engine,
+    async () => {},
+    undefined,
+    undefined,
+    async (url) => {
+      opened = url;
+    },
+  );
+  try {
+    await service.command(
+      {
+        op: 'importDiscovery',
+        rows: [
+          {
+            title: 'Engineer',
+            company: 'Example',
+            description: 'TypeScript required',
+            job_url: 'https://careers.example/jobs/1',
+          },
+        ],
+        permitted: true,
+      },
+      sender,
+    );
+    const id = store.jobs()[0]!.id;
+    expect((await service.command({ op: 'openJob', jobId: id }, sender)).ok).toBe(true);
+    expect(opened).toBe('https://careers.example/jobs/1');
+    expect(
+      (await service.command({ op: 'openJob', jobId: id, url: 'file:///etc/passwd' }, sender)).ok,
+    ).toBe(false);
+  } finally {
     await service.shutdown();
     await engine.shutdown();
     store.close();

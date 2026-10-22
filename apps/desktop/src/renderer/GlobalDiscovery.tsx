@@ -2,9 +2,6 @@
 import { useState } from 'react';
 import type { CareerCommand, DiscoveryOptions, DiscoveryViewSchema } from '@rovdo/shared';
 import type { z } from 'zod';
-import { parseJobRows } from './discovery-files';
-import { useActionState } from './action-state';
-import { OperationStatus } from './OperationStatus';
 type View = z.infer<typeof DiscoveryViewSchema>;
 export const defaultDiscovery: DiscoveryOptions = {
   sourceIds: [
@@ -28,22 +25,18 @@ export function GlobalDiscovery({
   options,
   onOptions,
   command,
-  refresh,
   busy,
 }: {
   view: View | undefined;
   options: DiscoveryOptions;
   onOptions: (v: DiscoveryOptions) => void;
   command: (c: CareerCommand) => Promise<void>;
-  refresh: () => Promise<void>;
   busy: boolean;
 }) {
   const [filter, setFilter] = useState('');
-  const [consent, setConsent] = useState(false);
-  const [importError, setImportError] = useState('');
-  const { pending, label, run } = useActionState();
+  const [sourceView, setSourceView] = useState<'all' | 'selected'>('all');
+  const [showAll, setShowAll] = useState(false);
   const update = (next: DiscoveryOptions) => {
-    setConsent(false);
     onOptions(next);
   };
   const selected = (view?.registry ?? []).filter((s) => options.sourceIds.includes(s.id));
@@ -106,9 +99,32 @@ export function GlobalDiscovery({
           {selected.length} selected / 126 catalog websites plus the open web index. Indexed and
           unsupported entries are not working direct scrapers.
         </p>
-        <div className="discovery-source-list">
+        <div className="source-list-tools">
+          <button
+            type="button"
+            aria-pressed={sourceView === 'all'}
+            onClick={() => setSourceView('all')}
+          >
+            All sources
+          </button>
+          <button
+            type="button"
+            aria-pressed={sourceView === 'selected'}
+            onClick={() => setSourceView('selected')}
+          >
+            Selected sources ({selected.length})
+          </button>
+          <button type="button" aria-expanded={showAll} onClick={() => setShowAll(!showAll)}>
+            {showAll ? 'Use compact list' : 'Show full source list'}
+          </button>
+        </div>
+        <div className={`discovery-source-list ${showAll ? 'expanded' : ''}`}>
           {view?.registry
-            .filter((s) => (s.name + ' ' + s.mode).toLowerCase().includes(filter.toLowerCase()))
+            .filter(
+              (s) =>
+                (sourceView === 'all' || options.sourceIds.includes(s.id)) &&
+                (s.name + ' ' + s.mode).toLowerCase().includes(filter.toLowerCase()),
+            )
             .map((s) => (
               <details key={s.id} className="discovery-source">
                 <summary>
@@ -315,73 +331,6 @@ export function GlobalDiscovery({
           </div>
         </details>
       )}
-      <details className="surface-disclosure">
-        <summary>Import permitted JobSpy CSV/JSON results</summary>
-        <p>
-          Direct JobSpy scraping is not enabled in Rovdo. Import only rows obtained with permission;
-          no websites are visited by this action. Complete records use the existing scorer and stay
-          marked unverified.
-        </p>
-        <label>
-          <input type="checkbox" checked={consent} onChange={(e) => setConsent(e.target.checked)} />
-          I have permission to use these job rows
-        </label>
-        <label>
-          JobSpy export file (CSV or JSON, up to 5 MB)
-          <input
-            type="file"
-            accept=".csv,.json"
-            disabled={!consent || pending || busy}
-            onChange={(e) => {
-              const file = e.target.files?.[0];
-              e.target.value = '';
-              if (!file) return;
-              void run('Importing job batches...', async () => {
-                setImportError('');
-                try {
-                  if (file.size > 5_000_000)
-                    throw new Error('Use a file under 5 MB; split larger exports into batches.');
-                  const text = await file.text();
-                  const id = crypto.randomUUID();
-                  let batch: Record<string, unknown>[] = [];
-                  for (const row of parseJobRows(
-                    text,
-                    file.name.toLowerCase().endsWith('.csv') ? 'csv' : 'json',
-                  )) {
-                    batch.push(row);
-                    if (batch.length === 100) {
-                      const result = await window.rovdo!.careerCommand({
-                        op: 'importDiscovery',
-                        runId: id,
-                        rows: batch,
-                        permitted: true,
-                      });
-                      if (!result.ok)
-                        throw new Error('Import rejected; inspect fields and permissions.');
-                      batch = [];
-                    }
-                  }
-                  if (batch.length) {
-                    const result = await window.rovdo!.careerCommand({
-                      op: 'importDiscovery',
-                      runId: id,
-                      rows: batch,
-                      permitted: true,
-                    });
-                    if (!result.ok)
-                      throw new Error('Import rejected; inspect fields and permissions.');
-                  }
-                  await refresh();
-                } catch (error) {
-                  setImportError(error instanceof Error ? error.message : 'Import failed.');
-                }
-              });
-            }}
-          />
-        </label>
-        <OperationStatus label={label} />
-        {importError && <p role="alert">{importError}</p>}
-      </details>
     </section>
   );
 }

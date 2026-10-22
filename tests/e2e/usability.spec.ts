@@ -97,18 +97,18 @@ test('uses real dashboard data, edits verified qualifications and previews balan
     ).not.toBeChecked();
     await page.getByLabel('I verify this skills record 1', { exact: true }).check();
     await expect(page.getByLabel('I verify this skills record 1', { exact: true })).toBeChecked();
-    await page.getByRole('button', { name: 'Close qualification editor', exact: true }).click();
+    await page.getByRole('button', { name: 'Save to draft', exact: true }).click();
     await page.getByRole('button', { name: 'Save candidate profile', exact: true }).click();
     await expect(page.getByText('Profile version 2', { exact: true })).toBeVisible();
     await page.getByRole('button', { name: '+ Add', exact: true }).click();
-    await page.getByLabel('Fact value', { exact: true }).fill('Rust');
+    await page.getByLabel('New skill skillId', { exact: true }).fill('Rust');
     await page
       .getByLabel('Evidence or assertion reference', { exact: true })
       .fill('User fixture assertion');
-    await page.getByRole('button', { name: 'Add fact for verification', exact: true }).click();
+    await page.getByRole('button', { name: 'Add skill for verification', exact: true }).click();
     await page.getByRole('button', { name: /Edit Rust skill/ }).click();
-    await page.getByLabel('I verify this fact', { exact: true }).check();
-    await page.getByRole('button', { name: 'Close qualification editor', exact: true }).click();
+    await page.getByLabel('I verify this skills record 4', { exact: true }).check();
+    await page.getByRole('button', { name: 'Save to draft', exact: true }).click();
     await page.getByRole('button', { name: 'Save candidate profile', exact: true }).click();
     await expect(page.getByText('Profile version 3', { exact: true })).toBeVisible();
     await page.evaluate(() => window.scrollTo(0, 0));
@@ -122,7 +122,7 @@ test('uses real dashboard data, edits verified qualifications and previews balan
     await page.getByRole('button', { name: /Fixture \/ bachelor/ }).click();
     await page.getByLabel('education 1 graduation', { exact: true }).fill('');
     await page.getByLabel('I verify this education record 1', { exact: true }).check();
-    await page.getByRole('button', { name: 'Close qualification editor', exact: true }).click();
+    await page.getByRole('button', { name: 'Save to draft', exact: true }).click();
     await page.getByRole('button', { name: 'Save candidate profile', exact: true }).click();
     await expect(page.getByText('Profile version 4', { exact: true })).toBeVisible();
     await page.getByRole('button', { name: 'Jobs', exact: true }).click();
@@ -178,11 +178,7 @@ test('uses real dashboard data, edits verified qualifications and previews balan
     expect(ranking.thresholds.confidence).toBe(0.8);
     expect(ranking.weights.skills).toBe(60);
     expect(persisted.savedIds()).toHaveLength(1);
-    expect(
-      profile.facts.some(
-        (f) => f.field === 'skill' && f.value === 'Rust' && f.verified && f.source.kind === 'user',
-      ),
-    ).toBe(true);
+    expect(profile.intelligence!.skills.some((s) => s.skillId === 'rust' && s.verified)).toBe(true);
   } finally {
     persisted.close();
   }

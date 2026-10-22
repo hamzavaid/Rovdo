@@ -19,7 +19,7 @@ import { isTrustedFrame } from './security';
 
 export function createIntelligenceService(
   store: CareerStore,
-  chooseFile: (signal: AbortSignal) => Promise<ImportPreview | null>,
+  chooseFile: (signal: AbortSignal, purpose?: 'transcript') => Promise<ImportPreview | null>,
   applyAppearance: (mode: Appearance) => void = () => {},
   assist?: (
     preview: ImportPreview,
@@ -62,8 +62,11 @@ export function createIntelligenceService(
             store.setting('appearance', command.mode);
             applyAppearance(command.mode);
           }
-          if (command.op === 'importFile') {
-            const draft = await chooseFile(controller.signal);
+          if (command.op === 'importFile' || command.op === 'importTranscript') {
+            const draft = await chooseFile(
+              controller.signal,
+              command.op === 'importTranscript' ? 'transcript' : undefined,
+            );
             if (draft) store.saveImport(draft);
           }
           if (command.op === 'paste')

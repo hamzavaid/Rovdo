@@ -48,6 +48,7 @@ export const EducationSchema = z.strictObject({
   institution: text,
   status: z.enum(['completed', 'enrolled', 'expected', 'incomplete']),
   graduation: PartialDateSchema.nullable(),
+  coursework: z.array(z.string().trim().min(1).max(500)).max(200).optional(),
 });
 export const ExperienceSchema = z.strictObject({
   ...bound,

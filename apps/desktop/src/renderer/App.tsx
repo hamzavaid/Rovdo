@@ -1,3 +1,4 @@
+import { DiscoverySettings } from './DiscoverySettings';
 /**
  * Application shell, grouped navigation and shared settings/appearance state.
  * Feature components own their local workflows and call the preload API for privileged operations.
@@ -106,6 +107,7 @@ export function App() {
                 overview: 'Workspace overview',
                 chat: 'Chat workspace',
                 models: 'Model settings',
+                'discovery-settings': 'Discovery settings',
                 browser: 'Browser workspace',
                 jobs: 'Job discovery',
                 profile: 'Candidate profile',
@@ -148,6 +150,7 @@ export function App() {
           <section hidden={view !== 'browser'}>
             <BrowserRun settings={settings} />
           </section>
+          {view === 'discovery-settings' && <DiscoverySettings />}
           {(view === 'jobs' || view === 'profile') && (
             <CareerWorkspace initialSavedOnly={savedJobs} tab={view} settings={settings} />
           )}

@@ -15,10 +15,11 @@ import type {
   SourceConfig,
 } from '@rovdo/shared';
 import type { z } from 'zod';
+import { JobCard } from './JobCard';
 import { GlobalDiscovery, defaultDiscovery } from './GlobalDiscovery';
 import { AdvancedFilters, DiscoveryControls } from './DiscoveryControls';
 import { LegacyFacts } from './LegacyFacts';
-import { ProfileDialog } from './ProfileDialog';
+import { QualificationComposer } from './QualificationComposer';
 import { SkillsPanel } from './SkillsPanel';
 import { useActionState } from './action-state';
 import { OperationStatus } from './OperationStatus';
@@ -73,8 +74,6 @@ export function CareerWorkspace({
   const [showAddSkill, setShowAddSkill] = useState(false);
   const [importText, setImportText] = useState('');
   const [field, setField] = useState<ProfileFact['field']>('skill');
-  const [value, setValue] = useState('');
-  const [reference, setReference] = useState('');
   const [tenant, setTenant] = useState('');
   const [company, setCompany] = useState('');
   const [ats, setAts] = useState<SourceConfig['ats']>('greenhouse');
@@ -472,76 +471,41 @@ export function CareerWorkspace({
                 setShowAddSkill(true);
               }}
             >
-              + Add a profile fact
+              + Add{' '}
+              {profileSection === 'experience'
+                ? 'experience'
+                : profileSection === 'education'
+                  ? 'education'
+                  : profileSection === 'projects'
+                    ? 'a project'
+                    : 'other information'}
             </button>
             {showAddSkill && (
-              <ProfileDialog title="Add a qualification" onClose={() => setShowAddSkill(false)}>
-                <section aria-label="Add a profile fact">
-                  <h2>Add a proposed fact</h2>
-                  <label>
-                    Fact type
-                    <select
-                      value={field}
-                      onChange={(e) => setField(e.target.value as ProfileFact['field'])}
-                    >
-                      {[
-                        'name',
-                        'email',
-                        'phone',
-                        'education',
-                        'experience',
-                        'project',
-                        'skill',
-                        'link',
-                        'citizenship',
-                        'workAuthorization',
-                        'degree',
-                        'graduationYear',
-                        'returnToSchool',
-                        'clearance',
-                      ].map((f) => (
-                        <option key={f}>{f}</option>
-                      ))}
-                    </select>
-                  </label>
-                  <label>
-                    Fact value
-                    <input value={value} onChange={(e) => setValue(e.target.value)} />
-                  </label>
-                  <label>
-                    Evidence or assertion reference
-                    <input value={reference} onChange={(e) => setReference(e.target.value)} />
-                  </label>
-                  <button
-                    disabled={!value || !reference}
-                    onClick={() => {
-                      setProfile({
-                        ...profile,
-                        facts: [
-                          ...profile.facts,
-                          {
-                            id: crypto.randomUUID(),
-                            field,
-                            value,
-                            verified: false,
-                            source: {
-                              kind: 'user',
-                              reference,
-                              capturedAt: new Date().toISOString(),
-                            },
-                          },
-                        ],
-                      });
-                      setValue('');
-                      setReference('');
-                      setProfileSection(factSection(field));
-                      setShowAddSkill(false);
-                    }}
-                  >
-                    Add fact for verification
-                  </button>
-                </section>
-              </ProfileDialog>
+              <QualificationComposer
+                profile={profile}
+                initial={
+                  field === 'skill'
+                    ? 'skills'
+                    : field === 'project'
+                      ? 'projects'
+                      : field === 'education'
+                        ? 'education'
+                        : field === 'experience'
+                          ? 'experience'
+                          : 'other'
+                }
+                onClose={() => setShowAddSkill(false)}
+                onSave={(next, section) => {
+                  setProfile(next);
+                  setProfileSection(
+                    section === 'other'
+                      ? 'identity'
+                      : section === 'certifications'
+                        ? 'education'
+                        : section,
+                  );
+                }}
+              />
             )}
             <details hidden={profileSection !== 'imports'}>
               <summary>Import proposed facts as JSON</summary>
@@ -695,7 +659,7 @@ export function CareerWorkspace({
                       Show excluded
                     </label>
                   </div>
-                  <AdvancedFilters search={search} setSearch={setSearch} />
+                  <AdvancedFilters search={search} setSearch={setSearch} onApply={applySearch} />
                   <label>
                     Source filter
                     <select
@@ -763,11 +727,10 @@ export function CareerWorkspace({
                   options={search.discovery ?? defaultDiscovery}
                   onOptions={(options) => setSearch({ ...search, discovery: options })}
                   command={command}
-                  refresh={refresh}
                   busy={busy}
                 />
               )}
-              <div className="button-row">
+              <div className="job-results-toolbar">
                 <button type="button" disabled={busy} onClick={() => void searchJobs()}>
                   Apply filters to cached jobs
                 </button>
@@ -892,244 +855,21 @@ export function CareerWorkspace({
               )}
               <div className="job-list">
                 {view?.matches.map((m) => (
-                  <article className="job-card" key={m.job.id}>
-                    <div className="job-card-header">
-                      <h2>{m.job.title}</h2>
-                      <strong>
-                        {m.score.toFixed(1)}
-                        {' / 100 '}
-                        <small>
-                          {m.ranking?.method === 'technical-v2'
-                            ? 'technical qualification'
-                            : m.ranking?.method === 'opportunity-v2'
-                              ? 'opportunity fit'
-                              : 'Legacy v1'}
-                        </small>
-                      </strong>
-                    </div>
-                    <p>
-                      {(view.markers.find((x) => x.jobId === m.job.id)?.seenAt ?? 0) <
-                        m.job.firstSeenAt && <span className="new-badge">New posting</span>}
-                    </p>
-                    <p>
-                      {m.job.company} · {m.job.location || 'Location unknown'} · {m.job.workMode}
-                    </p>
-                    <p>
-                      {m.excluded
-                        ? 'Excluded by hard requirement'
-                        : m.review
-                          ? 'Eligibility needs review'
-                          : 'Published checks passed'}
-                      {' · confidence '}
-                      {(m.confidence * 100).toFixed(0)}%
-                    </p>
-                    <p>
-                      {m.ranking &&
-                        `Required coverage ${Math.round(m.ranking.requiredCoverage * 100)}% | Preference fit ${m.ranking.preferenceScore === null ? 'unknown' : `${m.ranking.preferenceScore}%`} | ${m.ranking.shortlist ? 'Shortlist thresholds met' : 'Review against thresholds'}`}
-                    </p>
-                    <p>Matched skills: {m.matchedSkills.join(', ') || 'None verified'}</p>
-                    <p>Qualification gaps: {m.gaps.join(', ') || 'No explicit gaps extracted'}</p>
-                    <p className="job-url">{m.job.canonicalUrl}</p>
-                    <p className="help-text">
-                      {m.job.discovery?.availability ??
-                        (m.job.activeStatus === 'open' ? 'verified' : 'unverified')}{' '}
-                      posting / {m.job.discovery?.sourceName ?? m.job.source} /{' '}
-                      {m.job.postedAt
-                        ? new Date(m.job.postedAt).toLocaleDateString()
-                        : 'Posting date unknown'}
-                    </p>
-                    {m.job.salary && (
-                      <p>
-                        Compensation: {m.job.salary.currency} {m.job.salary.min ?? 'unknown'} -{' '}
-                        {m.job.salary.max ?? 'unknown'} / {m.job.salary.interval}
-                      </p>
-                    )}
-                    {m.job.discovery && (
-                      <p className="job-url">
-                        Source credit / application: {m.job.discovery.sourceName} /{' '}
-                        {m.job.discovery.attributionUrl}
-                      </p>
-                    )}
-                    <div className="button-row">
-                      <button
-                        onClick={() =>
-                          void command({
-                            op: 'markJob',
-                            jobId: m.job.id,
-                            applied: !view.markers.find((x) => x.jobId === m.job.id)?.applied,
-                          })
-                        }
-                      >
-                        {view.markers.find((x) => x.jobId === m.job.id)?.applied
-                          ? 'Clear applied marker'
-                          : 'Mark as applied'}
-                      </button>
-                      <button
-                        aria-pressed={
-                          view.markers.find((x) => x.jobId === m.job.id)?.feedback === 'relevant'
-                        }
-                        onClick={() =>
-                          void command({ op: 'markJob', jobId: m.job.id, feedback: 'relevant' })
-                        }
-                      >
-                        Relevant
-                      </button>
-                      <button
-                        aria-pressed={
-                          view.markers.find((x) => x.jobId === m.job.id)?.feedback === 'irrelevant'
-                        }
-                        onClick={() =>
-                          void command({ op: 'markJob', jobId: m.job.id, feedback: 'irrelevant' })
-                        }
-                      >
-                        Irrelevant
-                      </button>
-                      <button
-                        onClick={() =>
-                          void command({ op: 'markJob', jobId: m.job.id, feedback: 'none' })
-                        }
-                      >
-                        Clear feedback
-                      </button>
-                      <button
-                        onClick={() => void command({ op: 'markJob', jobId: m.job.id, seen: true })}
-                      >
-                        Mark as read
-                      </button>
-                      <button
-                        onClick={() =>
-                          void command({
-                            op: 'compare',
-                            jobId: m.job.id,
-                            rankingIds: [
-                              ...new Set([
-                                m.ranking?.configId ?? 'builtin:technical-balanced',
-                                compareId,
-                                m.ranking?.configId === 'builtin:technical-balanced'
-                                  ? 'builtin:legacy-v1'
-                                  : 'builtin:technical-balanced',
-                              ]),
-                            ].slice(0, 2),
-                          })
-                        }
-                      >
-                        Compare ranking methods
-                      </button>
-                    </div>
-                    <button
-                      disabled={busy}
-                      onClick={() =>
-                        void command({
-                          op: 'saveJob',
-                          jobId: m.job.id,
-                          saved: !view.savedIds.includes(m.job.id),
-                        })
-                      }
-                    >
-                      {view.savedIds.includes(m.job.id)
-                        ? 'Remove saved opportunity'
-                        : 'Save opportunity'}
-                    </button>
-                    {view.savedIds.includes(m.job.id) && !m.excluded && (
-                      <button
-                        onClick={() => {
-                          setReviewId(m.job.id);
-                          setConsent(false);
-                        }}
-                      >
-                        Preview optional AI review
-                      </button>
-                    )}
-                    <details>
-                      <summary>Eligibility, ranking and provenance</summary>
-                      {m.ranking && (
-                        <>
-                          <p>
-                            Configuration {m.ranking.configId} revision {m.ranking.configRevision} ?
-                            taxonomy {m.ranking.taxonomyVersion}
-                            {' ? requirements '}
-                            {m.ranking.parserVersion} ? evidence {m.ranking.evidenceVersion}
-                            {' ? as of '}
-                            {m.ranking.asOf}
-                          </p>
-                          <table className="ranking-breakdown">
-                            <thead>
-                              <tr>
-                                <th>Component</th>
-                                <th>Match</th>
-                                <th>Active weight</th>
-                                <th>Points</th>
-                              </tr>
-                            </thead>
-                            <tbody>
-                              {m.ranking.components.map((c) => (
-                                <tr key={c.name}>
-                                  <td>{c.name}</td>
-                                  <td>
-                                    {c.value === null
-                                      ? 'Inactive'
-                                      : `${Math.round(c.value * 100)}%`}
-                                  </td>
-                                  <td>{(c.activeWeight * 100).toFixed(1)}%</td>
-                                  <td>{c.contribution.toFixed(2)}</td>
-                                </tr>
-                              ))}
-                            </tbody>
-                          </table>
-                          {m.ranking.requirements.map((r) => (
-                            <p key={r.id}>
-                              {r.importance}: {r.excerpt} ? {Math.round(r.strength * 100)}
-                              {'% ? '}
-                              {r.explanation} ? evidence {r.evidenceIds.join(', ') || 'missing'}
-                            </p>
-                          ))}
-                        </>
-                      )}
-                      <ul>
-                        {m.checks.map((c, i) => (
-                          <li key={i}>
-                            {c.result} · {c.rule}: {c.excerpt}
-                          </li>
-                        ))}
-                      </ul>
-                      <p>
-                        Profile v{m.profileVersion} · {m.scorerVersion}
-                        {' · BM25 '}
-                        {m.bm25Raw.toFixed(6)} (lower is more relevant)
-                      </p>
-                      {m.reasons.map((r, i) => (
-                        <p key={i}>{r}</p>
-                      ))}
-                      <p>
-                        {m.job.duplicateGroup
-                          ? 'Possible duplicate or employer conflict: review required.'
-                          : 'No duplicate conflict detected.'}
-                      </p>
-                      <ul>
-                        {m.job.provenance.map((p) => (
-                          <li key={p.sourceKey}>
-                            {p.sourceKey} · {p.url}
-                            {' · collected '}
-                            {new Date(p.collectedAt).toLocaleString()}
-                            {' · raw hash '}
-                            {p.rawSha256.slice(0, 16)}
-                          </li>
-                        ))}
-                      </ul>
-                    </details>
-                    {view.reviews
-                      .filter((r) => r.jobId === m.job.id)
-                      .map((r) => (
-                        <details key={`${r.model}-${r.createdAt}`}>
-                          <summary>Advisory AI review · {r.model}</summary>
-                          <p>{r.text}</p>
-                          <p>
-                            Estimated ${r.estimatedUsd?.toFixed(6) ?? 'unavailable'}. Source facts
-                            and deterministic score remain authoritative.
-                          </p>
-                        </details>
-                      ))}
-                  </article>
+                  <JobCard
+                    key={m.job.id}
+                    match={m}
+                    saved={view.savedIds.includes(m.job.id)}
+                    marker={view.markers.find((x) => x.jobId === m.job.id)}
+                    rankings={view.rankingProfiles}
+                    reviews={view.reviews}
+                    compareId={compareId}
+                    command={command}
+                    busy={busy}
+                    onReview={() => {
+                      setReviewId(m.job.id);
+                      setConsent(false);
+                    }}
+                  />
                 ))}
               </div>
               <div className="button-row">

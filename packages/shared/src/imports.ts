@@ -29,6 +29,7 @@ export const IntelligenceCommandSchema = z.discriminatedUnion('op', [
   z.strictObject({ op: z.literal('appearance'), mode: AppearanceSchema }),
   z.strictObject({ op: z.literal('view') }),
   z.strictObject({ op: z.literal('importFile') }),
+  z.strictObject({ op: z.literal('importTranscript') }),
   z.strictObject({
     op: z.literal('paste'),
     text: z.string().min(1).max(200000),

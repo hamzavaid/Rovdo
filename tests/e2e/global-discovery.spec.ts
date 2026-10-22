@@ -79,6 +79,18 @@ test('globally discovers an unsaved employer, separates scopes, exports and pers
       page.getByRole('option', { name: 'Search All Saved Companies', exact: true }),
     ).toHaveCount(1);
     await page.getByText('Sources, queries and collection settings', { exact: true }).click();
+    await page.getByRole('button', { name: 'Selected sources (12)', exact: true }).click();
+    await expect(page.locator('.discovery-source')).toHaveCount(12);
+    await page.getByRole('button', { name: 'Show full source list', exact: true }).click();
+    await expect(page.locator('.discovery-source-list')).toHaveClass(/expanded/);
+    await page.getByRole('button', { name: 'All sources', exact: true }).click();
+    await expect(page.locator('.discovery-source')).toHaveCount(127);
+    expect(
+      await page
+        .locator('.discovery-source')
+        .first()
+        .evaluate((e) => e.getBoundingClientRect().height),
+    ).toBeLessThan(65);
     await page.getByRole('button', { name: 'Clear source selection', exact: true }).click();
     await page.getByLabel('Find discovery sources', { exact: true }).fill('Open web index');
     await page.getByRole('checkbox', { name: 'Open web index', exact: true }).check();

@@ -28,6 +28,12 @@ export const navigation = [
       { id: 'profile', label: 'Profile' },
     ],
   },
-  { label: 'Settings', pages: [{ id: 'models', label: 'Models & Privacy' }] },
+  {
+    label: 'Settings',
+    pages: [
+      { id: 'models', label: 'Models & Privacy' },
+      { id: 'discovery-settings', label: 'Discovery & imports' },
+    ],
+  },
 ] as const;
 export type WorkspacePage = (typeof navigation)[number]['pages'][number]['id'];

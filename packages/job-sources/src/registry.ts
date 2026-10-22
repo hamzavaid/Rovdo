@@ -60,7 +60,7 @@ export const BOARD_REGISTRY = boards.map((board) => {
     policyUrl: board.url,
     limitation:
       mode === 'scraper'
-        ? 'Direct JobSpy network scraping is disabled: no approved policy/transport integration. Lawfully obtained rows may be imported.'
+        ? 'Optional JobSpy is off. Enable it in Discovery settings after reviewing risks and source policies. Availability is not guaranteed.'
         : mode === 'indexed'
           ? 'Requires a permitted SearXNG JSON endpoint. Indexed hits are unverified, not direct scraper coverage.'
           : mode === 'unsupported'

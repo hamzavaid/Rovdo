@@ -13,6 +13,7 @@ import {
   JobSchema,
   SourceConfigSchema,
   SourceStateSchema,
+  JobSpySettingsSchema,
 } from '@rovdo/shared';
 import type {
   AiReview,
@@ -719,6 +720,17 @@ export class CareerStore {
       (this.db.prepare('SELECT value FROM career_setting WHERE key=?').get(key)?.value as string) ??
       null
     );
+  }
+  /** One SQLite value binds enablement to consent; invalid/corrupt state always fails closed. */
+  jobSpySettings(): { enabled: boolean; riskAccepted: boolean } {
+    try {
+      return JobSpySettingsSchema.parse(JSON.parse(this.setting('jobspy-settings') ?? '{}'));
+    } catch {
+      return { enabled: false, riskAccepted: false };
+    }
+  }
+  setJobSpySettings(input: { enabled: boolean; riskAccepted: boolean }) {
+    this.setting('jobspy-settings', JSON.stringify(JobSpySettingsSchema.parse(input)));
   }
   seedDirectory(entries: readonly Employer[]): void {
     this.transaction(() => {

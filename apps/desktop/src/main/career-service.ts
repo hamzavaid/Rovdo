@@ -1,6 +1,12 @@
 import { randomUUID } from 'node:crypto';
 import { GlobalDiscoveryEngine } from '@rovdo/job-discovery';
-import { DiscoveryRecordSchema, normalizeDiscoveryJob, plain, sha256 } from '@rovdo/job-sources';
+import {
+  DiscoveryRecordSchema,
+  normalizeDiscoveryJob,
+  plain,
+  sha256,
+  canonicalUrl,
+} from '@rovdo/job-sources';
 /**
  * Validates career IPC commands and coordinates local profile, job and source operations.
  * Returns a consistent view after mutations while keeping optional AI review separate from discovery.
@@ -26,6 +32,9 @@ export function createCareerService(
   evaluate: (request: Extract<CareerCommand, { op: 'evaluate' }>) => Promise<void>,
   global = new GlobalDiscoveryEngine(store),
   writeExport: (format: 'csv' | 'json', data: string) => Promise<boolean> = async () => false,
+  openJob: (url: string) => Promise<void> = async () => {
+    throw new Error('OPEN_UNAVAILABLE');
+  },
 ) {
   const controller = new AbortController();
   let discovering: Promise<void> | null = null;
@@ -59,6 +68,7 @@ export function createCareerService(
     const discovery = global.view();
     return {
       profile,
+      jobspy: store.jobSpySettings(),
       sources,
       matches: visible,
       matchedCount: page.total,
@@ -121,6 +131,16 @@ export function createCareerService(
       if (!parsed.success) return CareerResultSchema.parse({ ok: false, code: 'VALIDATION_ERROR' });
       const cmd = parsed.data;
       try {
+        if (cmd.op === 'jobspySettings') {
+          store.setJobSpySettings(cmd.settings);
+        }
+        if (cmd.op === 'openJob') {
+          const job = store.job(cmd.jobId);
+          const url = job.canonicalUrl;
+          canonicalUrl(url);
+          if (new URL(url).port) throw new Error('INVALID_JOB_URL');
+          await openJob(url);
+        }
         if (cmd.op === 'exportJobs') {
           const current = await view(cmd.search);
           const output = exportJobs(current.matches, cmd.format);

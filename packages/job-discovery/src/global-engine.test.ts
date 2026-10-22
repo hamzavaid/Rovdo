@@ -7,6 +7,61 @@ const response = (raw: unknown, status = 200): PublicResponse => ({
   headers: {},
   body: Buffer.from(typeof raw === 'string' ? raw : JSON.stringify(raw)),
 });
+it('only runs selected JobSpy sources after opt-in, retains checkpoints and preserves scoring', async () => {
+  const store = new CareerStore(':memory:');
+  let calls = 0;
+  const engine = new GlobalDiscoveryEngine(store, {
+    sleep: async () => {},
+    jobspy: async (id, payload) => {
+      calls++;
+      expect(payload.query).toBeTruthy();
+      expect(id).toBe('linkedin-jobs');
+      return {
+        records: [
+          {
+            url: 'https://jobs.example.com/engineering',
+            title: 'Engineer',
+            company: 'Example',
+            description: 'TypeScript required',
+            location: 'Remote',
+            postedAt: null,
+            employmentType: 'full-time',
+            workMode: 'remote',
+            requisitionId: null,
+            salary: null,
+            sourceId: id,
+            sourceName: 'LinkedIn jobs',
+            sourceUrl: 'https://www.linkedin.com/jobs/view/1',
+            kind: 'aggregate',
+            exportAllowed: true,
+          },
+        ],
+        next: null,
+        rejected: 0,
+      };
+    },
+    transport: async () => response('User-agent: *\nDisallow: /'),
+  });
+  try {
+    const disabled = engine.start({ sourceIds: ['linkedin-jobs'], overrides: {} });
+    await engine.tick();
+    expect(calls).toBe(0);
+    expect(store.global.coverage(disabled)[0]!.status).toBe('disabled');
+    store.setJobSpySettings({ enabled: true, riskAccepted: true });
+    const id = engine.start({ sourceIds: ['linkedin-jobs'], overrides: {} });
+    await engine.tick();
+    expect(calls).toBe(1);
+    expect(store.global.stats(id).jobs).toBe(1);
+    expect(store.jobs()[0]!.source).toBe('jobspy');
+    expect(store.jobs()[0]!.discovery?.availability).toBe('unverified');
+    expect(engine.view().registry.find((s) => s.id === 'linkedin-jobs')!.status).toBe(
+      'configuration',
+    );
+  } finally {
+    await engine.shutdown();
+    store.close();
+  }
+});
 it('discovers an unsaved employer via an index, follows a supported ATS and scores without AI', async () => {
   const store = new CareerStore(':memory:');
   const urls: string[] = [];
@@ -243,6 +298,49 @@ it('quarantines a malformed JSON-LD posting without losing valid siblings', asyn
     });
     for (let i = 0; i < 4; i++) await engine.tick();
     expect(store.jobs().map((j) => j.title)).toEqual(['Engineer']);
+  } finally {
+    await engine.shutdown();
+    store.close();
+  }
+});
+
+it('does not retry redirects and shares terminal certificate failures across pages on an origin', async () => {
+  const store = new CareerStore(':memory:');
+  const seen: string[] = [];
+  const engine = new GlobalDiscoveryEngine(store, {
+    sleep: async () => {},
+    transport: async (url) => {
+      seen.push(url);
+      if (url.includes('index.example'))
+        return response({
+          results: url.includes('pageno=2')
+            ? []
+            : [
+                { title: 'A', url: 'https://broken.example/jobs/a' },
+                { title: 'B', url: 'https://broken.example/jobs/b' },
+                { title: 'Redirect', url: 'https://redirect.example/jobs/1' },
+              ],
+        });
+      if (url.includes('broken.example'))
+        throw Object.assign(new Error('private TLS detail'), { code: 'CERT_HAS_EXPIRED' });
+      return response('', 302);
+    },
+  });
+  try {
+    const id = engine.start({
+      sourceIds: ['web-index'],
+      overrides: {},
+      indexUrl: 'https://index.example/search',
+    });
+    for (let i = 0; i < 7; i++) await engine.tick();
+    expect(seen.filter((u) => u.includes('broken.example'))).toHaveLength(1);
+    expect(seen.filter((u) => u.includes('redirect.example'))).toHaveLength(1);
+    expect(store.global.stats(id).pending).toBe(0);
+    expect(
+      store.global
+        .coverage(id)
+        .some((c) => c.error === 'TLS_CERTIFICATE_ERROR' || c.error === 'HTTP_302'),
+    ).toBe(true);
   } finally {
     await engine.shutdown();
     store.close();

@@ -8,9 +8,11 @@ export class DiscoveryStore {
  CREATE TABLE IF NOT EXISTS discovery_run(id TEXT PRIMARY KEY,json TEXT NOT NULL);
  CREATE TABLE IF NOT EXISTS discovery_task(id TEXT PRIMARY KEY,run_id TEXT NOT NULL REFERENCES discovery_run(id),status TEXT NOT NULL,next_at INTEGER NOT NULL,priority REAL NOT NULL,json TEXT NOT NULL);
  CREATE INDEX IF NOT EXISTS discovery_ready ON discovery_task(run_id,status,next_at,priority);
+ CREATE INDEX IF NOT EXISTS discovery_task_failure ON discovery_task(run_id,json_extract(json,'$.sourceId')) WHERE status='blocked';
  CREATE TABLE IF NOT EXISTS discovery_listing(id TEXT PRIMARY KEY,run_id TEXT NOT NULL REFERENCES discovery_run(id),url TEXT NOT NULL,status TEXT NOT NULL,json TEXT NOT NULL,UNIQUE(run_id,url));
  CREATE TABLE IF NOT EXISTS discovery_job(run_id TEXT NOT NULL REFERENCES discovery_run(id),job_id TEXT NOT NULL REFERENCES career_job(id),source_id TEXT NOT NULL,PRIMARY KEY(run_id,job_id,source_id));
  CREATE TABLE IF NOT EXISTS discovery_coverage(run_id TEXT NOT NULL,source_id TEXT NOT NULL,json TEXT NOT NULL,PRIMARY KEY(run_id,source_id));
+ CREATE TABLE IF NOT EXISTS discovery_failure(key TEXT PRIMARY KEY,code TEXT NOT NULL,expires INTEGER NOT NULL);
  CREATE TABLE IF NOT EXISTS discovery_response(url TEXT PRIMARY KEY,json TEXT NOT NULL,expires INTEGER NOT NULL);
  `);
   }
@@ -157,6 +159,15 @@ export class DiscoveryStore {
     requests = 0,
   ) {
     const old = this.coverage(runId).find((s) => s.sourceId === sourceId);
+    const failed = this.db
+      .prepare(
+        "SELECT json_extract(json,'$.error') code FROM discovery_task WHERE run_id=? AND json_extract(json,'$.sourceId')=? AND status='blocked' ORDER BY rowid DESC LIMIT 1",
+      )
+      .get(runId, sourceId);
+    if (failed && ['ready', 'collecting'].includes(status)) {
+      status = 'partial';
+      error = String(failed.code);
+    }
     const next = {
       sourceId,
       status,
@@ -171,6 +182,19 @@ export class DiscoveryStore {
         'INSERT INTO discovery_coverage VALUES(?,?,?) ON CONFLICT(run_id,source_id) DO UPDATE SET json=excluded.json',
       )
       .run(runId, sourceId, JSON.stringify(next));
+  }
+  failure(key: string, now: number): string | null {
+    const row = this.db
+      .prepare('SELECT code FROM discovery_failure WHERE key=? AND expires>?')
+      .get(key, now);
+    return row ? String(row.code) : null;
+  }
+  fail(key: string, code: string, expires: number) {
+    this.db
+      .prepare(
+        'INSERT INTO discovery_failure VALUES(?,?,?) ON CONFLICT(key) DO UPDATE SET code=excluded.code,expires=excluded.expires',
+      )
+      .run(key, code, expires);
   }
   cache(url: string, now: number) {
     const row = this.db

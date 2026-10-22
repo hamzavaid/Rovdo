@@ -15,6 +15,25 @@ test('imports PDF and DOCX through the native file capability and bounded worker
   });
   try {
     const page = await desktop.firstWindow();
+    const transcriptPath = test.info().outputPath('transcript.csv');
+    await writeFile(
+      transcriptPath,
+      'Course Code,Course Title,Credits,Grade\nCS101,Computing fundamentals,3,A\nCS220,Embedded systems,3,IP',
+    );
+    await desktop.evaluate(({ dialog }, file) => {
+      dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [file] });
+    }, transcriptPath);
+    const transcript = await page.evaluate(() =>
+      window.rovdo!.intelligenceCommand({ op: 'importTranscript' }),
+    );
+    expect(transcript.ok).toBe(true);
+    if (transcript.ok) {
+      const proposal = transcript.view.previews[0]!.intelligence;
+      expect(proposal.education[0]!.coursework).toHaveLength(2);
+      expect(proposal.education[0]!.verified).toBe(false);
+      expect(proposal.education[0]!.graduation).toBeNull();
+      expect(proposal.skills).toHaveLength(0);
+    }
     for (const [extension, bytes] of [
       ['pdf', pdfFixture()],
       [

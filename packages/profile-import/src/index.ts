@@ -361,3 +361,5 @@ export async function githubPreview(
     ],
   });
 }
+
+export { previewTranscript, transcriptDocument } from './transcript';

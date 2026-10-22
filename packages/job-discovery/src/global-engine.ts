@@ -26,8 +26,9 @@ import {
   sha256,
   canonicalUrl,
   DiscoveryHttpError,
+  DiscoveryPolicyError,
 } from '@rovdo/job-sources';
-import type { DiscoveryRead, DiscoveryRecord } from '@rovdo/job-sources';
+import type { DiscoveryRead, DiscoveryRecord, DiscoveryPage } from '@rovdo/job-sources';
 import { stable } from '@rovdo/career';
 import { discoveryQueries } from './queries';
 const initialState = () =>
@@ -59,14 +60,32 @@ export class GlobalDiscoveryEngine {
   private origins = new Map<string, Promise<unknown>>();
   private readonly transport: (url: string, options?: ReadOptions) => Promise<PublicResponse>;
   private readonly sleep: (ms: number, signal?: AbortSignal) => Promise<void>;
+  private readonly jobspy:
+    | ((
+        sourceId: string,
+        payload: Record<string, unknown>,
+        read: DiscoveryRead,
+        signal: AbortSignal,
+      ) => Promise<DiscoveryPage>)
+    | undefined;
+  private readonly jobspyUrl: ((sourceId: string, url: string) => boolean) | undefined;
   constructor(
     private readonly store: CareerStore,
     options: {
       transport?: (url: string, options?: ReadOptions) => Promise<PublicResponse>;
       sleep?: (ms: number, signal?: AbortSignal) => Promise<void>;
+      jobspy?: (
+        sourceId: string,
+        payload: Record<string, unknown>,
+        read: DiscoveryRead,
+        signal: AbortSignal,
+      ) => Promise<DiscoveryPage>;
+      jobspyUrl?: (sourceId: string, url: string) => boolean;
     } = {},
   ) {
     this.transport = options.transport ?? readPublic;
+    this.jobspy = options.jobspy;
+    this.jobspyUrl = options.jobspyUrl;
     this.sleep =
       options.sleep ??
       (async (ms, signal) => {
@@ -111,6 +130,26 @@ export class GlobalDiscoveryEngine {
     this.store.global.saveRun(run);
     for (const id of [...new Set(options.sourceIds)]) {
       const source = DISCOVERY_SOURCES.find((s) => s.id === id)!;
+      if (source.adapter === 'jobspy') {
+        if (!this.jobspy || !this.store.jobSpySettings().enabled) {
+          this.store.global.note(
+            run.id,
+            id,
+            'disabled',
+            0,
+            0,
+            'Enable optional JobSpy in Discovery settings after reviewing risks and source policies.',
+          );
+          continue;
+        }
+        for (const query of queries)
+          this.enqueue(run, id, 'provider', {
+            query: [query, options.overrides[id]?.keywords].filter(Boolean).join(' ').slice(0, 500),
+            location: options.overrides[id]?.location ?? '',
+            offset: 0,
+          });
+        continue;
+      }
       if (['blocked', 'unsupported'].includes(source.status)) {
         this.store.global.note(run.id, id, source.status, 0, 0, source.limitation);
         continue;
@@ -224,7 +263,20 @@ export class GlobalDiscoveryEngine {
   private reader(run: DiscoveryRun, task: DiscoveryTask, signal: AbortSignal): DiscoveryRead {
     return async (url, headers) => {
       if (signal.aborted || this.stopping) throw new Error('CANCELED');
-      if (!permittedPage(url)) throw new Error('POLICY_BLOCKED');
+      const jobspySource =
+        task.kind === 'provider' &&
+        DISCOVERY_SOURCES.find((s) => s.id === task.sourceId)?.adapter === 'jobspy';
+      if (jobspySource && !this.store.jobSpySettings().enabled)
+        throw new DiscoveryPolicyError('JOBSPY_DISABLED');
+      if (
+        !(
+          jobspySource &&
+          this.store.jobSpySettings().enabled &&
+          this.jobspyUrl?.(task.sourceId, url)
+        ) &&
+        !permittedPage(url)
+      )
+        throw new Error('POLICY_BLOCKED');
       const cached = this.store.global.cache(url, Date.now());
       if (cached)
         return {
@@ -247,13 +299,32 @@ export class GlobalDiscoveryEngine {
               },
               body: Buffer.from(cachedAgain.body, 'base64'),
             };
+          const failure =
+            this.store.global.failure('origin:' + origin, Date.now()) ??
+            this.store.global.failure(url, Date.now());
+          if (failure) throw new DiscoveryPolicyError(failure);
           const blocked = this.store.originBlockedUntil(origin);
           if (blocked > Date.now()) throw new DiscoveryHttpError(429, blocked - Date.now());
           const at = this.store.reserveOrigin(origin, Date.now());
           if (at > Date.now()) await this.sleep(at - Date.now(), signal);
           if (signal.aborted) throw new Error('CANCELED');
-          const response = await this.transport(url, { signal, ...(headers ? { headers } : {}) });
           this.store.global.note(run.id, task.sourceId, 'collecting', 0, 0, null, 1);
+          let response: PublicResponse;
+          try {
+            response = await this.transport(url, { signal, ...(headers ? { headers } : {}) });
+          } catch (error) {
+            const code =
+              typeof error === 'object' && error && 'code' in error ? String(error.code) : '';
+            if (/CERT|TLS|SSL|EPROTO/.test(code)) {
+              this.store.global.fail(
+                'origin:' + origin,
+                'TLS_CERTIFICATE_ERROR',
+                Date.now() + 3600000,
+              );
+              throw new DiscoveryPolicyError('TLS_CERTIFICATE_ERROR');
+            }
+            throw error;
+          }
           if (response.body.length > 8_000_000) throw new Error('RESPONSE_LIMIT');
           if (response.status === 429) {
             const retry = response.headers['retry-after'];
@@ -267,6 +338,8 @@ export class GlobalDiscoveryEngine {
             this.store.deferOrigin(origin, Date.now() + ms);
             throw new DiscoveryHttpError(429, ms);
           }
+          if (response.status >= 300 && response.status < 400)
+            this.store.global.fail(url, `HTTP_${response.status}`, Date.now() + 3600000);
           if (response.status >= 300 && response.status !== 404 && response.status !== 410)
             throw new DiscoveryHttpError(response.status);
           if (response.status === 200) {
@@ -306,7 +379,13 @@ export class GlobalDiscoveryEngine {
     try {
       this.assertActive(run, signal);
       if (task.kind === 'provider') {
-        const page = await fetchDiscoveryPage(task.sourceId, task.payload, read);
+        const optional =
+          DISCOVERY_SOURCES.find((s) => s.id === task.sourceId)?.adapter === 'jobspy';
+        if (optional && (!this.jobspy || !this.store.jobSpySettings().enabled))
+          throw new DiscoveryPolicyError('JOBSPY_DISABLED');
+        const page = optional
+          ? await this.jobspy!(task.sourceId, task.payload, read, signal)
+          : await fetchDiscoveryPage(task.sourceId, task.payload, read);
         this.assertActive(run, signal);
         const source = DISCOVERY_SOURCES.find((s) => s.id === task.sourceId)!;
         const config = this.store.globalSource(source.id, source.name, source.url);
@@ -367,24 +446,31 @@ export class GlobalDiscoveryEngine {
       }
       const status = error instanceof DiscoveryHttpError ? error.status : 0;
       const safe =
-        error instanceof z.ZodError ||
-        error instanceof SyntaxError ||
-        (typeof error === 'object' && error && 'code' in error && error.code === 'SCHEMA_DRIFT')
-          ? 'SCHEMA_DRIFT'
-          : error instanceof Error &&
-              [
-                'POLICY_BLOCKED',
-                'ROBOTS_BLOCKED',
-                'CHALLENGE_BLOCKED',
-                'NON_ADVANCING_PAGE',
-                'RESPONSE_LIMIT',
-                'SCHEMA_DRIFT',
-              ].includes(error.message)
-            ? error.message
-            : status
-              ? `HTTP_${status}`
-              : 'SOURCE_RESPONSE_ERROR';
+        error instanceof DiscoveryPolicyError
+          ? error.code
+          : error instanceof z.ZodError ||
+              error instanceof SyntaxError ||
+              (typeof error === 'object' &&
+                error &&
+                'code' in error &&
+                error.code === 'SCHEMA_DRIFT')
+            ? 'SCHEMA_DRIFT'
+            : error instanceof Error &&
+                [
+                  'POLICY_BLOCKED',
+                  'ROBOTS_BLOCKED',
+                  'CHALLENGE_BLOCKED',
+                  'NON_ADVANCING_PAGE',
+                  'RESPONSE_LIMIT',
+                  'SCHEMA_DRIFT',
+                ].includes(error.message)
+              ? error.message
+              : status
+                ? `HTTP_${status}`
+                : 'SOURCE_RESPONSE_ERROR';
       const blocked =
+        error instanceof DiscoveryPolicyError ||
+        (status >= 300 && status < 400) ||
         task.attempts >= 4 ||
         [400, 401, 403, 404, 410].includes(status) ||
         [
@@ -626,7 +712,16 @@ export class GlobalDiscoveryEngine {
         this.store.rankings().find((p) => p.id === this.store.defaultRanking())?.minimumEvidence ??
           0.5,
       ),
-      registry: DISCOVERY_SOURCES,
+      registry: DISCOVERY_SOURCES.map((s) =>
+        s.adapter === 'jobspy' && this.jobspy && this.store.jobSpySettings().enabled
+          ? {
+              ...s,
+              status: 'configuration',
+              limitation:
+                'Opt-in JobSpy worker. Requires local python-jobspy; robots, GET-only transport and source policies can block collection. Jobs remain unverified.',
+            }
+          : s,
+      ),
       coverage: run ? this.store.global.coverage(run.id) : [],
       listings: run ? this.store.global.listings(run.id) : [],
       ...(run

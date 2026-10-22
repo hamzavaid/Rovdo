@@ -33,6 +33,12 @@ export type DiscoveryRead = (
   url: string,
   headers?: Record<string, string>,
 ) => Promise<PublicResponse>;
+/** Safe terminal codes, never raw provider or TLS diagnostic text. */
+export class DiscoveryPolicyError extends Error {
+  constructor(readonly code: string) {
+    super(code);
+  }
+}
 export class DiscoveryHttpError extends Error {
   constructor(
     readonly status: number,
@@ -317,7 +323,11 @@ export function normalizeDiscoveryJob(
   const key = sha256(url);
   return JobSchema.parse({
     id: `discovered:${key}`,
-    source: record.kind === 'import' ? 'jobspy' : 'public-api',
+    source:
+      record.kind === 'import' ||
+      DISCOVERY_SOURCES.find((s) => s.id === record.sourceId)?.adapter === 'jobspy'
+        ? 'jobspy'
+        : 'public-api',
     tenant: source.tenant,
     sourceJobId: key,
     requisitionId: record.requisitionId,

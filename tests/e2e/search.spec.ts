@@ -61,15 +61,38 @@ test('filters and pages cached jobs, saves searches, tracks feedback and compare
     await page.getByRole('button', { name: 'Jobs', exact: true }).click();
     await expect(page.getByLabel('Search scope')).toHaveValue('global');
     await page.getByText('Advanced search filters', { exact: true }).click();
+    await page.getByLabel('Company name', { exact: true }).fill('Canceled employer');
+    await page.getByRole('button', { name: 'Cancel', exact: true }).click();
+    await page.getByRole('button', { name: 'Advanced search filters', exact: true }).click();
+    await expect(page.getByLabel('Company name', { exact: true })).toHaveValue('');
     await page.getByLabel('Company name', { exact: true }).fill('No such employer');
-    await page.getByRole('button', { name: 'Apply filters to cached jobs', exact: true }).click();
+    await page.getByRole('button', { name: 'Apply filters', exact: true }).click();
     await expect(page.locator('.job-card')).toHaveCount(0);
     await expect(page.getByRole('heading', { name: 'No matching jobs' })).toBeVisible();
+    await page.getByRole('button', { name: 'Advanced search filters', exact: true }).click();
     await page.getByLabel('Company name', { exact: true }).fill('');
     await page.getByLabel('Technical role family').selectOption('software');
-    await page.getByLabel('Minimum qualification score').fill('50');
-    await page.getByRole('button', { name: 'Apply filters to cached jobs', exact: true }).click();
+    await page.getByLabel('Minimum qualification score', { exact: true }).fill('50');
+    await page.getByRole('button', { name: 'Apply filters', exact: true }).click();
     await expect(page.locator('.job-card')).toHaveCount(50);
+    await app.evaluate(({ shell }) => {
+      shell.openExternal = async (url: string) => {
+        (globalThis as typeof globalThis & { openedJob?: string }).openedJob = url;
+      };
+    });
+    const title = page.locator('.job-title-link').first();
+    const url = await title.getAttribute('href');
+    await title.click();
+    await expect
+      .poll(() =>
+        app.evaluate(() => (globalThis as typeof globalThis & { openedJob?: string }).openedJob),
+      )
+      .toBe(url);
+    const bottoms = await page
+      .locator('.job-results-toolbar')
+      .locator('button,select')
+      .evaluateAll((els) => els.map((e) => e.getBoundingClientRect().bottom));
+    expect(Math.max(...bottoms) - Math.min(...bottoms)).toBeLessThan(3);
     await page.getByRole('button', { name: 'Next 50' }).click();
     await expect(page.locator('.job-card')).toHaveCount(5);
     await page.getByRole('button', { name: 'Previous 50' }).click();
@@ -88,9 +111,18 @@ test('filters and pages cached jobs, saves searches, tracks feedback and compare
     await page.getByLabel('Saved search name').fill('My backend search');
     await page.getByRole('button', { name: 'Save current search' }).click();
     await expect(page.getByRole('button', { name: 'Load My backend search' })).toBeVisible();
+    await page.getByLabel('More job actions').first().click();
     await page.getByRole('button', { name: 'Mark as applied', exact: true }).first().click();
+    await expect(
+      page.locator('.job-card').first().getByText('Applied', { exact: true }),
+    ).toBeVisible();
+    await page.getByLabel('More job actions').first().click();
     await expect(page.getByRole('button', { name: 'Clear applied marker' })).toBeVisible();
     await page.getByRole('button', { name: 'Relevant', exact: true }).first().click();
+    await expect(
+      page.getByRole('button', { name: 'Relevant', exact: true }).first(),
+    ).toHaveAttribute('aria-pressed', 'true');
+    await page.getByLabel('More job actions').first().click();
     await page.getByRole('button', { name: 'Compare ranking methods' }).first().click();
     await expect(page.getByRole('heading', { name: 'Ranking comparison' })).toBeVisible();
     await page.getByRole('button', { name: 'Ranking & matching', exact: true }).click();

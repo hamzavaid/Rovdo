@@ -2,8 +2,9 @@
  * Reusable qualification labels, editable fields and source-evidence disclosure.
  * Internal identities, evidence bindings and conflict metadata are not exposed as ordinary form fields.
  */
-import { useId } from 'react';
+import { useId, useState } from 'react';
 import { resolveSkill, SKILLS } from '@rovdo/career';
+import { evidenceText } from './evidence-presentation';
 import type { Intelligence } from '@rovdo/shared';
 import type { QualificationSection } from './profile-edit';
 export type Qualification = Intelligence[QualificationSection][number];
@@ -37,6 +38,7 @@ const labels: Record<string, string> = {
   status: 'Degree status',
   graduation: 'Graduation date',
   name: 'Name',
+  coursework: 'Coursework (one course per line)',
   description: 'Description / contribution',
   url: 'Project link',
   issuer: 'Issuer',
@@ -61,6 +63,7 @@ export function QualificationFields({
   onChange: (field: string, value: unknown) => void;
 }) {
   const listId = useId();
+  const [skillText, setSkillText] = useState('');
   const fields = Object.entries(item).filter(
     ([field]) =>
       !['id', 'evidenceIds', 'verified', 'metadata', 'recognition', 'conflictWith'].includes(field),
@@ -86,14 +89,47 @@ export function QualificationFields({
                   'lead',
                 ]
               : ['high-school', 'associate', 'bachelor', 'master', 'doctorate', 'other']
-            : options[field];
+            : field === 'roleFamily'
+              ? [
+                  'unknown',
+                  'software',
+                  'embedded',
+                  'robotics',
+                  'hardware',
+                  'platform',
+                  'data-science',
+                  'security',
+                  'analytics',
+                  ...(typeof value === 'string' &&
+                  value &&
+                  ![
+                    'unknown',
+                    'software',
+                    'embedded',
+                    'robotics',
+                    'hardware',
+                    'platform',
+                    'data-science',
+                    'security',
+                    'analytics',
+                  ].includes(value)
+                    ? [value]
+                    : []),
+                ]
+              : options[field];
         const label = `${prefix} ${field}`;
         const nullable = ['version', 'start', 'end', 'graduation', 'expires', 'url'].includes(
           field,
         );
         return (
           <label key={field}>
-            {labels[field] ?? 'Additional detail'}
+            {field === 'name'
+              ? section === 'projects'
+                ? 'Project name'
+                : 'Certification name'
+              : field === 'description'
+                ? 'Description & contribution'
+                : (labels[field] ?? 'Additional detail')}
             {typeof value === 'boolean' ? (
               <input
                 aria-label={label}
@@ -111,10 +147,56 @@ export function QualificationFields({
                   <option key={v}>{v}</option>
                 ))}
               </select>
+            ) : field === 'skills' && Array.isArray(value) ? (
+              <div className="editable-skill-chips">
+                {value.map((s: string) => (
+                  <span className="edit-skill-chip" key={s}>
+                    {resolveSkill(s, 'skill')?.name ?? s.replace(/^custom:/, '')}
+                    <button
+                      type="button"
+                      aria-label={`Remove associated skill ${s}`}
+                      onClick={() =>
+                        onChange(
+                          field,
+                          value.filter((v) => v !== s),
+                        )
+                      }
+                    >
+                      &times;
+                    </button>
+                  </span>
+                ))}
+                <input
+                  aria-label={label}
+                  list={listId}
+                  placeholder="Add a skill and press Enter"
+                  value={skillText}
+                  onChange={(e) => setSkillText(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' || e.key === ',') {
+                      e.preventDefault();
+                      const name = skillText.trim();
+                      if (name)
+                        onChange(field, [
+                          ...new Set([...value, resolveSkill(name, 'skill')?.id ?? name]),
+                        ]);
+                      setSkillText('');
+                    }
+                  }}
+                />
+              </div>
+            ) : field === 'coursework' ? (
+              <textarea
+                aria-label={label}
+                rows={5}
+                value={Array.isArray(value) ? value.join('\n') : ''}
+                onChange={(e) => onChange(field, e.target.value.split('\n').filter(Boolean))}
+              />
             ) : field === 'description' ? (
               <textarea
                 aria-label={label}
                 rows={4}
+                maxLength={3000}
                 value={String(value)}
                 onChange={(e) => onChange(field, e.target.value)}
               />
@@ -171,18 +253,26 @@ export function QualificationFields({
 export function QualificationEvidence({
   item,
   intelligence,
+  open = false,
 }: {
   item: Qualification;
   intelligence: Intelligence;
+  open?: boolean;
 }) {
   return (
-    <details>
+    <details open={open}>
       <summary>Source evidence</summary>
       {item.evidenceIds.map((id) => {
         const e = intelligence.evidence.find((e) => e.id === id);
         return e ? (
           <blockquote key={id}>
-            <p>{e.excerpt}</p>
+            <p>{evidenceText(e.excerpt)}</p>
+            {evidenceText(e.excerpt) !== e.excerpt && (
+              <details>
+                <summary>Original stored assertion</summary>
+                <p>{e.excerpt}</p>
+              </details>
+            )}
             <small>
               {e.sourceKind} / {e.location ?? 'source excerpt'} / {Math.round(e.confidence * 100)}%
               extraction confidence

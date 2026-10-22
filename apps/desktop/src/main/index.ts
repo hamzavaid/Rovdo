@@ -1,10 +1,21 @@
+import { GlobalDiscoveryEngine } from '@rovdo/job-discovery';
+import { runJobSpy, jobSpyUrl } from './jobspy';
 /**
  * Electron composition root: constructs stores, privileged services and the main window.
  * Registers owned-frame IPC handlers, serves local assets, and drains active work before closing SQLite.
  */
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { extname, join, resolve } from 'node:path';
-import { app, nativeTheme, BrowserWindow, ipcMain, protocol, session, dialog } from 'electron';
+import {
+  app,
+  nativeTheme,
+  BrowserWindow,
+  ipcMain,
+  protocol,
+  session,
+  dialog,
+  shell,
+} from 'electron';
 import { improveImport } from './import-assistance';
 import { createIntelligenceService } from './intelligence-service';
 import { readProfileFile } from './profile-file';
@@ -105,20 +116,26 @@ async function initialize(): Promise<void> {
   nativeTheme.themeSource = appearance === 'dark' || appearance === 'light' ? appearance : 'system';
   intelligenceService = createIntelligenceService(
     careerStore,
-    async (signal) => {
+    async (signal, purpose) => {
       if (!mainWindow) throw new Error('NO_WINDOW');
       const result = await dialog.showOpenDialog(mainWindow, {
-        title: 'Import candidate qualifications',
+        title:
+          purpose === 'transcript'
+            ? 'Import academic transcript'
+            : 'Import candidate qualifications',
         properties: ['openFile'],
         filters: [
           {
             name: 'Profile documents or LinkedIn archives',
-            extensions: ['pdf', 'docx', 'txt', 'md', 'markdown', 'json', 'zip', 'csv'],
+            extensions:
+              purpose === 'transcript'
+                ? ['pdf', 'docx', 'txt', 'md', 'markdown', 'csv']
+                : ['pdf', 'docx', 'txt', 'md', 'markdown', 'json', 'zip', 'csv'],
           },
         ],
       });
       if (result.canceled || !result.filePaths[0]) return null;
-      return readProfileFile(result.filePaths[0], signal);
+      return readProfileFile(result.filePaths[0], signal, purpose);
     },
     (mode) => {
       nativeTheme.themeSource = mode;
@@ -139,7 +156,11 @@ async function initialize(): Promise<void> {
     careerStore,
     discovery,
     (request) => reviewShortlist(request, careerStore!, store!, vault, reviewController.signal),
-    undefined,
+    new GlobalDiscoveryEngine(careerStore, {
+      jobspy: (id, payload, read, signal) =>
+        runJobSpy(careerStore!.jobSpySettings().enabled, id, payload, read, signal),
+      jobspyUrl: jobSpyUrl,
+    }),
     async (format, data) => {
       if (!mainWindow) return false;
       const result = await dialog.showSaveDialog(mainWindow, {
@@ -151,6 +172,9 @@ async function initialize(): Promise<void> {
       // The native dialog grants this exact destination; renderer IPC accepts no paths or arbitrary content.
       await writeFile(result.filePath, data, { encoding: 'utf8' });
       return true;
+    },
+    async (url) => {
+      await shell.openExternal(url);
     },
   );
   globalTimer = setInterval(() => {

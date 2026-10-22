@@ -1,5 +1,11 @@
 /** Durable, provider-independent global discovery contracts. No AI or candidate contacts cross this API. */
 import { z } from 'zod';
+/** Opt-in acknowledgment is persistent; enabling never grants access to restricted pages. */
+export const JobSpySettingsSchema = z
+  .strictObject({ enabled: z.boolean(), riskAccepted: z.boolean() })
+  .refine((v) => !v.enabled || v.riskAccepted, {
+    message: 'Explicit risk acknowledgment is required',
+  });
 export const DiscoveryFiltersSchema = z.strictObject({
   keywords: z.string().max(500).optional(),
   location: z.string().max(200).optional(),

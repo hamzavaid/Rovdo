@@ -1,4 +1,4 @@
-import { DiscoveryOptionsSchema, DiscoveryViewSchema } from './discovery';
+import { DiscoveryOptionsSchema, DiscoveryViewSchema, JobSpySettingsSchema } from './discovery';
 /**
  * Candidate, employer, source, job and search/management IPC contracts.
  * Legacy facts remain readable alongside structured intelligence and provenance-bearing normalized jobs.
@@ -317,6 +317,7 @@ export const JobMarkerSchema = z.strictObject({
 export type JobMarker = z.infer<typeof JobMarkerSchema>;
 export type SavedSearch = z.infer<typeof SavedSearchSchema>;
 export const CareerViewSchema = z.strictObject({
+  jobspy: JobSpySettingsSchema.optional(),
   profile: CandidateProfileSchema.nullable(),
   sources: z.array(SourceViewSchema),
   matches: z.array(JobMatchSchema),
@@ -336,6 +337,7 @@ export const CareerViewSchema = z.strictObject({
   cache: z.object({ hits: z.number(), misses: z.number() }).optional(),
 });
 export const CareerCommandSchema = z.discriminatedUnion('op', [
+  z.strictObject({ op: z.literal('jobspySettings'), settings: JobSpySettingsSchema }),
   z.strictObject({
     op: z.literal('view'),
     search: JobSearchSchema,
@@ -380,6 +382,7 @@ export const CareerCommandSchema = z.discriminatedUnion('op', [
     name: z.string().trim().min(1).max(100),
     search: JobSearchSchema,
   }),
+  z.strictObject({ op: z.literal('openJob'), jobId: z.string().min(1).max(300) }),
   z.strictObject({ op: z.literal('deleteSearch'), id: z.uuid() }),
   z.strictObject({
     op: z.literal('exportJobs'),
