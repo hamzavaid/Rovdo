@@ -2,6 +2,50 @@ import { expect, it } from 'vitest';
 import { CareerStore } from '@rovdo/storage';
 import { GlobalDiscoveryEngine } from './global-engine';
 import type { PublicResponse } from '@rovdo/shared/network';
+import { DiscoveryPolicyError } from '@rovdo/job-sources';
+import { sampleCandidate } from '../../../tests/fixtures/ranking-v2';
+it('reuses shared search criteria and stops all queued source queries when JobSpy is unavailable', async () => {
+  const store = new CareerStore(':memory:');
+  store.saveProfile(sampleCandidate());
+  store.setJobSpySettings({ enabled: true, riskAccepted: true });
+  const received: Record<string, unknown>[] = [];
+  const engine = new GlobalDiscoveryEngine(store, {
+    jobspy: async (_id, payload) => {
+      received.push(payload);
+      throw new DiscoveryPolicyError('JOBSPY_UNAVAILABLE');
+    },
+  });
+  try {
+    const id = engine.start({
+      sourceIds: ['linkedin-jobs'],
+      overrides: { 'linkedin-jobs': { keywords: 'Stale keywords', location: 'Stale location' } },
+      filters: {
+        keywords: 'Firmware engineer',
+        location: 'Los Angeles',
+        workMode: 'remote',
+        employmentType: 'internship',
+        freshnessDays: 7,
+      },
+    });
+    await engine.tick();
+    await engine.tick();
+    expect(received).toHaveLength(1);
+    expect(received[0]).toMatchObject({
+      query: expect.stringContaining('Firmware engineer'),
+      location: 'Los Angeles',
+      workMode: 'remote',
+      employmentType: 'internship',
+      freshnessDays: 7,
+    });
+    expect(String(received[0]!.query)).not.toContain('Stale keywords');
+    expect(store.global.stats(id).pending).toBe(0);
+    expect(store.global.run(id).status).toBe('completed');
+    expect(store.global.coverage(id)[0]!.error).toBe('JOBSPY_UNAVAILABLE');
+  } finally {
+    await engine.shutdown();
+    store.close();
+  }
+});
 const response = (raw: unknown, status = 200): PublicResponse => ({
   status,
   headers: {},

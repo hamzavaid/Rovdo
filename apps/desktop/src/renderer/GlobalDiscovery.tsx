@@ -1,6 +1,11 @@
 /** Progressive global-search configuration, precise coverage and resumable collection controls. */
 import { useState } from 'react';
-import type { CareerCommand, DiscoveryOptions, DiscoveryViewSchema } from '@rovdo/shared';
+import type {
+  CareerCommand,
+  DiscoveryOptions,
+  DiscoveryViewSchema,
+  JobSearch,
+} from '@rovdo/shared';
 import type { z } from 'zod';
 type View = z.infer<typeof DiscoveryViewSchema>;
 export const defaultDiscovery: DiscoveryOptions = {
@@ -22,12 +27,14 @@ export const defaultDiscovery: DiscoveryOptions = {
 };
 export function GlobalDiscovery({
   view,
+  criteria,
   options,
   onOptions,
   command,
   busy,
 }: {
   view: View | undefined;
+  criteria?: JobSearch;
   options: DiscoveryOptions;
   onOptions: (v: DiscoveryOptions) => void;
   command: (c: CareerCommand) => Promise<void>;
@@ -69,10 +76,10 @@ export function GlobalDiscovery({
           repository lists still discover employers beyond the saved directory.
         </p>
         <details>
-          <summary>Exact qualification queries ({view?.plan.length ?? 0})</summary>
+          <summary>Profile-guided queries ({view?.plan.length ?? 0})</summary>
           <p>
-            Only these technical terms and optional source filters are sent; profile contacts, legal
-            facts and raw documents are excluded.
+            Your search keywords and filters also apply. Only technical search terms are sent;
+            profile contacts, legal facts and raw documents are excluded.
           </p>
           <ul className="query-preview">
             {view?.plan.map((q) => (
@@ -148,97 +155,145 @@ export function GlobalDiscovery({
                     {s.mode} / {s.status}
                   </small>
                 </summary>
-                <p>{s.limitation}</p>
-                <p className="job-url">{s.policyUrl}</p>
-                {options.sourceIds.includes(s.id) && !['ats', 'remotive'].includes(s.adapter) && (
-                  <div className="career-fields">
-                    <label>
-                      {s.name} query / priority keywords
-                      <input
-                        value={options.overrides[s.id]?.keywords ?? ''}
-                        onChange={(e) =>
-                          update({
-                            ...options,
-                            overrides: {
-                              ...options.overrides,
-                              [s.id]: { ...options.overrides[s.id], keywords: e.target.value },
-                            },
-                          })
-                        }
-                      />
-                    </label>
-                    <label>
-                      {s.name} query / priority location
-                      <input
-                        value={options.overrides[s.id]?.location ?? ''}
-                        onChange={(e) =>
-                          update({
-                            ...options,
-                            overrides: {
-                              ...options.overrides,
-                              [s.id]: { ...options.overrides[s.id], location: e.target.value },
-                            },
-                          })
-                        }
-                      />
-                    </label>
-                  </div>
-                )}
+                <div className="discovery-source-body">
+                  <p className="help-text">{s.limitation}</p>
+                  <p className="job-url source-policy">Policy: {s.policyUrl}</p>
+                  {s.adapter === 'jobspy' && (
+                    <div className="source-inherited">
+                      <small>Uses your search criteria automatically</small>
+                      <div className="source-criteria">
+                        {[
+                          criteria?.query || 'Verified profile queries',
+                          criteria?.location || 'Profile location preferences',
+                          criteria?.workMode && criteria.workMode !== 'all'
+                            ? criteria.workMode
+                            : null,
+                          criteria?.employmentType && criteria.employmentType !== 'all'
+                            ? criteria.employmentType
+                            : null,
+                        ]
+                          .filter(Boolean)
+                          .map((value, i) => (
+                            <span key={i}>{value}</span>
+                          ))}
+                      </div>
+                    </div>
+                  )}
+                  {options.sourceIds.includes(s.id) &&
+                    !['ats', 'remotive', 'jobspy'].includes(s.adapter) && (
+                      <div className="career-fields">
+                        <label>
+                          {s.name} query / priority keywords
+                          <input
+                            value={options.overrides[s.id]?.keywords ?? ''}
+                            onChange={(e) =>
+                              update({
+                                ...options,
+                                overrides: {
+                                  ...options.overrides,
+                                  [s.id]: { ...options.overrides[s.id], keywords: e.target.value },
+                                },
+                              })
+                            }
+                          />
+                        </label>
+                        <label>
+                          {s.name} query / priority location
+                          <input
+                            value={options.overrides[s.id]?.location ?? ''}
+                            onChange={(e) =>
+                              update({
+                                ...options,
+                                overrides: {
+                                  ...options.overrides,
+                                  [s.id]: { ...options.overrides[s.id], location: e.target.value },
+                                },
+                              })
+                            }
+                          />
+                        </label>
+                      </div>
+                    )}
+                </div>
               </details>
             ))}
         </div>
       </details>
       {view?.run && (
         <section className="surface-card discovery-progress" aria-label="Discovery progress">
-          <div className="button-row">
+          <div className="discovery-progress-header">
             <strong>
               {view.run.status === 'running'
                 ? 'Collection in progress'
-                : `Collection ${view.run.status}`}
+                : view.run.status === 'completed' &&
+                    view.coverage.some((s) => ['blocked', 'partial'].includes(s.status))
+                  ? 'Collection finished with unavailable sources'
+                  : `Collection ${view.run.status}`}
             </strong>
-            {view.run.status === 'running' && (
-              <>
+            <div className="button-row">
+              {view.run.status === 'running' && (
+                <>
+                  <button
+                    type="button"
+                    disabled={busy}
+                    onClick={() =>
+                      void command({ op: 'controlDiscovery', id: view.run!.id, action: 'pause' })
+                    }
+                  >
+                    Pause discovery
+                  </button>
+                  <button
+                    type="button"
+                    disabled={busy}
+                    onClick={() =>
+                      void command({ op: 'controlDiscovery', id: view.run!.id, action: 'cancel' })
+                    }
+                  >
+                    Cancel discovery
+                  </button>
+                </>
+              )}
+              {view.run.status === 'paused' && (
                 <button
                   type="button"
                   disabled={busy}
                   onClick={() =>
-                    void command({ op: 'controlDiscovery', id: view.run!.id, action: 'pause' })
+                    void command({ op: 'controlDiscovery', id: view.run!.id, action: 'resume' })
                   }
                 >
-                  Pause discovery
+                  Resume discovery
                 </button>
-                <button
-                  type="button"
-                  disabled={busy}
-                  onClick={() =>
-                    void command({ op: 'controlDiscovery', id: view.run!.id, action: 'cancel' })
-                  }
-                >
-                  Cancel discovery
-                </button>
-              </>
-            )}
-            {view.run.status === 'paused' && (
-              <button
-                type="button"
-                disabled={busy}
-                onClick={() =>
-                  void command({ op: 'controlDiscovery', id: view.run!.id, action: 'resume' })
-                }
-              >
-                Resume discovery
-              </button>
-            )}
+              )}
+            </div>
           </div>
-          <p aria-live="polite">
-            {view.companies} discovered companies /{' '}
-            {
-              view.coverage.filter((s) => s.requests > 0 || s.records > 0 || s.status === 'ready')
-                .length
-            }{' '}
-            sources searched / {view.jobs} unique jobs collected / {view.filtered} filtered /{' '}
-            {view.pending} pending pages or resolutions
-          </p>
+          <div className="discovery-stats" aria-live="polite">
+            <div>
+              <strong>{view.companies}</strong>
+              {' discovered companies'}
+            </div>
+            <div>
+              <strong>
+                {
+                  view.coverage.filter(
+                    (s) => s.requests > 0 || s.records > 0 || s.status === 'ready',
+                  ).length
+                }
+              </strong>
+              {' sources searched'}
+            </div>
+            <div data-stat="jobs">
+              <strong>{view.jobs}</strong>
+              {' unique jobs collected'}
+            </div>
+            <div>
+              <strong>{view.filtered}</strong>
+              {' jobs filtered'}
+            </div>
+            <div>
+              <strong>{view.pending}</strong>
+              {' pending pages or resolutions'}
+            </div>
+          </div>
           <p className="help-text">
             {view.done} completed tasks. Progress and cached results survive restarts. Cached feeds,
             unavailable sources and unverified leads are not live availability guarantees.
@@ -266,7 +321,19 @@ export function GlobalDiscovery({
                       <td>{s.requests}</td>
                       <td>{s.records}</td>
                       <td>{s.rejected}</td>
-                      <td>{s.error ?? 'None'}</td>
+                      <td>
+                        {s.error === 'JOBSPY_UNAVAILABLE' ? (
+                          <>
+                            <span>
+                              Python or python-jobspy is unavailable. See Python setup in Discovery
+                              & imports.
+                            </span>
+                            <small>Remaining queries for this source were stopped.</small>
+                          </>
+                        ) : (
+                          (s.error ?? 'None')
+                        )}
+                      </td>
                     </tr>
                   ))}
                 </tbody>

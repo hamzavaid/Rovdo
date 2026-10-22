@@ -78,6 +78,7 @@ export function AdvancedFilters({
               <label>
                 Employment type
                 <select
+                  aria-label="Employment type"
                   value={draft.employmentType ?? 'all'}
                   onChange={(e) => set('employmentType', e.target.value)}
                 >

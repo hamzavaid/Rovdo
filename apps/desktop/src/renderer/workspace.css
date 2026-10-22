@@ -1397,3 +1397,196 @@ summary {
     margin-left: 0 !important;
   }
 }
+
+/* Two purposeful search rows replace the sparse auto-placement grid. */
+.career-workspace .job-search .job-filters {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.search-primary-row {
+  display: grid;
+  grid-template-columns: 180px minmax(180px, 1fr) 150px auto;
+  gap: 12px;
+  align-items: end;
+}
+.has-selected-employer .search-primary-row {
+  grid-template-columns: 155px minmax(160px, 1fr) minmax(160px, 1fr) 130px auto;
+}
+.career-workspace .job-filters .search-primary-row > label,
+.career-workspace .job-filters .search-secondary-row > label {
+  margin: 0;
+  min-width: 0;
+}
+.search-primary-row > button {
+  min-height: 42px;
+  margin: 0;
+}
+.search-secondary-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  gap: 12px;
+  padding-top: 14px;
+  border-top: 1px solid var(--border);
+}
+.search-secondary-row > label {
+  flex: 0 1 205px;
+}
+.search-secondary-row .search-toggles {
+  flex: 1;
+  min-height: 42px;
+  align-items: center;
+  gap: 12px;
+}
+.career-workspace .search-secondary-row .search-toggles label {
+  margin: 0;
+  white-space: nowrap;
+}
+.search-secondary-row > button {
+  min-height: 42px;
+  margin: 0;
+  padding: 8px 10px;
+  font-size: 13px;
+}
+.search-secondary-row > button:not(.filter-launch) {
+  background: transparent;
+  border-color: transparent;
+  color: var(--muted);
+}
+.search-secondary-row > button:hover {
+  color: var(--text);
+  background: var(--hover);
+}
+.career-workspace .coverage-counts {
+  margin: 14px 0 0;
+  font-size: 12px;
+}
+.discovery-source summary small {
+  white-space: nowrap;
+  font-size: 11px;
+}
+.discovery-source-body {
+  padding: 12px 0 4px;
+  border-top: 1px solid var(--border);
+  margin-top: 10px;
+}
+.discovery-source-body > p {
+  margin: 0 0 8px;
+}
+.discovery-source-body .source-policy {
+  font-size: 11px;
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+.source-inherited {
+  margin-top: 12px;
+  padding: 10px 12px;
+  background: var(--panel-subtle);
+  border-radius: 8px;
+}
+.source-inherited > small {
+  color: var(--muted);
+  font-size: 12px;
+}
+.source-criteria {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin-top: 8px;
+}
+.source-criteria > span {
+  border: 1px solid var(--control-border);
+  border-radius: 6px;
+  padding: 3px 8px;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+.discovery-progress-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+.discovery-progress-header .button-row {
+  margin: 0;
+  gap: 8px;
+}
+.discovery-progress-header button {
+  min-height: 36px;
+  padding: 6px 12px;
+  font-size: 13px;
+}
+.discovery-stats {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 10px;
+  margin-block: 18px;
+}
+.discovery-stats > div {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 12px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--muted);
+}
+.discovery-stats strong {
+  display: block;
+  color: var(--text);
+  font-size: 23px;
+  font-variant-numeric: tabular-nums;
+  margin-bottom: 4px;
+}
+.discovery-progress .coverage-table table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-top: 12px;
+  font-size: 12px;
+}
+.discovery-progress .coverage-table th {
+  background: var(--panel-subtle);
+  color: var(--muted);
+  font-weight: 500;
+}
+.discovery-progress .coverage-table th,
+.discovery-progress .coverage-table td {
+  padding: 10px;
+  border-bottom: 1px solid var(--border);
+}
+.discovery-progress .coverage-table td:last-child {
+  min-width: 230px;
+  max-width: 360px;
+  line-height: 1.6;
+}
+.discovery-progress .coverage-table td small {
+  display: block;
+  color: var(--muted);
+  margin-top: 5px;
+}
+@media (max-width: 1100px) {
+  .has-selected-employer .search-primary-row {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+@media (max-width: 900px) {
+  .search-primary-row {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .discovery-stats {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+@media (max-width: 600px) {
+  .search-primary-row,
+  .has-selected-employer .search-primary-row {
+    grid-template-columns: 1fr;
+  }
+  .search-secondary-row > label {
+    flex: 1 1 100%;
+  }
+  .discovery-stats {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}

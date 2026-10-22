@@ -10,6 +10,18 @@ test('persists scraping consent and edits typed project proposals in a cancelabl
   await mkdir(dir, { recursive: true });
   const store = new CareerStore(resolve(dir, 'rovdo.sqlite'));
   store.saveProfile(sampleCandidate());
+  const runId = '00000000-0000-4000-8000-000000000001';
+  store.global.saveRun({
+    id: runId,
+    status: 'completed',
+    createdAt: 1,
+    updatedAt: 1,
+    profileVersion: 1,
+    queries: ['Firmware'],
+    options: { sourceIds: ['linkedin-jobs'], overrides: {} },
+    reason: null,
+  });
+  store.global.note(runId, 'linkedin-jobs', 'blocked', 0, 0, 'JOBSPY_UNAVAILABLE');
   store.close();
   const env = Object.fromEntries(
     Object.entries(process.env).filter((e): e is [string, string] => e[1] !== undefined),
@@ -21,6 +33,9 @@ test('persists scraping consent and edits typed project proposals in a cancelabl
   try {
     let page = await app.firstWindow();
     await page.getByRole('button', { name: 'Discovery & imports', exact: true }).click();
+    await expect(
+      page.getByRole('heading', { name: 'Your LinkedIn profile', exact: true }),
+    ).toHaveCount(0);
     const enable = page.getByRole('button', { name: 'Enable JobSpy scraping', exact: true });
     await expect(enable).toBeDisabled();
     await page.getByLabel('I understand the risks', { exact: false }).check();
@@ -28,6 +43,39 @@ test('persists scraping consent and edits typed project proposals in a cancelabl
     await expect(
       page.getByRole('button', { name: 'Disable JobSpy scraping', exact: true }),
     ).toBeEnabled();
+    await page.getByRole('button', { name: 'Jobs', exact: true }).click();
+    await page.getByLabel('Search jobs', { exact: true }).fill('Firmware engineer');
+    await page.getByLabel('Work mode filter', { exact: true }).selectOption('remote');
+    await page.getByRole('button', { name: 'Advanced search filters', exact: true }).click();
+    await page.getByLabel('Location or remote jurisdiction', { exact: true }).fill('Los Angeles');
+    await page.getByLabel('Employment type', { exact: true }).selectOption('internship');
+    await page.getByRole('button', { name: 'Apply filters', exact: true }).click();
+    await page.getByText('Sources, queries and collection settings', { exact: true }).click();
+    await page.getByRole('button', { name: 'Clear source selection', exact: true }).click();
+    await page.getByLabel('Find discovery sources', { exact: true }).fill('LinkedIn Jobs');
+    await page.getByRole('checkbox', { name: 'LinkedIn Jobs', exact: true }).check();
+    const source = page.locator('.discovery-source');
+    await source.locator('summary').focus();
+    await page.keyboard.press('Enter');
+    await expect(source.locator('.source-criteria')).toContainText('Firmware engineer');
+    await expect(source.locator('.source-criteria')).toContainText('Los Angeles');
+    await expect(source.locator('.career-fields input')).toHaveCount(0);
+    await page.getByText('Collection health (1)', { exact: true }).click();
+    await expect(
+      page.getByText('Python or python-jobspy is unavailable.', { exact: false }),
+    ).toBeVisible();
+    for (const theme of ['light', 'dark'] as const) {
+      await page.getByLabel('Appearance', { exact: true }).selectOption(theme);
+      await page
+        .locator('.job-search')
+        .screenshot({ path: test.info().outputPath(`search-form-${theme}.png`) });
+      await page
+        .locator('.global-discovery')
+        .screenshot({ path: test.info().outputPath(`source-status-${theme}.png`) });
+      expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(
+        true,
+      );
+    }
     await page.getByRole('button', { name: 'Profile', exact: true }).click();
     await page.getByRole('button', { name: 'Projects', exact: true }).click();
     await page.getByRole('button', { name: '+ Add a project', exact: true }).click();

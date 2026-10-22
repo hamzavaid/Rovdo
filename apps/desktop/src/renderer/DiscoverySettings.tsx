@@ -109,26 +109,14 @@ export function DiscoverySettings() {
           </pre>
           <p>
             In Jobs, choose Search All, open Sources, queries and collection settings, then select
-            supported JobSpy sources. Qualification queries and optional source location filters
-            guide collection. Missing dependencies, unsupported request methods, restrictions, or
-            schema changes appear in Collection health. Other discovery adapters continue
-            independently.
+            supported JobSpy sources. Your existing search keywords, filters and verified profile
+            guide collection automatically. Missing dependencies, unsupported request methods,
+            restrictions, or schema changes appear in Collection health. Other discovery adapters
+            continue independently.
           </p>
         </details>
         <OperationStatus label={label} />
         {error && <p role="alert">{error}</p>}
-      </section>
-      <section className="surface-card">
-        <h2>Your LinkedIn profile</h2>
-        <p>
-          JobSpy collects job listings; it does not import personal profiles. Use Profile → Imports
-          for your LinkedIn archive or pasted profile content. Rovdo does not scrape restricted
-          LinkedIn profile pages.
-        </p>
-        <p>
-          Academic transcripts can also be imported locally as PDF, DOCX, TXT, Markdown or CSV.
-          Coursework stays unverified until you review it.
-        </p>
       </section>
     </section>
   );

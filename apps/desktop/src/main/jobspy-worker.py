@@ -70,10 +70,18 @@ def main():
         # Third-party logging/printing is never part of the JSON-line protocol.
         with contextlib.redirect_stdout(Discard()), contextlib.redirect_stderr(Discard()):
             from jobspy import scrape_jobs
+            filters = {}
+            if options.get("workMode") == "remote":
+                filters["is_remote"] = True
+            types = {"full-time": "fulltime", "part-time": "parttime", "internship": "internship", "contract": "contract", "temporary": "temporary"}
+            if options.get("employmentType") in types:
+                filters["job_type"] = types[options["employmentType"]]
+            if options.get("freshnessDays"):
+                filters["hours_old"] = options["freshnessDays"] * 24
             jobs = scrape_jobs(site_name=[options["site"]], search_term=options["query"],
                                location=options["location"] or None, offset=options["offset"],
                                results_wanted=50, verbose=0, fetch_description=True,
-                               user_agent="Rovdo/0.3.8 public-source reader")
+                               user_agent="Rovdo/0.3.8 public-source reader", **filters)
             rows = json.loads(jobs.to_json(orient="records", date_format="iso"))
         emit({"type": "result", "rows": rows})
     except ImportError:

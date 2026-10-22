@@ -11,11 +11,13 @@ export const DiscoveryFiltersSchema = z.strictObject({
   location: z.string().max(200).optional(),
   workMode: z.enum(['all', 'remote', 'hybrid', 'onsite']).optional(),
   employmentType: z.string().max(40).optional(),
+  freshnessDays: z.number().int().min(1).max(3650).optional(),
 });
 export const DiscoveryOptionsSchema = z.strictObject({
   sourceIds: z.array(z.string().max(200)).max(1000),
   overrides: z.record(z.string().max(200), DiscoveryFiltersSchema).default({}),
   indexUrl: z.string().url().max(2048).optional(),
+  filters: DiscoveryFiltersSchema.optional(),
 });
 export type DiscoveryOptions = z.infer<typeof DiscoveryOptionsSchema>;
 export const RegistryEntrySchema = z.strictObject({

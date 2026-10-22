@@ -1,3 +1,4 @@
+import { discoveryOptionsForSearch } from './discovery-search';
 /**
  * Profile and jobs workspace: local drafts, search/filter state and career command coordination.
  * Backend views remain authoritative; a synchronous action gate prevents duplicate in-flight UI actions.
@@ -562,7 +563,7 @@ export function CareerWorkspace({
             <div hidden={jobView !== 'results'}>
               <section className="job-search" aria-label="Find jobs">
                 <form
-                  className="job-filters"
+                  className={`job-filters ${searchScope === 'company' ? 'has-selected-employer' : ''}`}
                   onSubmit={(e) => {
                     e.preventDefault();
                     searchRef.current = { ...search, offset: 0 };
@@ -570,7 +571,7 @@ export function CareerWorkspace({
                     if (searchScope === 'global')
                       void command({
                         op: 'startDiscovery',
-                        options: search.discovery ?? defaultDiscovery,
+                        options: discoveryOptionsForSearch(search, defaultDiscovery),
                         consent: true,
                       });
                     else if (searchScope === 'company' && search.selectedSourceId)
@@ -580,108 +581,70 @@ export function CareerWorkspace({
                     else void searchJobs();
                   }}
                 >
-                  <label>
-                    Search scope
-                    <select
-                      aria-label="Search scope"
-                      value={searchScope}
-                      onChange={(e) => {
-                        setSearch({
-                          ...search,
-                          scope: e.target.value as JobSearch['scope'],
-                          selectedSourceId: undefined,
-                          offset: 0,
-                        });
-                      }}
-                    >
-                      <option value="global">Search All</option>
-                      <option value="saved-companies">Search All Saved Companies</option>
-                      <option value="company">Selected company</option>
-                    </select>
-                  </label>
-                  <label>
-                    Search jobs
-                    <input
-                      value={search.query}
-                      onChange={(e) => setSearch({ ...search, query: e.target.value })}
-                    />
-                  </label>
-                  {searchScope === 'company' && (
+                  <div className="search-primary-row">
                     <label>
-                      Selected employer
+                      Search scope
                       <select
-                        required
-                        value={search.selectedSourceId ?? ''}
+                        aria-label="Search scope"
+                        value={searchScope}
+                        onChange={(e) => {
+                          setSearch({
+                            ...search,
+                            scope: e.target.value as JobSearch['scope'],
+                            selectedSourceId: undefined,
+                            offset: 0,
+                          });
+                        }}
+                      >
+                        <option value="global">Search All</option>
+                        <option value="saved-companies">Search All Saved Companies</option>
+                        <option value="company">Selected company</option>
+                      </select>
+                    </label>
+                    <label>
+                      Search jobs
+                      <input
+                        value={search.query}
+                        onChange={(e) => setSearch({ ...search, query: e.target.value })}
+                      />
+                    </label>
+                    {searchScope === 'company' && (
+                      <label>
+                        Selected employer
+                        <select
+                          required
+                          value={search.selectedSourceId ?? ''}
+                          onChange={(e) =>
+                            setSearch({ ...search, selectedSourceId: e.target.value || undefined })
+                          }
+                        >
+                          <option value="">Choose a saved company</option>
+                          {view?.sources.map((s) => (
+                            <option key={s.config.id} value={s.config.id}>
+                              {s.config.company}
+                              {s.config.enabled ? '' : ' (disabled)'}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                    )}
+                    <label>
+                      Work mode filter
+                      <select
+                        aria-label="Work mode filter"
+                        value={search.workMode}
                         onChange={(e) =>
-                          setSearch({ ...search, selectedSourceId: e.target.value || undefined })
+                          setSearch({
+                            ...search,
+                            workMode: e.target.value as JobSearch['workMode'],
+                          })
                         }
                       >
-                        <option value="">Choose a saved company</option>
-                        {view?.sources.map((s) => (
-                          <option key={s.config.id} value={s.config.id}>
-                            {s.config.company}
-                            {s.config.enabled ? '' : ' (disabled)'}
-                          </option>
+                        {['all', 'remote', 'hybrid', 'onsite'].map((m) => (
+                          <option key={m}>{m}</option>
                         ))}
                       </select>
                     </label>
-                  )}
-                  <label>
-                    Work mode filter
-                    <select
-                      value={search.workMode}
-                      onChange={(e) =>
-                        setSearch({ ...search, workMode: e.target.value as JobSearch['workMode'] })
-                      }
-                    >
-                      {['all', 'remote', 'hybrid', 'onsite'].map((m) => (
-                        <option key={m}>{m}</option>
-                      ))}
-                    </select>
-                  </label>
-                  <div className="search-toggles">
-                    <label>
-                      <input
-                        type="checkbox"
-                        checked={search.savedOnly}
-                        onChange={(e) => setSearch({ ...search, savedOnly: e.target.checked })}
-                      />
-                      Saved only
-                    </label>
-                    <label>
-                      <input
-                        type="checkbox"
-                        checked={search.includeExcluded}
-                        onChange={(e) =>
-                          setSearch({ ...search, includeExcluded: e.target.checked })
-                        }
-                      />
-                      Show excluded
-                    </label>
-                  </div>
-                  <AdvancedFilters search={search} setSearch={setSearch} onApply={applySearch} />
-                  <label>
-                    Source filter
-                    <select
-                      value={search.sourceId ?? ''}
-                      onChange={(e) =>
-                        setSearch({ ...search, sourceId: e.target.value || undefined })
-                      }
-                    >
-                      <option value="">All collected sources</option>
-                      {view?.discovery?.registry.map((s) => (
-                        <option key={s.id} value={s.id}>
-                          {s.name}
-                        </option>
-                      ))}
-                      {['jsonld', 'jobspy-import'].map((s) => (
-                        <option key={'native-' + s} value={s}>
-                          {s}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                  <div className="search-actions">
                     <button
                       className="primary-button"
                       disabled={
@@ -694,6 +657,51 @@ export function CareerWorkspace({
                     >
                       Search
                     </button>
+                  </div>
+                  <div className="search-secondary-row">
+                    <label>
+                      Source filter
+                      <select
+                        aria-label="Source filter"
+                        value={search.sourceId ?? ''}
+                        onChange={(e) =>
+                          setSearch({ ...search, sourceId: e.target.value || undefined })
+                        }
+                      >
+                        <option value="">All collected sources</option>
+                        {view?.discovery?.registry.map((s) => (
+                          <option key={s.id} value={s.id}>
+                            {s.name}
+                          </option>
+                        ))}
+                        {['jsonld', 'jobspy-import'].map((s) => (
+                          <option key={'native-' + s} value={s}>
+                            {s}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                    <div className="search-toggles">
+                      <label>
+                        <input
+                          type="checkbox"
+                          checked={search.savedOnly}
+                          onChange={(e) => setSearch({ ...search, savedOnly: e.target.checked })}
+                        />
+                        Saved only
+                      </label>
+                      <label>
+                        <input
+                          type="checkbox"
+                          checked={search.includeExcluded}
+                          onChange={(e) =>
+                            setSearch({ ...search, includeExcluded: e.target.checked })
+                          }
+                        />
+                        Show excluded
+                      </label>
+                    </div>
+                    <AdvancedFilters search={search} setSearch={setSearch} onApply={applySearch} />
                     <button type="button" onClick={resetFilters}>
                       Reset all filters
                     </button>
@@ -724,6 +732,7 @@ export function CareerWorkspace({
               {searchScope === 'global' && (
                 <GlobalDiscovery
                   view={view?.discovery}
+                  criteria={search}
                   options={search.discovery ?? defaultDiscovery}
                   onOptions={(options) => setSearch({ ...search, discovery: options })}
                   command={command}

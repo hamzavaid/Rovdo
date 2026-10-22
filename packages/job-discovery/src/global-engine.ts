@@ -103,11 +103,20 @@ export class GlobalDiscoveryEngine {
     for (const id of options.sourceIds)
       if (!DISCOVERY_SOURCES.some((s) => s.id === id)) throw new Error('UNKNOWN_SOURCE');
     const profile = this.store.profile();
-    const queries = discoveryQueries(
+    const qualificationQueries = discoveryQueries(
       profile,
       this.store.rankings().find((p) => p.id === this.store.defaultRanking())?.minimumEvidence ??
         0.5,
     );
+    const keywords = options.filters?.keywords?.trim();
+    const queries = keywords
+      ? [
+          ...new Set([
+            keywords,
+            ...qualificationQueries.map((q) => `${keywords} ${q}`.slice(0, 500)),
+          ]),
+        ]
+      : qualificationQueries;
     const duplicate = this.store.global
       .runningRuns()
       .find(
@@ -142,12 +151,28 @@ export class GlobalDiscoveryEngine {
           );
           continue;
         }
+        const shared = options.filters;
+        const locations = shared?.location
+          ? [shared.location]
+          : profile?.preferences.locations.length
+            ? profile.preferences.locations
+            : [''];
         for (const query of queries)
-          this.enqueue(run, id, 'provider', {
-            query: [query, options.overrides[id]?.keywords].filter(Boolean).join(' ').slice(0, 500),
-            location: options.overrides[id]?.location ?? '',
-            offset: 0,
-          });
+          for (const location of locations)
+            this.enqueue(run, id, 'provider', {
+              query: shared
+                ? query
+                : [query, options.overrides[id]?.keywords].filter(Boolean).join(' ').slice(0, 500),
+              location: shared ? location : (options.overrides[id]?.location ?? location),
+              workMode:
+                shared?.workMode ??
+                (profile?.preferences.workModes.length === 1
+                  ? profile.preferences.workModes[0]
+                  : 'all'),
+              employmentType: shared?.employmentType ?? 'all',
+              ...(shared?.freshnessDays ? { freshnessDays: shared.freshnessDays } : {}),
+              offset: 0,
+            });
         continue;
       }
       if (['blocked', 'unsupported'].includes(source.status)) {
@@ -241,9 +266,20 @@ export class GlobalDiscoveryEngine {
       if (this.stopping) break;
       const controller = this.controllers.get(run.id) ?? new AbortController();
       this.controllers.set(run.id, controller);
+      let jobspyScheduled = false;
       await Promise.all(
         this.store.global
           .ready(run.id, Date.now(), 3)
+          .filter((t) => {
+            if (
+              t.kind !== 'provider' ||
+              DISCOVERY_SOURCES.find((s) => s.id === t.sourceId)?.adapter !== 'jobspy'
+            )
+              return true;
+            if (jobspyScheduled) return false;
+            jobspyScheduled = true;
+            return true;
+          })
           .map((t) => this.process(run, t, controller.signal)),
       );
       if (
@@ -491,6 +527,12 @@ export class GlobalDiscoveryEngine {
         nextAt: Date.now() + backoff,
         error: safe,
       });
+      if (
+        blocked &&
+        task.kind === 'provider' &&
+        DISCOVERY_SOURCES.find((s) => s.id === task.sourceId)?.adapter === 'jobspy'
+      )
+        this.store.global.blockProviders(run.id, task.sourceId, safe);
       this.store.global.note(run.id, task.sourceId, blocked ? 'blocked' : 'retrying', 0, 0, safe);
       if (task.kind === 'resolve')
         this.store.global.updateListing(

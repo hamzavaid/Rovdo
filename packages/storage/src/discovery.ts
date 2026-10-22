@@ -57,6 +57,14 @@ export class DiscoveryStore {
       .all(id, now, limit)
       .map((r) => DiscoveryTaskSchema.parse(JSON.parse(String(r.json))));
   }
+  /** A missing worker or source policy failure applies to all queued queries for that source. */
+  blockProviders(runId: string, sourceId: string, error: string) {
+    this.db
+      .prepare(
+        "UPDATE discovery_task SET status='blocked',json=json_set(json,'$.status','blocked','$.error',?) WHERE run_id=? AND status='pending' AND json_extract(json,'$.sourceId')=? AND json_extract(json,'$.kind')='provider'",
+      )
+      .run(error, runId, sourceId);
+  }
   runningRuns(): DiscoveryRun[] {
     return this.db
       .prepare(

@@ -90,6 +90,9 @@ export async function runJobSpy(
       query: z.string().max(500),
       location: z.string().max(200).default(''),
       offset: z.number().int().nonnegative().default(0),
+      workMode: z.enum(['all', 'remote', 'hybrid', 'onsite']).default('all'),
+      employmentType: z.string().max(40).default('all'),
+      freshnessDays: z.number().int().min(1).max(3650).optional(),
     })
     .parse(payload);
   const work = queue
@@ -196,7 +199,14 @@ export async function runJobSpy(
 export function jobSpyPage(
   sourceId: string,
   rows: Record<string, unknown>[],
-  payload: { query: string; location: string; offset: number },
+  payload: {
+    query: string;
+    location: string;
+    offset: number;
+    workMode?: string;
+    employmentType?: string;
+    freshnessDays?: number | undefined;
+  },
 ): DiscoveryPage {
   let rejected = 0;
   const records = rows.flatMap((raw) => {

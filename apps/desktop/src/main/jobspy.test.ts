@@ -83,6 +83,13 @@ test('worker uses an isolated interpreter, brokered GET and validated unverified
     setImmediate(() => {
       if (messages === 1) {
         expect(input.site).toBe('linkedin');
+        expect(input).toMatchObject({
+          query: 'Rust jobs',
+          location: 'Los Angeles',
+          workMode: 'remote',
+          employmentType: 'internship',
+          freshnessDays: 7,
+        });
         stdout.write(
           JSON.stringify({
             type: 'request',
@@ -115,7 +122,13 @@ test('worker uses an isolated interpreter, brokered GET and validated unverified
   const page = await runJobSpy(
     true,
     'linkedin-jobs',
-    { query: 'Rust jobs' },
+    {
+      query: 'Rust jobs',
+      location: 'Los Angeles',
+      workMode: 'remote',
+      employmentType: 'internship',
+      freshnessDays: 7,
+    },
     async () => ({ status: 200, headers: {}, body: Buffer.from('User-agent: *\nAllow: /') }),
     new AbortController().signal,
   );
