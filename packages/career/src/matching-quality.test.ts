@@ -137,6 +137,12 @@ it('accepts an explicitly alternative credential without failing on a different 
       .checks.filter((c) => c.rule === 'certification')
       .map((c) => c.result),
   ).toEqual(['PASS']);
+  p.intelligence!.certifications = p.intelligence!.certifications.filter((c) => c.name === 'CPA');
+  expect(
+    score(p, sampleJob('CPA or PMP certification required')).checks.find(
+      (c) => c.rule === 'certification',
+    )!.result,
+  ).toBe('UNKNOWN');
 });
 it('recognizes inline ATS qualification sections and keeps mentioned/ambiguous years out of mandatory gates', () => {
   const parsed = extractRequirements(

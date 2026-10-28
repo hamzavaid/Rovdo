@@ -491,17 +491,16 @@ export function rankWithProfile(
       } else {
         const normalize = (v: string) =>
           v.normalize('NFKC').trim().toLowerCase().replace(/\s+/g, ' ');
+        const expected = r.credential ? [r.credential, ...r.alternatives] : [];
         const matching = certifications.filter((c) =>
-          r.credential
-            ? [r.credential, ...r.alternatives].some(
-                (name) => normalize(c.name) === normalize(name),
-              )
-            : false,
+          expected.some((name) => normalize(c.name) === normalize(name)),
         );
         const outcomes = matching.map((c) => credentialStatus(c.expires, asOf));
         result = outcomes.includes('PASS')
           ? 'PASS'
-          : outcomes.length && outcomes.every((v) => v === 'FAIL')
+          : outcomes.length &&
+              outcomes.every((v) => v === 'FAIL') &&
+              expected.every((name) => matching.some((c) => normalize(c.name) === normalize(name)))
             ? 'FAIL'
             : 'UNKNOWN';
         const supporting = matching.filter((_c, index) => outcomes[index] === result);
