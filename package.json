@@ -20,6 +20,7 @@
     "lint": "eslint . --max-warnings 0",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
+    "benchmark:matching": "vitest run packages/career/src/matching-benchmark.test.ts",
     "test:watch": "vitest",
     "test:e2e": "playwright test",
     "check": "npm run lint && npm run typecheck && npm test && npm run build && npm run test:e2e"

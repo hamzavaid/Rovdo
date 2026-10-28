@@ -1,0 +1,308 @@
+{
+  "corpus": "qualification-benchmark-v1",
+  "labelSource": "provisional-rubric-authored",
+  "asOf": "2026-10-28",
+  "scorer": "deterministic-v2.1",
+  "parser": "requirements-v3",
+  "taxonomy": "rovdo-taxonomy-2",
+  "scenarios": [
+    {
+      "id": "backend",
+      "metrics": {
+        "precision": 0.5,
+        "ndcg": 0.8504382913044686,
+        "precisionAt5": 0.8,
+        "ndcgAt5": 0.8092047037774411,
+        "relevantRecallAt5": 0.8,
+        "relevantRecall": 1,
+        "hardConstraintFalsePositiveRate": 0
+      },
+      "ranking": [
+        {
+          "id": "quality:b9",
+          "score": 100,
+          "confidence": 1,
+          "excluded": false,
+          "review": false
+        },
+        {
+          "id": "quality:b10",
+          "score": 100,
+          "confidence": 0.967742,
+          "excluded": false,
+          "review": false
+        },
+        {
+          "id": "quality:b2",
+          "score": 100,
+          "confidence": 0.967742,
+          "excluded": false,
+          "review": false
+        },
+        {
+          "id": "quality:b8",
+          "score": 100,
+          "confidence": 0.967742,
+          "excluded": false,
+          "review": true
+        },
+        {
+          "id": "quality:b1",
+          "score": 100,
+          "confidence": 0.779412,
+          "excluded": false,
+          "review": false
+        },
+        {
+          "id": "quality:b4",
+          "score": 89.19,
+          "confidence": 0.884066,
+          "excluded": false,
+          "review": false
+        },
+        {
+          "id": "quality:b7",
+          "score": 81.36,
+          "confidence": 0.869753,
+          "excluded": false,
+          "review": false
+        },
+        {
+          "id": "quality:b3",
+          "score": 78.7,
+          "confidence": 0.83871,
+          "excluded": false,
+          "review": false
+        },
+        {
+          "id": "quality:b5",
+          "score": 20.81,
+          "confidence": 0.354839,
+          "excluded": false,
+          "review": true
+        },
+        {
+          "id": "quality:b6",
+          "score": 93.94,
+          "confidence": 0.966667,
+          "excluded": true,
+          "review": false
+        }
+      ],
+      "stable": true
+    },
+    {
+      "id": "mechanical",
+      "metrics": {
+        "precision": 0.3,
+        "ndcg": 0.6903057470095376,
+        "precisionAt5": 0.4,
+        "ndcgAt5": 0.5915578607267974,
+        "relevantRecallAt5": 0.6666666666666666,
+        "relevantRecall": 1,
+        "hardConstraintFalsePositiveRate": 0
+      },
+      "ranking": [
+        {
+          "id": "quality:m3",
+          "score": 17.57,
+          "confidence": 0.486486,
+          "excluded": false,
+          "review": true
+        },
+        {
+          "id": "quality:m1",
+          "score": 12.9,
+          "confidence": 0.380645,
+          "excluded": false,
+          "review": true
+        },
+        {
+          "id": "quality:m4",
+          "score": 2.26,
+          "confidence": 0.354839,
+          "excluded": false,
+          "review": true
+        },
+        {
+          "id": "quality:m5",
+          "score": 2.26,
+          "confidence": 0.354839,
+          "excluded": false,
+          "review": true
+        },
+        {
+          "id": "quality:m2",
+          "score": 0,
+          "confidence": 1,
+          "excluded": false,
+          "review": false
+        },
+        {
+          "id": "quality:m7",
+          "score": 0,
+          "confidence": 1,
+          "excluded": false,
+          "review": true
+        },
+        {
+          "id": "quality:m8",
+          "score": 0,
+          "confidence": 1,
+          "excluded": false,
+          "review": false
+        },
+        {
+          "id": "quality:m6",
+          "score": 0,
+          "confidence": 0.983333,
+          "excluded": true,
+          "review": false
+        }
+      ],
+      "stable": true
+    },
+    {
+      "id": "analytics",
+      "metrics": {
+        "precision": 0.4,
+        "ndcg": 0.9517328158313658,
+        "precisionAt5": 0.8,
+        "ndcgAt5": 0.9517328158313658,
+        "relevantRecallAt5": 1,
+        "relevantRecall": 1,
+        "hardConstraintFalsePositiveRate": 0
+      },
+      "ranking": [
+        {
+          "id": "quality:a2",
+          "score": 100,
+          "confidence": 0.967742,
+          "excluded": false,
+          "review": false
+        },
+        {
+          "id": "quality:a8",
+          "score": 100,
+          "confidence": 0.967742,
+          "excluded": false,
+          "review": false
+        },
+        {
+          "id": "quality:a6",
+          "score": 100,
+          "confidence": 0.966667,
+          "excluded": false,
+          "review": false
+        },
+        {
+          "id": "quality:a1",
+          "score": 100,
+          "confidence": 0.96358,
+          "excluded": false,
+          "review": false
+        },
+        {
+          "id": "quality:a3",
+          "score": 87.21,
+          "confidence": 0.884066,
+          "excluded": false,
+          "review": false
+        },
+        {
+          "id": "quality:a4",
+          "score": 2.26,
+          "confidence": 0.354839,
+          "excluded": false,
+          "review": true
+        },
+        {
+          "id": "quality:a5",
+          "score": 0,
+          "confidence": 0,
+          "excluded": false,
+          "review": true
+        },
+        {
+          "id": "quality:a7",
+          "score": 93.94,
+          "confidence": 0.966667,
+          "excluded": true,
+          "review": false
+        }
+      ],
+      "stable": true
+    },
+    {
+      "id": "finance",
+      "metrics": {
+        "precision": 0.3,
+        "ndcg": 0.966410301887773,
+        "precisionAt5": 0.4,
+        "ndcgAt5": 0.8676624156050328,
+        "relevantRecallAt5": 0.6666666666666666,
+        "relevantRecall": 1,
+        "hardConstraintFalsePositiveRate": 0
+      },
+      "ranking": [
+        {
+          "id": "quality:f2",
+          "score": 100,
+          "confidence": 0.95,
+          "excluded": false,
+          "review": false
+        },
+        {
+          "id": "quality:f1",
+          "score": 17.39,
+          "confidence": 0.165217,
+          "excluded": false,
+          "review": true
+        },
+        {
+          "id": "quality:f3",
+          "score": 6.9,
+          "confidence": 0.344828,
+          "excluded": false,
+          "review": true
+        },
+        {
+          "id": "quality:f4",
+          "score": 2.26,
+          "confidence": 0.354839,
+          "excluded": false,
+          "review": true
+        },
+        {
+          "id": "quality:f8",
+          "score": 0,
+          "confidence": 1,
+          "excluded": false,
+          "review": false
+        },
+        {
+          "id": "quality:f6",
+          "score": 0,
+          "confidence": 0,
+          "excluded": false,
+          "review": true
+        },
+        {
+          "id": "quality:f7",
+          "score": 0,
+          "confidence": 0,
+          "excluded": false,
+          "review": true
+        },
+        {
+          "id": "quality:f5",
+          "score": 0,
+          "confidence": 0.95,
+          "excluded": true,
+          "review": false
+        }
+      ],
+      "stable": true
+    }
+  ]
+}
