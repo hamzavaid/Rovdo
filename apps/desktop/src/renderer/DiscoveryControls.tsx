@@ -119,6 +119,12 @@ export function AdvancedFilters({
                     'data-science',
                     'security',
                     'analytics',
+                    'mechanical',
+                    'electrical',
+                    'civil',
+                    'manufacturing',
+                    'finance',
+                    'healthcare',
                     'unknown',
                   ].map((x) => (
                     <option key={x}>{x}</option>

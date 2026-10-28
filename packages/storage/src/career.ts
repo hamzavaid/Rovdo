@@ -830,16 +830,53 @@ export class CareerStore {
       .all(jobId)
       .map((r) => JobSchema.parse(JSON.parse(String(r.json))));
   }
+  private metadataWork: Promise<void> | null = null;
+  /** Rebuild derived filters after parser/taxonomy changes, never rewriting source jobs or user data.
+   * Durable keyset checkpoints and short transactions keep upgrades resumable and the UI responsive. */
+  refreshSearchMetadata(): Promise<void> {
+    if (this.metadataWork) return this.metadataWork;
+    const policy = `${TAXONOMY_VERSION}/${REQUIREMENTS_PARSER_VERSION}`;
+    if (this.setting('search-metadata-policy') === policy) return Promise.resolve();
+    const work = (async () => {
+      const key = `search-metadata-cursor:${policy}`;
+      let cursor = this.setting(key) ?? '';
+      while (true) {
+        const rows = this.db
+          .prepare('SELECT id,json FROM career_job WHERE id>? ORDER BY id LIMIT 16')
+          .all(cursor);
+        if (!rows.length) break;
+        this.transaction(() => {
+          for (const row of rows) this.indexMetadata(JobSchema.parse(JSON.parse(String(row.json))));
+          cursor = String(rows[rows.length - 1]!.id);
+          this.setting(key, cursor);
+        });
+        await yieldTurn();
+      }
+      this.setting('search-metadata-policy', policy);
+      this.searchRevision++;
+    })();
+    this.metadataWork = work;
+    void work
+      .finally(() => {
+        this.metadataWork = null;
+      })
+      .catch(() => {});
+    return work;
+  }
   private indexMetadata(job: Job): void {
     const requirements =
-      job.details?.requirements ?? extractRequirements(job.descriptionText, job.title);
+      job.details?.requirements.parserVersion === REQUIREMENTS_PARSER_VERSION
+        ? job.details.requirements
+        : extractRequirements(job.descriptionText, job.title);
     const graduation = requirements.items.filter((r) => r.kind === 'graduation');
     this.db
       .prepare('INSERT OR REPLACE INTO job_search_metadata VALUES(?,?,?,?,?,?,?,?,?,?,?,?)')
       .run(
         job.id,
         this.companyIdentity(job.company),
-        job.details?.roleFamily ?? roleOf(job.title).family,
+        roleOf(job.title).family !== 'unknown'
+          ? roleOf(job.title).family
+          : (job.details?.roleFamily ?? 'unknown'),
         job.details?.season ?? 'unknown',
         job.level,
         job.location.toLowerCase(),
@@ -848,7 +885,7 @@ export class CareerStore {
           ? (job.salary.max ?? job.salary.min)
           : null,
         job.salary?.currency ?? null,
-        job.postedAt ? Date.parse(job.postedAt) || null : null,
+        job.postedAt && Number.isFinite(Date.parse(job.postedAt)) ? Date.parse(job.postedAt) : null,
         graduation[0]?.graduationStart ?? null,
         graduation[0]?.graduationEnd ?? null,
       );
@@ -960,18 +997,21 @@ export class CareerStore {
       .update(
         stable({
           binding,
-          job: [
-            row.job.id,
-            row.job.company,
-            row.job.level,
-            row.job.contentSha256,
-            row.job.title,
-            row.job.location,
-            row.job.workMode,
-            row.job.salary,
-            row.job.activeStatus,
-            row.job.duplicateGroup,
-          ],
+          job: Object.fromEntries(
+            [
+              'id',
+              'company',
+              'level',
+              'contentSha256',
+              'descriptionText',
+              'title',
+              'location',
+              'workMode',
+              'salary',
+              'activeStatus',
+              'duplicateGroup',
+            ].map((key) => [key, row.job[key as keyof Job]]),
+          ),
           lexical: config.method === 'legacy-v1' ? row.bm25Raw : 0,
         }),
       )

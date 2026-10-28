@@ -6,6 +6,7 @@ import type { PublicResponse } from '@rovdo/shared/network';
 import { extractRequirements, roleOf } from '@rovdo/career';
 import { canonicalUrl, plain, sha256 } from './index';
 import { DISCOVERY_SOURCES } from './registry';
+import { postingTimestamp } from './dates';
 export const DiscoveryRecordSchema = z.object({
   url: z.string().url().max(2048),
   title: z.string().trim().min(1).max(500),
@@ -49,8 +50,7 @@ export class DiscoveryHttpError extends Error {
 }
 const string = (x: unknown) => (typeof x === 'string' ? x : '');
 const date = (x: unknown) => {
-  const n = typeof x === 'number' ? x * 1000 : Date.parse(string(x));
-  return Number.isFinite(n) ? new Date(n).toISOString() : null;
+  return postingTimestamp(x, 'seconds');
 };
 const pageRows = (rows: unknown[], payload: Record<string, unknown>) => {
   const offset = Number(payload.offset ?? 0);
@@ -320,6 +320,7 @@ export function normalizeDiscoveryJob(
             ? 'temporary'
             : 'unknown';
   const rawHash = sha256(JSON.stringify(record));
+  const postedAt = postingTimestamp(record.postedAt);
   const key = sha256(url);
   return JobSchema.parse({
     id: `discovered:${key}`,
@@ -344,7 +345,7 @@ export function normalizeDiscoveryJob(
           ? role.level
           : 'unknown',
     descriptionText: record.description,
-    postedAt: record.postedAt,
+    postedAt,
     updatedAt: null,
     firstSeenAt: now,
     lastSeenAt: now,
@@ -357,7 +358,7 @@ export function normalizeDiscoveryJob(
         record.location,
         record.workMode,
         record.employmentType,
-        record.postedAt,
+        postedAt,
         JSON.stringify(record.salary),
       ].join('\n'),
     ),
@@ -394,6 +395,7 @@ export function normalizeDiscoveryJob(
           attributionUrl: record.url,
           exportAllowed: String(record.exportAllowed),
           availability: 'unverified',
+          postingDate: record.postedAt && !postedAt ? 'invalid' : 'source-or-unknown',
         },
       },
     ],

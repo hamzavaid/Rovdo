@@ -1,5 +1,15 @@
 /** Export stored public job data only; source redistribution restrictions and CSV formula safety apply. */
 import type { JobMatch } from '@rovdo/shared';
+/** Qualification review (confidence/coverage) is independent of published eligibility outcomes. */
+export function eligibilityOutcome(
+  match: Pick<JobMatch, 'checks' | 'excluded'>,
+): 'PASS' | 'FAIL' | 'UNKNOWN' {
+  return match.excluded || match.checks.some((c) => c.result === 'FAIL')
+    ? 'FAIL'
+    : !match.checks.length || match.checks.some((c) => c.result === 'UNKNOWN')
+      ? 'UNKNOWN'
+      : 'PASS';
+}
 export function exportJobs(
   matches: JobMatch[],
   format: 'csv' | 'json',
@@ -22,7 +32,8 @@ export function exportJobs(
     applicationUrl: m.job.discovery?.attributionUrl ?? m.job.canonicalUrl,
     qualificationScore: m.score,
     confidence: m.confidence,
-    eligibility: m.excluded ? 'FAIL' : m.review ? 'UNKNOWN' : 'PASS',
+    eligibility: eligibilityOutcome(m),
+    reviewRequired: m.review,
     requiredCoverage: m.ranking?.requiredCoverage ?? null,
     ranking: m.ranking?.configId ?? m.scorerVersion,
   }));
@@ -43,6 +54,7 @@ export function exportJobs(
     'eligibility',
     'requiredCoverage',
     'ranking',
+    'reviewRequired',
   ] as const;
   const escape = (value: unknown) => {
     let cell = String(value ?? '');

@@ -8,6 +8,7 @@ import {
   EVIDENCE_POLICY_VERSION,
   JobMatchSchema,
   RankingProfileSchema,
+  PartialDateSchema,
 } from '@rovdo/shared';
 import type {
   CandidateProfile,
@@ -18,12 +19,18 @@ import type {
   Requirement,
 } from '@rovdo/shared';
 import { rankJobs, evaluateEligibility } from './index';
-import { degreeGate, extractRequirements, unionMonths } from './requirements';
+import {
+  degreeGate,
+  extractRequirements,
+  unionMonths,
+  scoringRequirements,
+  credentialStatus,
+} from './requirements';
 import { matchSkill, roleOf, TAXONOMY_VERSION } from './taxonomy';
 
 import { intelligenceOf, CANDIDATE_POLICY_VERSION } from './candidate';
 export { intelligenceOf } from './candidate';
-export const SCORING_POLICY_VERSION = 'deterministic-v2.1';
+export const SCORING_POLICY_VERSION = 'deterministic-v2.2';
 type Weights = RankingProfile['weights'];
 const weights = (partial: Partial<Weights>): Weights =>
   Object.fromEntries(COMPONENTS.map((key) => [key, partial[key] ?? 0])) as Weights;
@@ -168,7 +175,8 @@ export function rankWithProfile(
   asOf: string,
 ): JobMatch[] {
   const config = RankingProfileSchema.parse(input);
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(asOf)) throw new Error('AS_OF_REQUIRED');
+  if (asOf.length !== 10 || !PartialDateSchema.safeParse(asOf).success)
+    throw new Error('AS_OF_REQUIRED');
   // Backward compatibility is a separate path: technical-v2 must not silently redefine Legacy v1.
   if (config.method === 'legacy-v1') {
     const total =
@@ -234,9 +242,26 @@ export function rankWithProfile(
   const projects = usable(intel.projects);
   const education = usable(intel.education);
   const certifications = usable(intel.certifications);
+  // A verified project/work record explicitly lists competencies. It need not be duplicated
+  // as a skill fact; the same strongest-evidence rule prevents duplicate support inflation.
+  const competencies = [
+    ...skills,
+    ...work.flatMap((w) =>
+      w.skills.map((skillId) => ({
+        ...w,
+        skillId,
+        version: null,
+        depth: w.production ? ('production' as const) : ('supporting' as const),
+      })),
+    ),
+    ...projects.flatMap((p) =>
+      p.skills.map((skillId) => ({ ...p, skillId, version: null, depth: 'project' as const })),
+    ),
+  ];
   const results = rows.map(({ job, bm25Raw }): JobMatch => {
     const parsed = extractRequirements(job.descriptionText, job.title);
-    const skillRequirements = parsed.items.filter(
+    const requirements = scoringRequirements(parsed.items);
+    const skillRequirements = requirements.filter(
       (r) => r.kind === 'skill' && r.importance !== 'mentioned',
     );
     const importance = (r: Requirement) =>
@@ -246,7 +271,7 @@ export function rankWithProfile(
           ? config.preferredMultiplier
           : 0.2;
     const matches = skillRequirements.map((r) => {
-      const possible = skills.flatMap((s) =>
+      const possible = competencies.flatMap((s) =>
         [r.skillId!, ...r.alternatives].map((required) => ({
           s,
           ...matchSkill(s.skillId, required, s.version, r.versionRange, config.implicationCredit),
@@ -256,6 +281,7 @@ export function rankWithProfile(
         (a, b) =>
           b.strength - a.strength ||
           confidenceOf(b.s) - confidenceOf(a.s) ||
+          depthValue[b.s.depth] - depthValue[a.s.depth] ||
           a.s.id.localeCompare(b.s.id),
       );
       const best = possible[0];
@@ -301,7 +327,7 @@ export function rankWithProfile(
       'Depth uses verified production/project/supporting/course context, not keyword frequency.',
     );
     // Compare scoped, unioned employment duration with the job requirement, not total career keyword counts.
-    const experienceRequirements = parsed.items.filter(
+    const experienceRequirements = requirements.filter(
       (r) => r.kind === 'experience' && r.months !== null,
     );
     const experienceValues = experienceRequirements.map((r) => {
@@ -337,30 +363,33 @@ export function rankWithProfile(
     );
     const projectValues = projects
       .map((p) => {
-        const matched = skillRequirements.length
-          ? skillRequirements.filter((r) =>
-              p.skills.some(
-                (s) => matchSkill(s, r.skillId!, null, null, config.implicationCredit).strength > 0,
+        const matched =
+          weighted(
+            skillRequirements.map((r) => ({
+              r,
+              value: Math.max(
+                0,
+                ...p.skills.flatMap((s) =>
+                  [r.skillId!, ...r.alternatives].map(
+                    (required) =>
+                      matchSkill(s, required, null, r.versionRange, config.implicationCredit)
+                        .strength,
+                  ),
+                ),
               ),
-            ).length / skillRequirements.length
-          : 0;
-        const role = relevant(p.roleFamily, parsed.role.family, config.implicationCredit);
+            })),
+          ) ?? 0;
         return {
-          value: 0.65 * matched + 0.25 * role + 0.1 * Number(p.production),
+          value: matched,
           confidence: confidenceOf(p),
         };
       })
-      .sort((a, b) => b.value - a.value);
+      .sort((a, b) => b.value - a.value || b.confidence - a.confidence);
     add(
       'projects',
-      skillRequirements.length
-        ? projectValues.length
-          ? projectValues[0]!.value * (projectValues.length > 1 ? 0.7 : 1) +
-            (projectValues[1]?.value ?? 0) * 0.3
-          : 0
-        : null,
-      avg(projectValues.slice(0, 2).map((v) => v.confidence)),
-      'Best two verified projects: required-stack coverage, role relevance and deployed context; 70/30 aggregation.',
+      skillRequirements.length ? (projectValues.length ? projectValues[0]!.value : 0) : null,
+      projectValues[0]?.confidence ?? 0,
+      'Strongest verified project requirement coverage, respecting alternatives, versions and required/preferred weights. Extra or duplicate projects grant no bonus.',
     );
     const candidateRoles = work.map((w) => ({
       ...roleOf(w.title),
@@ -384,20 +413,25 @@ export function rankWithProfile(
     const levels = ['intern', 'entry', 'junior', 'mid', 'senior', 'staff', 'principal', 'lead'];
     const requested = levels.indexOf(parsed.role.level);
     const levelsScores = candidateRoles.map((r) => {
+      const relation = relevant(r.family, parsed.role.family, config.implicationCredit);
+      if (!relation) return 0;
       const n = levels.indexOf(r.level);
       if (n < 0) return 0;
       const delta = n - requested;
-      return r.track !== parsed.role.track
-        ? 0.2
-        : delta === 0
-          ? 1
-          : delta === 1
-            ? 0.85
-            : delta === -1
-              ? 0.65
-              : delta > 1
-                ? 0.6
-                : 0.3;
+      return (
+        relation *
+        (r.track !== parsed.role.track
+          ? 0.2
+          : delta === 0
+            ? 1
+            : delta === 1
+              ? 0.85
+              : delta === -1
+                ? 0.65
+                : delta > 1
+                  ? 0.6
+                  : 0.3)
+      );
     });
     add(
       'seniority',
@@ -423,11 +457,13 @@ export function rankWithProfile(
         'sponsorship-review',
       ].includes(c.rule),
     );
-    const qualificationRequirements = parsed.items.filter(
+    const qualificationRequirements = requirements.filter(
       (r) => r.kind === 'education' || r.kind === 'certification',
     );
     const educationValues = qualificationRequirements.map((r) => {
       let result: 'PASS' | 'FAIL' | 'UNKNOWN' = 'UNKNOWN';
+      let supportingIds: string[];
+      let supportConfidence: number;
       if (r.kind === 'education') {
         const outcomes = education.map((e) =>
           e.graduation &&
@@ -447,31 +483,47 @@ export function rankWithProfile(
           : outcomes.length && outcomes.every((v) => v === 'FAIL')
             ? 'FAIL'
             : 'UNKNOWN';
+        const supporting = education.filter((_e, index) => outcomes[index] === result);
+        supportingIds = [
+          ...new Set(supporting.flatMap((e) => qualificationSupport(e, evidence).evidenceIds)),
+        ].sort();
+        supportConfidence = Math.max(0, ...supporting.map(confidenceOf));
       } else {
-        const certificate = certifications.find((c) =>
-          r.excerpt.toLowerCase().includes(c.name.toLowerCase()),
+        const normalize = (v: string) =>
+          v.normalize('NFKC').trim().toLowerCase().replace(/\s+/g, ' ');
+        const matching = certifications.filter((c) =>
+          r.credential
+            ? [r.credential, ...r.alternatives].some(
+                (name) => normalize(c.name) === normalize(name),
+              )
+            : false,
         );
-        if (certificate)
-          result = certificate.expires && certificate.expires < asOf ? 'FAIL' : 'PASS';
+        const outcomes = matching.map((c) => credentialStatus(c.expires, asOf));
+        result = outcomes.includes('PASS')
+          ? 'PASS'
+          : outcomes.length && outcomes.every((v) => v === 'FAIL')
+            ? 'FAIL'
+            : 'UNKNOWN';
+        const supporting = matching.filter((_c, index) => outcomes[index] === result);
+        supportingIds = [
+          ...new Set(supporting.flatMap((c) => qualificationSupport(c, evidence).evidenceIds)),
+        ].sort();
+        supportConfidence = Math.max(0, ...supporting.map(confidenceOf));
       }
       if (r.importance === 'required')
         checks.push({
           rule: r.kind,
           result: config.gates.education ? result : result === 'FAIL' ? 'UNKNOWN' : result,
           excerpt: r.excerpt,
-          factIds: education.flatMap((e) => e.evidenceIds),
+          factIds: supportingIds,
         });
       return {
         r,
         value: result === 'PASS' ? 1 : 0,
-        confidence:
-          result === 'UNKNOWN'
-            ? 0
-            : avg((r.kind === 'education' ? education : certifications).map(confidenceOf)) *
-              r.confidence,
+        confidence: result === 'UNKNOWN' ? 0 : supportConfidence * r.confidence,
       };
     });
-    for (const r of parsed.items.filter(
+    for (const r of requirements.filter(
       (r) => r.kind === 'graduation' && r.importance === 'required',
     )) {
       const years = education.flatMap((e) =>
@@ -578,13 +630,15 @@ export function rankWithProfile(
           'Configured essential-skill coverage lacks verified evidence; missing evidence is not a fabricated absence.',
         factIds: [],
       });
-    if (config.gates.experience && experienceValues.some((v) => v.value < 1))
+    if (
+      config.gates.experience &&
+      experienceValues.some((v) => v.r.importance === 'required' && v.value < 1)
+    )
       checks.push({
         rule: 'experience',
-        result:
-          work.length && work.every((w) => w.start && unionMonths([w], asOf) > 0)
-            ? 'FAIL'
-            : 'UNKNOWN',
+        // A profile is a partial history. Its evidenced duration is a lower bound,
+        // not an explicit assertion that additional relevant employment does not exist.
+        result: 'UNKNOWN',
         excerpt: 'Relevant verified employment does not establish the configured experience gate.',
         factIds: work.flatMap((w) => w.evidenceIds),
       });
@@ -676,7 +730,7 @@ export function rankWithProfile(
         details.filter((c) => c.value !== null).map((c) => [c.name, c.value!]),
       ),
       profileVersion: profile.version,
-      scorerVersion: 'deterministic-v2',
+      scorerVersion: SCORING_POLICY_VERSION,
       ranking,
     });
   });

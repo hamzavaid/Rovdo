@@ -1,5 +1,6 @@
 /** Task-first job results, adapted from the supplied prototype using actual persisted matches and IPC actions. */
 import type { ReactNode, MouseEvent } from 'react';
+import { eligibilityOutcome } from '@rovdo/career';
 import type { CareerCommand, CareerViewSchema, JobMatch, RankingProfile } from '@rovdo/shared';
 import type { z } from 'zod';
 type View = z.infer<typeof CareerViewSchema>;
@@ -25,6 +26,7 @@ export function JobCard({
   busy: boolean;
 }) {
   const url = m.job.canonicalUrl;
+  const eligibility = eligibilityOutcome(m);
   const link = (children: ReactNode, className?: string) => (
     <a
       className={className}
@@ -101,10 +103,12 @@ export function JobCard({
       <section className="job-fit-snapshot" aria-label="Job fit snapshot">
         <div>
           <small>Eligibility</small>
-          <strong className={`fit-badge ${m.excluded ? 'failed' : m.review ? 'review' : 'passed'}`}>
-            {m.excluded
+          <strong
+            className={`fit-badge ${eligibility === 'FAIL' ? 'failed' : eligibility === 'UNKNOWN' ? 'review' : 'passed'}`}
+          >
+            {eligibility === 'FAIL'
               ? 'Excluded by hard requirement'
-              : m.review
+              : eligibility === 'UNKNOWN'
                 ? 'Eligibility needs review'
                 : 'Published checks passed'}
           </strong>
@@ -113,6 +117,7 @@ export function JobCard({
           <small>Evidence confidence</small>
           <strong>{Math.round(m.confidence * 100)}%</strong>
           <span>{m.matchedSkills.length} verified skill matches</span>
+          {m.review && eligibility === 'PASS' && <span>Qualification evidence needs review</span>}
         </div>
         <div>
           <small>Required-skill coverage</small>

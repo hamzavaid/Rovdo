@@ -104,4 +104,10 @@ it('reports baseline versus current quality, consistency and runtime on a fixed 
     ) + '\n',
   );
   process.stdout.write('Matching benchmark (provisional): ' + JSON.stringify(summary) + '\n');
+  // Regression floors on this frozen corpus, not a claim of external recruiting accuracy.
+  for (const key of ['precision', 'ndcg', 'relevantRecallAt5', 'relevantRecall'])
+    expect(summary.current[key]!).toBeGreaterThanOrEqual(summary.baseline[key]! - 1e-12);
+  expect(summary.current.hardConstraintFalsePositiveRate!).toBeLessThanOrEqual(
+    summary.baseline.hardConstraintFalsePositiveRate!,
+  );
 });

@@ -1,4 +1,6 @@
 import { setImmediate as yieldTurn } from 'node:timers/promises';
+import { postingTimestamp } from './dates';
+export { postingTimestamp } from './dates';
 /**
  * ATS-specific public endpoints, schema validation and normalized job records.
  * Malformed entries are quarantined individually where possible; adapters retain source-specific provenance.
@@ -352,10 +354,7 @@ export class AtsAdapter implements JobSourceAdapter {
       let salary: Job['salary'] = null;
       let country = '';
       let extraCountries: string[] = [];
-      const timestamp = (v: string | number | null | undefined) =>
-        v !== null && v !== undefined && Number.isFinite(new Date(v).getTime())
-          ? new Date(v).toISOString()
-          : null;
+      const timestamp = postingTimestamp;
       if (s.ats === 'greenhouse') {
         const r = gh.parse(raw);
         title = r.title;

@@ -100,6 +100,12 @@ export function QualificationFields({
                   'data-science',
                   'security',
                   'analytics',
+                  'mechanical',
+                  'electrical',
+                  'civil',
+                  'manufacturing',
+                  'finance',
+                  'healthcare',
                   ...(typeof value === 'string' &&
                   value &&
                   ![
@@ -112,6 +118,12 @@ export function QualificationFields({
                     'data-science',
                     'security',
                     'analytics',
+                    'mechanical',
+                    'electrical',
+                    'civil',
+                    'manufacturing',
+                    'finance',
+                    'healthcare',
                   ].includes(value)
                     ? [value]
                     : []),

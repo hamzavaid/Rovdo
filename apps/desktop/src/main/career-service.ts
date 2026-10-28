@@ -52,6 +52,7 @@ export function createCareerService(
     if (!config) throw new Error('RANKING_NOT_FOUND');
     const candidate = profile ?? emptyProfile();
     const asOf = new Date().toISOString().slice(0, 10);
+    if (!summary) await store.refreshSearchMetadata();
     const page = summary
       ? { matches: [], total: 0, pending: 0 }
       : await store.rankedPageAsync(

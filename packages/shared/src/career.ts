@@ -253,7 +253,12 @@ export const JobMatchSchema = z.strictObject({
   gaps: z.array(z.string()),
   reasons: z.array(z.string()),
   profileVersion: z.number().int(),
-  scorerVersion: z.enum(['deterministic-v1', 'deterministic-v2']),
+  scorerVersion: z.enum([
+    'deterministic-v1',
+    'deterministic-v2',
+    'deterministic-v2.1',
+    'deterministic-v2.2',
+  ]),
   features: z.record(z.string(), z.number()),
   ranking: RankingDetailsSchema.optional(),
 });

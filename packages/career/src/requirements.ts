@@ -3,8 +3,9 @@
  * Also supplies degree gates and overlap-safe employment duration; unknown evidence never implies completion.
  */
 import type { Requirement, RequirementSet } from '@rovdo/shared';
+import { PartialDateSchema } from '@rovdo/shared';
 import { SKILLS, TAXONOMY_VERSION, roleOf } from './taxonomy';
-export const REQUIREMENTS_PARSER_VERSION = 'requirements-v3';
+export const REQUIREMENTS_PARSER_VERSION = 'requirements-v4';
 const escape = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 const aliases = SKILLS.flatMap((skill) =>
   skill.aliases.map((alias) => ({
@@ -39,8 +40,26 @@ export function extractRequirements(text: string, title: string): RequirementSet
   let section = '';
   let sectionImportance: Requirement['importance'] = 'ambiguous';
   for (const part of clauses(text)) {
-    const line = part.line.slice(0, 4000),
+    let line = part.line.slice(0, 4000),
       offset = part.offset;
+    // ATS list headings often share a line with their first bullet. Preserve exact source offsets.
+    const inline =
+      /^\s*(?:[-#*]+\s*)?((?:(?:minimum|required|preferred|nice.to.have)(?: qualifications| requirements| skills)?|qualifications|requirements|responsibilities|about us|benefits))\s*:\s*/i.exec(
+        line,
+      );
+    if (inline) {
+      section = inline[1]!;
+      sectionImportance = /preferred|nice.to.have/i.test(section)
+        ? 'preferred'
+        : /required|minimum|requirements/i.test(section)
+          ? 'required'
+          : /responsibilities|about us|benefits/i.test(section)
+            ? 'mentioned'
+            : 'ambiguous';
+      offset += inline[0].length;
+      line = line.slice(inline[0].length);
+      if (!line.trim()) continue;
+    }
     const trimmed = line.trim().replace(/^[-#*]+\s*/, '');
     if (
       /^(?:(?:minimum|required|preferred|nice.to.have)(?: qualifications| requirements| skills)?|qualifications|requirements|responsibilities|about us|benefits)\s*:?$/i.test(
@@ -179,7 +198,20 @@ export function extractRequirements(text: string, title: string): RequirementSet
       });
     if (/citizenship|work authori[sz]|authorized to work|clearance|return to school/i.test(line))
       add('legal', {});
-    if (/\bcertification|\blicen[cs]e\b/i.test(line)) add('certification', {});
+    if (/\bcertification|\blicen[cs]e\b/i.test(line)) {
+      // Named credentials are separate requirements. Unknown credential prose remains reviewable.
+      const credentials = [
+        ...line.matchAll(/\b(CPA|PMP|CISSP|CISM|CISA|CCNA|CCNP|RN|PE|EIT)\b/g),
+      ].map((m) => m[1]!);
+      const alternative =
+        credentials.length > 1 &&
+        new RegExp('\\b' + credentials.join('\\s+(?:or|/)\\s+') + '\\b').test(line);
+      if (alternative)
+        add('certification', { credential: credentials[0]!, alternatives: credentials.slice(1) });
+      else if (credentials.length)
+        for (const credential of new Set(credentials)) add('certification', { credential });
+      else add('certification', {});
+    }
   }
   return {
     parserVersion: REQUIREMENTS_PARSER_VERSION,
@@ -227,7 +259,7 @@ export function degreeGate(
   return actual >= needed ? 'PASS' : required.equivalentAllowed ? 'UNKNOWN' : 'FAIL';
 }
 function monthIndex(value: string, end: boolean): number | null {
-  if (!/^\d{4}(?:-(?:0[1-9]|1[0-2])(?:-\d{2})?)?$/.test(value)) return null;
+  if (!PartialDateSchema.safeParse(value).success) return null;
   const [year, month = end ? 12 : 1, day = 1] = value.split('-').map(Number);
   return (
     year! * 12 +
@@ -235,6 +267,47 @@ function monthIndex(value: string, end: boolean): number | null {
     1 +
     (value.length <= 7 && end ? 1 : (day - 1) / new Date(Date.UTC(year!, month, 0)).getUTCDate())
   );
+}
+/** Semantic requirements count once; retain all original extracts separately for provenance. */
+export function scoringRequirements(items: readonly Requirement[]): Requirement[] {
+  const seen = new Map<string, Requirement>();
+  const priority = { required: 3, preferred: 2, ambiguous: 1, mentioned: 0 };
+  for (const r of items) {
+    if (r.importance === 'mentioned') continue;
+    const key = JSON.stringify([
+      r.kind,
+      r.kind === 'skill' ? [r.skillId, ...r.alternatives].sort() : r.skillId,
+      r.versionRange,
+      r.months,
+      r.roleFamily,
+      r.degree,
+      r.degreeField,
+      r.enrollmentAllowed,
+      r.equivalentAllowed,
+      r.relatedFieldsAllowed,
+      r.graduationStart,
+      r.graduationEnd,
+      r.credential ?? (r.kind === 'certification' ? r.excerpt.trim().toLowerCase() : null),
+      r.kind === 'certification' ? [...r.alternatives].sort() : null,
+    ]);
+    const old = seen.get(key);
+    if (!old || priority[r.importance] > priority[old.importance]) seen.set(key, r);
+  }
+  return [...seen.values()];
+}
+/** Coarse expiry precision is uncertainty during that period, not a fabricated exact day. */
+export function credentialStatus(
+  expires: string | null,
+  asOf: string,
+): 'PASS' | 'FAIL' | 'UNKNOWN' {
+  if (!expires) return 'PASS';
+  if (!PartialDateSchema.safeParse(expires).success) return 'UNKNOWN';
+  const current = asOf.slice(0, expires.length);
+  return expires < current
+    ? 'FAIL'
+    : expires > current || expires.length === 10
+      ? 'PASS'
+      : 'UNKNOWN';
 }
 /** Merge overlapping intervals; count an unknown end only when ongoing employment is explicit. */
 export function unionMonths(

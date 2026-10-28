@@ -164,6 +164,7 @@ export const RequirementSchema = z.strictObject({
   months: z.number().finite().nonnegative().nullable(),
   roleFamily: id.nullable(),
   degree: z.string().max(40).nullable(),
+  credential: z.string().trim().min(1).max(200).optional(),
   degreeField: z.string().max(300).nullable().default(null),
   relatedFieldsAllowed: z.boolean().default(false),
   enrollmentAllowed: z.boolean(),
@@ -173,8 +174,8 @@ export const RequirementSchema = z.strictObject({
   graduationEnd: z.number().int().nullable(),
 });
 export const RequirementSetSchema = z.strictObject({
-  parserVersion: z.enum(['requirements-v2', 'requirements-v3']),
-  taxonomyVersion: z.enum(['rovdo-taxonomy-1', 'rovdo-taxonomy-2']),
+  parserVersion: z.enum(['requirements-v2', 'requirements-v3', 'requirements-v4']),
+  taxonomyVersion: z.enum(['rovdo-taxonomy-1', 'rovdo-taxonomy-2', 'rovdo-taxonomy-3']),
   items: z.array(RequirementSchema).max(1000),
   role: z.strictObject({
     family: id,

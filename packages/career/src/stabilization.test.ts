@@ -21,6 +21,9 @@ it('support confidence and score cannot fall when valid lower-confidence evidenc
 it('does not admit unverified or unsupported qualifications at a zero evidence threshold', () => {
   const p = sampleCandidate(['typescript']);
   p.intelligence!.skills[0]!.verified = false;
+  // No independent verified work/project may establish this competency in this negative fixture.
+  p.intelligence!.experience[0]!.verified = false;
+  p.intelligence!.projects[0]!.verified = false;
   const config = { ...BUILTIN_RANKINGS[1]!, minimumEvidence: 0 };
   const match = rankWithProfile(
     [{ job: sampleJob('Required skills: TypeScript'), bm25Raw: 0 }],

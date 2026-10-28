@@ -2,7 +2,7 @@
  * Curated canonical skills, context-sensitive aliases, directional relations and role families.
  * Related technologies are not automatically equivalent; versioned rules keep matching reproducible.
  */
-export const TAXONOMY_VERSION = 'rovdo-taxonomy-2' as const;
+export const TAXONOMY_VERSION = 'rovdo-taxonomy-3' as const;
 export const TAXONOMY_REFERENCES = [
   'https://www.onetcenter.org/database.html',
   'https://esco.ec.europa.eu/en/classification',
@@ -23,6 +23,18 @@ export type Skill = {
   aliases: { label: string; context: 'any' | 'skill' }[];
 };
 const seeds: [string, string, SkillType, string[]][] = [
+  ['excel', 'Excel', 'tool', ['Microsoft Excel']],
+  ['powerbi', 'Power BI', 'tool', ['PowerBI', 'Microsoft Power BI']],
+  ['tableau', 'Tableau', 'tool', []],
+  ['autocad', 'AutoCAD', 'tool', []],
+  ['solidworks', 'SolidWorks', 'tool', []],
+  ['gd-and-t', 'GD&T', 'methodology', ['geometric dimensioning and tolerancing']],
+  ['gaap', 'GAAP', 'methodology', ['generally accepted accounting principles']],
+  ['ifrs', 'IFRS', 'methodology', ['international financial reporting standards']],
+  ['lean-manufacturing', 'Lean Manufacturing', 'methodology', []],
+  ['six-sigma', 'Six Sigma', 'methodology', []],
+  ['arcgis', 'ArcGIS', 'tool', []],
+  ['revit', 'Revit', 'tool', ['Autodesk Revit']],
   ['typescript', 'TypeScript', 'language', ['ts']],
   ['javascript', 'JavaScript', 'language', ['js', 'ecmascript']],
   ['java', 'Java', 'language', []],
@@ -210,17 +222,37 @@ export function matchSkill(
 }
 export function roleOf(title: string) {
   const t = title.toLowerCase();
-  const family = /data scientist|machine learning|\bml engineer/.test(t)
-    ? 'data-science'
-    : /security|cyber/.test(t)
-      ? 'security'
-      : /devops|site reliability|platform engineer/.test(t)
-        ? 'platform'
-        : /engineer|developer|\bswe\b/.test(t)
-          ? 'software'
-          : /data analyst/.test(t)
-            ? 'analytics'
-            : 'unknown';
+  const family = /mechanical|mechanic(?:al)? design/.test(t)
+    ? 'mechanical'
+    : /electrical|electronics/.test(t)
+      ? 'electrical'
+      : /hardware|\bfpga\b|\basic\b/.test(t)
+        ? 'hardware'
+        : /embedded|firmware/.test(t)
+          ? 'embedded'
+          : /robotics|robotic /.test(t)
+            ? 'robotics'
+            : /civil engineer|structural engineer/.test(t)
+              ? 'civil'
+              : /manufactur|industrial engineer|quality engineer/.test(t)
+                ? 'manufacturing'
+                : /accountant|accounting|auditor|financial analyst/.test(t)
+                  ? 'finance'
+                  : /registered nurse|clinical nurse|nursing/.test(t)
+                    ? 'healthcare'
+                    : /data scientist|machine learning|\bml engineer/.test(t)
+                      ? 'data-science'
+                      : /security|cyber/.test(t)
+                        ? 'security'
+                        : /devops|site reliability|platform engineer/.test(t)
+                          ? 'platform'
+                          : /software|backend|frontend|full.stack|web developer|\bswe\b|engineering manager/.test(
+                                t,
+                              )
+                            ? 'software'
+                            : /data analyst|business analyst/.test(t)
+                              ? 'analytics'
+                              : 'unknown';
   const level = /^\s*(?:sr\.?|senior)\s+(?!living\b)/.test(t)
     ? 'senior'
     : (/^(?:staff|principal|junior|jr\.?|intern|entry|mid|lead)\b/

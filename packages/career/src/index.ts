@@ -5,6 +5,7 @@
 import { CandidateProfileSchema, JobMatchSchema } from '@rovdo/shared';
 export * from './taxonomy';
 export * from './requirements';
+export { eligibilityOutcome } from './job-export';
 export * from './scorer-v2';
 export * from './application-context';
 export * from './import-review';
