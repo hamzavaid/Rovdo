@@ -73,3 +73,5 @@ npx --yes prettier@3.6.2 --check "apps/desktop/src/**/*.{ts,tsx,css}" "packages/
 ```
 
 Replace `--check` with `--write` to format. The formatter must be cached or downloaded on first use; `--offline` can be passed through npm exec when cached. Generated bundles, dependencies, private `/docs`, lockfiles, artifacts and the separate roadmap file are excluded. Keep JSON manifests valid; explain their design rationale in contributor guidance instead of adding unsupported JSON comments. Preserve JSX text spacing when reformatting and run the regression gate after broad formatting changes.
+
+The automated source/workflow formatting gate is `npm run format:check` and is included in `npm run check` and CI. CI helper TypeScript files and their tests are covered by the normal static/unit gates. Run `npm run benchmark:matching` to regenerate the synthetic matching report; see [QUALITY.md](QUALITY.md) for rubric, baseline provenance, metrics and limitations. Never recapture the frozen baseline to accommodate a failing regression.

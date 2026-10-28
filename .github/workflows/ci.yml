@@ -28,9 +28,12 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npx playwright install chromium
+      - run: npm run format:check
       - run: npm run lint
       - run: npm run typecheck
       - run: npm test
+      - name: Report reproducible matching measurements
+        run: node scripts/quality-summary.ts
       - run: npm run build
       - name: Install Electron Linux system dependencies
         if: runner.os == 'Linux'
