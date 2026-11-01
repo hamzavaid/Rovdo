@@ -5,6 +5,13 @@
 import type { FailureCode } from '@rovdo/shared';
 
 export const errorMessage: Record<FailureCode, string> = {
+  CLI_NOT_INSTALLED: 'CLI not found. Install and authenticate it separately, then refresh.',
+  CLI_UNSUPPORTED:
+    'This CLI version or execution mode cannot meet Rovdo’s restricted text-only requirements.',
+  CLI_MODEL_INVALID:
+    'The selected CLI model is invalid or unavailable. Choose an installed model or check your CLI account.',
+  CLI_EXECUTION_FAILED:
+    'The CLI could not complete the request. Check it in your terminal, then retry. Diagnostic output is withheld for privacy.',
   VALIDATION_ERROR: 'Check the fields and try again.',
   IPC_FORBIDDEN: 'This window cannot perform that operation.',
   INTERNAL_ERROR: 'The operation could not complete. Retry or restart Rovdo.',

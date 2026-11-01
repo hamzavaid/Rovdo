@@ -16,6 +16,8 @@ import {
   RequestIdSchema,
   ResultSchema,
   SettingsResultSchema,
+  CliPreferenceSchema,
+  CliTestSchema,
 } from '@rovdo/shared';
 import type { DesktopApi } from '@rovdo/shared';
 import { BROWSER_CHANNEL, BrowserCommandSchema, BrowserResultSchema } from '@rovdo/shared';
@@ -48,6 +50,10 @@ async function invoke<T>(
 }
 
 const api: DesktopApi = Object.freeze<DesktopApi>({
+  refreshClis: () => invoke(BYOK_CHANNELS.cliRefresh, {}, ResultSchema),
+  saveCli: (input) =>
+    invoke(BYOK_CHANNELS.cliSave, validated(CliPreferenceSchema, input), ResultSchema),
+  testCli: (input) => invoke(BYOK_CHANNELS.cliTest, validated(CliTestSchema, input), ResultSchema),
   intelligenceCommand: (input) =>
     invoke(
       INTELLIGENCE_CHANNEL,

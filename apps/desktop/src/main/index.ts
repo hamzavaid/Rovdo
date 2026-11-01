@@ -29,6 +29,7 @@ import { reviewShortlist } from './career-reviewer';
 import { createBrowserService } from './browser-service';
 import { ProviderRegistry, createAdapter } from '@rovdo/providers';
 import { ByokService } from './byok-service';
+import { CliService } from './cli-service';
 import { createNativeVault } from './native-vault';
 import { handleByok } from './byok-ipc';
 import { getAppInfo } from './ipc';
@@ -108,6 +109,7 @@ async function initialize(): Promise<void> {
     vault,
     (config, key) => registry.create(config, key),
     app.getVersion(),
+    new CliService(store),
   );
   runStore = new RuntimeStore(join(app.getPath('userData'), 'rovdo.sqlite'));
   browserService = createBrowserService(runStore, store, vault);

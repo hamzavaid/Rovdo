@@ -7,6 +7,8 @@ export { RuntimeStore } from './runtime';
 export { CareerStore } from './career';
 import { ProviderConfigSchema, UsageRecordSchema, UsageSummarySchema } from '@rovdo/shared';
 import type { ProviderConfig } from '@rovdo/shared';
+import { CliPreferenceSchema } from '@rovdo/shared';
+import type { CliPreference } from '@rovdo/shared';
 
 const migrations = [
   {
@@ -20,6 +22,10 @@ const migrations = [
     status TEXT NOT NULL, created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
   );
 `,
+  },
+  {
+    version: 2,
+    sql: 'CREATE TABLE cli_preference (id TEXT PRIMARY KEY, config_json TEXT NOT NULL);',
   },
 ];
 
@@ -50,6 +56,21 @@ export class SettingsStore {
   }
   journalMode(): string {
     return String(this.db.prepare('PRAGMA journal_mode').get()!.journal_mode);
+  }
+  cliPreferences(): CliPreference[] {
+    return this.db
+      .prepare('SELECT config_json FROM cli_preference ORDER BY id')
+      .all()
+      .map((row) => CliPreferenceSchema.parse(JSON.parse(String(row.config_json))));
+  }
+  saveCli(input: unknown): void {
+    const parsed = CliPreferenceSchema.safeParse(input);
+    if (!parsed.success) throw new Error('VALIDATION_ERROR');
+    this.db
+      .prepare(
+        'INSERT INTO cli_preference VALUES (?,?) ON CONFLICT(id) DO UPDATE SET config_json=excluded.config_json',
+      )
+      .run(parsed.data.id, JSON.stringify(parsed.data));
   }
   list(): ProviderConfig[] {
     try {

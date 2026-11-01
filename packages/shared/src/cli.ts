@@ -1,0 +1,44 @@
+/** Narrow CLI preferences and public status. Executable paths/authentication material never cross IPC. */
+import { z } from 'zod';
+export const CliIdSchema = z.enum(['codex', 'claude', 'gemini', 'qwen', 'ollama']);
+export type CliId = z.infer<typeof CliIdSchema>;
+export const CliModelSchema = z
+  .string()
+  .trim()
+  .max(150)
+  .refine(
+    (value) =>
+      value === '' || (/^[a-zA-Z0-9][a-zA-Z0-9._:/-]*$/.test(value) && !value.includes('..')),
+  );
+export const CliPreferenceSchema = z.strictObject({
+  id: CliIdSchema,
+  model: CliModelSchema,
+  timeoutMs: z.number().int().min(5000).max(300000),
+});
+export type CliPreference = z.infer<typeof CliPreferenceSchema>;
+export const CliViewSchema = z.strictObject({
+  id: CliIdSchema,
+  profileId: z.uuid(),
+  name: z.string().max(50),
+  version: z.string().max(40).nullable(),
+  status: z.enum([
+    'not-installed',
+    'installed',
+    'authentication-required',
+    'unsupported-version',
+    'unsupported-mode',
+    'connected',
+    'unavailable',
+  ]),
+  model: CliModelSchema,
+  models: z.array(CliModelSchema).max(500),
+  timeoutMs: z.number().int(),
+  streaming: z.enum(['supported', 'unknown']),
+  text: z.enum(['supported', 'unknown']),
+});
+export type CliView = z.infer<typeof CliViewSchema>;
+export const CliTestSchema = z.strictObject({
+  id: CliIdSchema,
+  requestId: z.uuid(),
+  consent: z.literal(true),
+});

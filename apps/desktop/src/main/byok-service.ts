@@ -20,6 +20,9 @@ import { createAdapter, ProviderError, WORKSPACE_TOOL } from '@rovdo/providers';
 import type { ModelAdapter } from '@rovdo/providers';
 import type { SettingsStore } from '@rovdo/storage';
 import type { CredentialVault } from './vault';
+import type { CliService } from './cli-service';
+import { CliPreferenceSchema } from '@rovdo/shared';
+import type { CliId } from '@rovdo/shared';
 
 type Vault = Pick<CredentialVault, 'get' | 'has' | 'enter' | 'remove'>;
 export function failureCode(error: unknown) {
@@ -69,6 +72,7 @@ export class ByokService {
       key: string,
     ) => ModelAdapter = createAdapter,
     private readonly version = '0.1.0',
+    private readonly cli?: CliService,
   ) {}
   private assertIdle(): void {
     if (this.active || this.changing) throw new Error('BUSY');
@@ -96,7 +100,35 @@ export class ByokService {
         }
       }),
     );
-    return { profiles, usage: this.store.usage() };
+    return { profiles, usage: this.store.usage(), ...(this.cli ? { clis: this.cli.views() } : {}) };
+  }
+  async refreshClis(): Promise<void> {
+    await this.change(async () => {
+      await this.cli?.scan(true);
+    });
+  }
+  async saveCli(input: unknown): Promise<void> {
+    await this.change(async () => {
+      if (!this.cli) throw new Error('CLI_UNSUPPORTED');
+      const pref = CliPreferenceSchema.parse(input);
+      this.cli.save(pref);
+      this.history.clear();
+    });
+  }
+  async testCli(id: CliId, requestId: string): Promise<void> {
+    this.assertIdle();
+    if (!this.cli) throw new Error('CLI_UNSUPPORTED');
+    const controller = new AbortController();
+    this.active = { id: requestId, controller };
+    this.history.clear();
+    const pending = this.cli.test(id, controller.signal);
+    this.pendingRun = pending;
+    try {
+      await pending;
+    } finally {
+      if (this.active?.id === requestId) this.active = null;
+      if (this.pendingRun === pending) this.pendingRun = null;
+    }
   }
   async save(input: unknown): Promise<void> {
     const parsed = ProviderConfigSchema.safeParse(input);
@@ -178,6 +210,7 @@ export class ByokService {
           },
         );
         this.store.save({ ...profile, capabilities });
+        this.history.delete(id);
         if (capabilities.tools !== 'supported') throw new Error('CAPABILITY_REQUIRED');
       } catch (error) {
         this.noteFailure(id, error);
@@ -210,6 +243,7 @@ export class ByokService {
   }
   async shutdown(): Promise<void> {
     this.reset();
+    await this.cli?.shutdown();
     await this.pendingRun?.catch(() => {});
   }
   run(input: unknown, emit: (event: ChatEvent) => void): Promise<void> {
@@ -235,6 +269,61 @@ export class ByokService {
     const controller = new AbortController();
     this.active = { id: requestId, controller };
     try {
+      const cliId = this.cli?.idForProfile(profileId);
+      if (cliId) {
+        if (request.data.cliManagedCost !== true) throw new Error('VALIDATION_ERROR');
+        if (this.cli!.views().find((v) => v.id === cliId)?.status !== 'connected')
+          throw new Error('CAPABILITY_REQUIRED');
+        const messages = [
+          ...(this.history.get(profileId) ?? []),
+          { role: 'user' as const, content: text },
+        ];
+        if (Buffer.byteLength(JSON.stringify(messages)) > 128000)
+          throw new Error('VALIDATION_ERROR');
+        let completed = false;
+        try {
+          const adapter = await this.cli!.adapter(cliId);
+          const turn = await adapter.generate({ messages, tools: [] }, controller.signal, (chunk) =>
+            emit({ type: 'text', requestId, text: chunk }),
+          );
+          if (controller.signal.aborted) throw new Error('CANCELED');
+          if (turn.toolCalls.length || turn.stopReason !== 'stop' || !turn.text)
+            throw new Error('INVALID_RESPONSE');
+          this.history.set(profileId, [...messages, { role: 'assistant', content: turn.text }]);
+          completed = true;
+          this.store.recordUsage({
+            requestId,
+            profileId,
+            inputTokens: turn.usage.inputTokens,
+            outputTokens: turn.usage.outputTokens,
+            source: turn.usage.source,
+            estimatedUsd: null,
+            pricingVersion: null,
+            status: 'completed',
+          });
+          emit({
+            type: 'usage',
+            requestId,
+            usage: turn.usage,
+            estimatedUsd: null,
+            pricingVersion: null,
+          });
+          emit({ type: 'done', requestId, status: 'completed' });
+          return;
+        } finally {
+          if (!completed)
+            this.store.recordUsage({
+              requestId,
+              profileId,
+              inputTokens: 0,
+              outputTokens: 0,
+              source: 'unavailable',
+              estimatedUsd: null,
+              pricingVersion: null,
+              status: controller.signal.aborted ? 'canceled' : 'failed',
+            });
+        }
+      }
       const profile = this.store.get(profileId);
       this.checkCooldown(profileId);
       if (

@@ -3,6 +3,8 @@
  * Configuration contains no API-key field; credentials are represented only by status in public views.
  */
 import { z } from 'zod';
+import { CliViewSchema } from './cli';
+import type { CliPreference, CliId } from './cli';
 
 export const FailureCodeSchema = z.enum([
   'VALIDATION_ERROR',
@@ -22,6 +24,10 @@ export const FailureCodeSchema = z.enum([
   'DESTINATION_BLOCKED',
   'CAPABILITY_REQUIRED',
   'BUDGET_EXCEEDED',
+  'CLI_NOT_INSTALLED',
+  'CLI_UNSUPPORTED',
+  'CLI_MODEL_INVALID',
+  'CLI_EXECUTION_FAILED',
 ]);
 export type FailureCode = z.infer<typeof FailureCodeSchema>;
 const flag = z.enum(['supported', 'unsupported', 'unknown']);
@@ -106,6 +112,7 @@ export const ChatRequestSchema = z.strictObject({
   text: z.string().trim().min(1).max(32_000),
   consent: z.literal(true),
   maxUsd: z.number().finite().positive().max(100),
+  cliManagedCost: z.literal(true).optional(),
 });
 export type ChatRequest = z.infer<typeof ChatRequestSchema>;
 export const ProbeRequestSchema = z.strictObject({ profileId: z.uuid(), consent: z.literal(true) });
@@ -143,6 +150,7 @@ export const ProfileViewSchema = z.strictObject({
 });
 export const SettingsViewSchema = z.strictObject({
   profiles: z.array(ProfileViewSchema),
+  clis: z.array(CliViewSchema).optional(),
   usage: UsageSummarySchema,
 });
 export type SettingsView = z.infer<typeof SettingsViewSchema>;
@@ -194,8 +202,14 @@ export const BYOK_CHANNELS = Object.freeze({
   cancel: 'chat:cancel',
   clear: 'chat:clear',
   event: 'chat:event',
+  cliRefresh: 'models:cli-refresh',
+  cliSave: 'models:cli-save',
+  cliTest: 'models:cli-test',
 });
 export interface ByokApi {
+  refreshClis(): Promise<Result>;
+  saveCli(input: CliPreference): Promise<Result>;
+  testCli(input: { id: CliId; requestId: string; consent: true }): Promise<Result>;
   getSettings(): Promise<z.infer<typeof SettingsResultSchema>>;
   saveProfile(config: ProviderConfig): Promise<Result>;
   removeProfile(input: { profileId: string }): Promise<Result>;

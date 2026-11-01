@@ -12,6 +12,8 @@ import {
   ProviderConfigSchema,
   RequestIdSchema,
   SettingsViewSchema,
+  CliPreferenceSchema,
+  CliTestSchema,
 } from '@rovdo/shared';
 import type { ChatEvent, Result } from '@rovdo/shared';
 import { ByokService, failureCode } from './byok-service';
@@ -35,6 +37,18 @@ export async function handleByok(
   };
   try {
     switch (channel) {
+      case BYOK_CHANNELS.cliRefresh:
+        checked(EmptyRequestSchema);
+        await service.refreshClis();
+        break;
+      case BYOK_CHANNELS.cliSave:
+        await service.saveCli(checked(CliPreferenceSchema));
+        break;
+      case BYOK_CHANNELS.cliTest: {
+        const value = checked(CliTestSchema);
+        await service.testCli(value.id, value.requestId);
+        break;
+      }
       case BYOK_CHANNELS.settings:
         checked(EmptyRequestSchema);
         return { ok: true, settings: SettingsViewSchema.parse(await service.list()) };
