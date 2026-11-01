@@ -32,7 +32,7 @@ import { matchSkill, roleOf, TAXONOMY_VERSION } from './taxonomy';
 import { intelligenceOf, CANDIDATE_POLICY_VERSION } from './candidate';
 import { locationOutcome } from './constraints';
 export { intelligenceOf } from './candidate';
-export const SCORING_POLICY_VERSION = 'deterministic-v2.5';
+export const SCORING_POLICY_VERSION = 'deterministic-v2.6';
 type Weights = RankingProfile['weights'];
 const weights = (partial: Partial<Weights>): Weights =>
   Object.fromEntries(COMPONENTS.map((key) => [key, partial[key] ?? 0])) as Weights;
@@ -199,19 +199,28 @@ export function prepareRanking(
     if (!total) throw new Error('NO_LEGACY_WEIGHTS');
     return {
       rank: (rows) =>
-        rankJobs(rows, {
-          ...profile,
-          preferences: {
-            ...profile.preferences,
-            weights: {
-              skills: config.weights.skills / total,
-              role: config.weights.role / total,
-              location: config.weights.location / total,
-              eligibility: config.weights.eligibility / total,
-              preferences: config.weights.preferences / total,
+        rankJobs(
+          rows.map((row) => ({
+            ...row,
+            job:
+              row.job.validThrough && row.job.validThrough.slice(0, 10) < asOf
+                ? { ...row.job, activeStatus: 'closed' as const }
+                : row.job,
+          })),
+          {
+            ...profile,
+            preferences: {
+              ...profile.preferences,
+              weights: {
+                skills: config.weights.skills / total,
+                role: config.weights.role / total,
+                location: config.weights.location / total,
+                eligibility: config.weights.eligibility / total,
+                preferences: config.weights.preferences / total,
+              },
             },
           },
-        }).map((m) => ({
+        ).map((m) => ({
           ...m,
           ranking: {
             method: config.method,
@@ -231,6 +240,10 @@ export function prepareRanking(
             requiredCoverage: 0,
             shortlist:
               !m.excluded &&
+              !m.checks.some((c) => c.result === 'UNKNOWN') &&
+              !extractRequirements(m.job.descriptionText, m.job.title).items.some(
+                (r) => r.importance === 'required' && r.kind === 'unknown',
+              ) &&
               m.score >= config.thresholds.score &&
               m.confidence >= config.thresholds.confidence,
             components: [],

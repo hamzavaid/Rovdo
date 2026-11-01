@@ -10,7 +10,7 @@ export class RuntimeStore {
   private readonly db: DatabaseSync;
   constructor(path: string) {
     this.db = new DatabaseSync(path);
-    this.db.exec(`PRAGMA journal_mode=WAL; PRAGMA busy_timeout=5000;
+    this.db.exec(`PRAGMA journal_mode=WAL; PRAGMA busy_timeout=5000; PRAGMA foreign_keys=ON;
       CREATE TABLE IF NOT EXISTS browser_run (id TEXT PRIMARY KEY, record TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS browser_event (run_id TEXT NOT NULL REFERENCES browser_run(id), seq INTEGER NOT NULL, event TEXT NOT NULL, PRIMARY KEY(run_id,seq));`);
   }

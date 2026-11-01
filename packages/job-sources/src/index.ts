@@ -17,6 +17,12 @@ import type { PublicResponse, ReadOptions } from '@rovdo/shared/network';
 
 const text = z.string().max(200000);
 const id = z.union([z.string().min(1).max(200), z.number().int().nonnegative()]);
+function retryDelay(raw: string | undefined): number {
+  if (!raw) return 0;
+  const numeric = Number(raw);
+  const delay = Number.isFinite(numeric) ? numeric * 1000 : Date.parse(raw) - Date.now();
+  return Number.isFinite(delay) ? Math.max(0, delay) : 0;
+}
 const gh = z.looseObject({
   id,
   title: text,
@@ -215,14 +221,7 @@ export class AtsAdapter implements JobSourceAdapter {
     if (response.status === 304)
       return { jobs: [], nextCursor: null, returned: 0, status: 304, headers: response.headers };
     if (response.status !== 200) {
-      const raw = response.headers['retry-after'];
-      const numeric = Number(raw);
-      const retry = raw
-        ? Number.isFinite(numeric)
-          ? Math.max(0, numeric * 1000)
-          : Math.max(0, Date.parse(raw) - Date.now())
-        : 0;
-      throw new SourceError(response.status, Number.isFinite(retry) ? retry : 0);
+      throw new SourceError(response.status, retryDelay(response.headers['retry-after']));
     }
     let payload: unknown;
     try {
@@ -248,7 +247,7 @@ export class AtsAdapter implements JobSourceAdapter {
         .parse(payload);
       listedCount = list.content.length;
       const details: unknown[] = [];
-      for (const item of list.content) {
+      for (const [index, item] of list.content.entries()) {
         const parsed = z.object({ id }).safeParse(item);
         if (!parsed.success) {
           details.push(item);
@@ -262,14 +261,14 @@ export class AtsAdapter implements JobSourceAdapter {
           detailQuarantine.push({
             hash: sha256(JSON.stringify(item)),
             code: `DETAIL_UNAVAILABLE_${detail.status}`,
-            index: detailQuarantine.length,
+            index,
           });
           continue;
         }
         if (detail.status !== 200)
           throw new SourceError(
             detail.status,
-            Math.max(1000, Number(detail.headers['retry-after'] ?? 1) * 1000),
+            Math.max(1000, retryDelay(detail.headers['retry-after'])),
             'DETAIL_UNAVAILABLE',
           );
         const checked = Number(detail.headers['x-rovdo-observed-at']);

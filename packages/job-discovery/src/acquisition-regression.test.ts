@@ -205,11 +205,42 @@ it('retains valid SmartRecruiters siblings when individual details are permanent
     const p = await adapter.fetchPage(state, new AbortController().signal);
     expect(p.jobs).toHaveLength(1);
     expect(p.quarantine).toHaveLength(1);
+    expect(p.quarantine![0]!.index).toBe(1);
     expect(p.returned).toBe(2);
   } finally {
     store.close();
   }
 });
+it.each(['invalid', 'date'])(
+  'keeps SmartRecruiters transient detail retry metadata finite: %s',
+  async (kind) => {
+    const store = new CareerStore(':memory:');
+    try {
+      const source = {
+        ...store.globalSource('retry-detail', 'Fixture', 'https://jobs.example.com'),
+        ats: 'smartrecruiters' as const,
+      };
+      const adapter = new AtsAdapter(source, async (url) => ({
+        status: url.includes('?') ? 200 : 429,
+        headers: {
+          'retry-after': kind === 'date' ? new Date(Date.now() + 60000).toUTCString() : 'invalid',
+        },
+        body: Buffer.from(JSON.stringify({ content: [{ id: '1' }], totalFound: 1 })),
+      }));
+      await expect(
+        adapter.fetchPage(
+          SourceStateSchema.parse(store.sources()[0]!.state),
+          new AbortController().signal,
+        ),
+      ).rejects.toMatchObject({
+        code: 'DETAIL_UNAVAILABLE',
+        retryAfterMs: expect.toSatisfy((value: number) => Number.isFinite(value) && value >= 1000),
+      });
+    } finally {
+      store.close();
+    }
+  },
+);
 it('inherits documented continuation employers and never treats URL substrings as a closed status', () => {
   const rows = parseGithubListings(
     '| Company | Role | Location | Application |\n| Fixture | Engineer | Remote | [Apply](https://jobs.lever.co/enclosed/1) |\n| ↳ | Data Engineer | Remote | [Apply](https://jobs.lever.co/enclosed/2) |',

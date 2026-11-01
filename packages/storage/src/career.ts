@@ -421,6 +421,14 @@ export class CareerStore {
   private readJob(json: string): Job {
     const raw = JSON.parse(json);
     if (!JobSchema.shape.salary.safeParse(raw.salary).success) raw.salary = null;
+    // Historical optional metadata can predate stricter ingestion contracts. Project it
+    // as unknown without rewriting the original record or fabricating repaired dates.
+    for (const key of ['postedAt', 'updatedAt'] as const)
+      if (!JobSchema.shape[key].safeParse(raw[key]).success) raw[key] = null;
+    if (!JobSchema.shape.validThrough.safeParse(raw.validThrough).success) {
+      raw.validThrough = null;
+      if (raw.activeStatus !== 'closed') raw.activeStatus = 'unknown';
+    }
     return JobSchema.parse(raw);
   }
   private resolveJobId(id: string): string {
@@ -626,7 +634,7 @@ export class CareerStore {
             !old.discovery ||
             raw.discovery?.kind !== 'employer')
         )
-          job = { ...old, lastSeenAt: now, provenance: job.provenance }; // Never overwrite first-party fields with a second source.
+          job = { ...old, lastSeenAt: job.lastSeenAt, provenance: job.provenance }; // Preserve actual observation time and first-party fields.
         if (old) state.duplicates++;
         else state.accepted++;
         this.writeJob(job);
@@ -640,15 +648,22 @@ export class CareerStore {
             'INSERT INTO job_source_snapshot VALUES(?,?,?,?,0,?) ON CONFLICT(source_id,source_key) DO UPDATE SET job_id=excluded.job_id,poll_id=excluded.poll_id,missing=0,raw_hash=excluded.raw_hash',
           )
           .run(source.id, key, job.id, pollId, raw.rawSha256);
+        const group = signature(job);
+        const peers = this.db
+          .prepare('SELECT 1 FROM career_job WHERE signature=? AND id<>? LIMIT 1')
+          .get(group, job.id);
+        // Existing siblings already carrying this group need no re-indexing. Rewriting
+        // all peers for every incoming row causes quadratic metadata/FTS work.
         const possible = this.db
-          .prepare('SELECT json FROM career_job WHERE signature=? AND id<>?')
-          .all(signature(job), job.id);
+          .prepare(
+            "SELECT json FROM career_job WHERE signature=? AND id<>? AND COALESCE(json_extract(json,'$.duplicateGroup'),'')<>?",
+          )
+          .all(group, job.id, group);
         for (const r of possible) {
           const other = this.readJob(String(r.json));
-          this.writeJob({ ...other, duplicateGroup: signature(job) });
-          job.duplicateGroup = signature(job);
+          this.writeJob({ ...other, duplicateGroup: group });
         }
-        if (possible.length) this.writeJob(job);
+        if (peers && job.duplicateGroup !== group) this.writeJob({ ...job, duplicateGroup: group });
       }
       if (complete) {
         this.db

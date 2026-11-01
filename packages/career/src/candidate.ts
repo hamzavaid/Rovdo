@@ -5,7 +5,7 @@
 import { IntelligenceSchema } from '@rovdo/shared';
 import type { CandidateProfile, Intelligence } from '@rovdo/shared';
 import { resolveSkill } from './taxonomy';
-export const CANDIDATE_POLICY_VERSION = 'canonical-candidate-v3';
+export const CANDIDATE_POLICY_VERSION = 'canonical-candidate-v4';
 export type Qualification =
   | Intelligence['skills'][number]
   | Intelligence['experience'][number]
@@ -138,19 +138,19 @@ export function intelligenceOf(profile: CandidateProfile): Intelligence {
     // employers, completed degrees or project authorship are invented from them.
   }
   const evidenceById = new Map(intel.evidence.map((e) => [e.id, e]));
-  const factsBySource = new Map<string, CandidateProfile['facts'][number]>(
-    profile.facts.flatMap(
-      (f) =>
-        [
-          [`legacy:${f.id}`, f],
-          [`legacy:${f.id.slice(0, 180)}`, f],
-        ] as const,
-    ),
-  );
+  const factsByEvidence = new Map(profile.facts.map((f) => [legacyId(f.id), f]));
+  const factsBySource = new Map<string, CandidateProfile['facts']>();
+  for (const fact of profile.facts)
+    for (const source of new Set([`legacy:${fact.id}`, `legacy:${fact.id.slice(0, 180)}`]))
+      factsBySource.set(source, [...(factsBySource.get(source) ?? []), fact]);
   // Recheck the original fact so a copied legacy assertion cannot outlive revoked verification.
   for (const e of intel.evidence)
     if (e.sourceKind === 'legacy') {
-      const fact = factsBySource.get(e.sourceId);
+      // Prefer the full identity binding. Historical shortened sources are usable only
+      // when unambiguous; one similarly prefixed fact must not revoke another's approval.
+      const candidates = factsBySource.get(e.sourceId) ?? [];
+      const fact =
+        factsByEvidence.get(e.id) ?? (candidates.length === 1 ? candidates[0] : undefined);
       e.verified = !!fact?.verified && fact.value === e.excerpt;
     }
   for (const key of ['skills', 'experience', 'education', 'projects', 'certifications'] as const) {

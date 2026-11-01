@@ -227,6 +227,11 @@ it('rolls back an interrupted merge, recovers after restart and projects legacy 
     store.close();
     store = new CareerStore(path);
     expect(store.job('a').salary).toBe(null);
+    db.prepare(
+      "UPDATE career_job SET json=json_set(json,'$.postedAt','2026-02-30','$.updatedAt','invalid') WHERE id='a'",
+    ).run();
+    expect(store.job('a').postedAt).toBe(null);
+    expect(store.job('a').updatedAt).toBe(null);
     expect(
       JSON.parse(String(db.prepare("SELECT json FROM career_job WHERE id='a'").get()!.json)).salary
         .min,

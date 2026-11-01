@@ -3,8 +3,13 @@
  * Structural parsing alone cannot verify digests; hashes detect modification but are not approval signatures.
  */
 import { z } from 'zod';
-import { JobSchema, ProfileFactSchema } from './career';
-import { IntelligenceSchema, RankingProfileSchema, RequirementSetSchema } from './intelligence';
+import { JobSchema, ProfileFactSchema, EligibilityCheckSchema } from './career';
+import {
+  IntelligenceSchema,
+  RankingProfileSchema,
+  RequirementSetSchema,
+  RankingDetailsSchema,
+} from './intelligence';
 import { qualificationSupport } from './evidence';
 const hash = z.string().regex(/^[a-f0-9]{64}$/);
 const id = z.string().min(1).max(250);
@@ -46,6 +51,16 @@ export const ApprovedApplicationContextSchema = z
         }),
       )
       .max(1500),
+    // Optional for historical v1 snapshots; new builders bind the corrected deterministic decision.
+    decision: z
+      .strictObject({
+        version: z.literal('application-decision-v1'),
+        asOf: z.iso.date(),
+        eligibility: z.enum(['PASS', 'FAIL', 'UNKNOWN']),
+        checks: z.array(EligibilityCheckSchema),
+        assessment: RankingDetailsSchema.shape.assessment,
+      })
+      .optional(),
     versions: z.strictObject({
       profileVersion: z.number().int().positive(),
       scorerPolicy: id,

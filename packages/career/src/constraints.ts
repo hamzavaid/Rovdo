@@ -20,7 +20,13 @@ function jurisdiction(raw: string): { country: string; region: string; text: str
           : /\bgermany\b/.test(text)
             ? 'DE'
             : '';
-  const california = /\bcalifornia\b/.test(text) || (/,\s*CA\b/.test(raw) && country !== 'CA');
+  // CA is both a country code and a state abbreviation. A comma alone is not
+  // jurisdiction evidence; accept an explicit US context or a curated city alias.
+  const california =
+    /\bcalifornia\b/.test(text) ||
+    (/(?:^|,)\s*CA\b/.test(raw) &&
+      (country === 'US' ||
+        /\b(?:san francisco|los angeles|san diego|san jose|sacramento|oakland) ca\b/.test(text)));
   return { text, country: california ? 'US' : country, region: california ? 'US-CA' : '' };
 }
 export function locationOutcome(job: Job, desired: string[]): EligibilityCheck['result'] {
@@ -70,7 +76,11 @@ export function locationOutcome(job: Job, desired: string[]): EligibilityCheck['
 export function legalChecks(text: string, profile: CandidateProfile): EligibilityCheck[] {
   const result: EligibilityCheck[] = [];
   let preferredSection = false;
-  for (const excerpt of text.split(
+  const clauses = text.replace(
+    /\s+and\s+(?=(?:no\s+)?(?:active|must|citizen|work author|clearance|TS\/SCI|U\.?S\.?\s+citizen|United States\s+citizen))/gi,
+    '\n',
+  );
+  for (const excerpt of clauses.split(
     /[\n;]|\s+but\s+|,\s*(?=(?:active|must|citizen|work)\b)|(?<=[a-z])\.\s+(?=[A-Z])/,
   )) {
     if (/^\s*(?:preferred|nice.to.have)\s+(?:qualifications|requirements)/i.test(excerpt))

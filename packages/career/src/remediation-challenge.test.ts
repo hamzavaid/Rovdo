@@ -51,6 +51,8 @@ it.each([
   ['Canada', 'California, US', 'FAIL'],
   ['CA', 'Canada', 'UNKNOWN'],
   ['California', 'San Francisco, CA', 'PASS'],
+  ['California', 'Toronto, CA', 'UNKNOWN'],
+  ['US', 'Unspecified city, CA', 'UNKNOWN'],
   ['US', 'Remote', 'UNKNOWN'],
   ['US', 'Toronto, Canada; New York, USA', 'PASS'],
 ])('hard location %s versus %s is %s', (preference, location, expected) => {
@@ -103,4 +105,31 @@ it('never interprets a country-scoped negative authorization as a positive count
     AS_OF,
   )[0]!;
   expect(m.checks.find((c) => c.rule === 'workAuthorization')!.result).toBe('FAIL');
+});
+it('keeps legacy weights while preventing expired or unresolved mandatory jobs from automatic shortlisting', () => {
+  const config = { ...BUILTIN_RANKINGS[0]!, thresholds: { score: 0, confidence: 0, coverage: 0 } };
+  const job = { ...sampleJob('TypeScript required'), validThrough: '2026-01-01' };
+  const expired = rankWithProfile([{ job, bm25Raw: 0 }], sampleCandidate(), config, AS_OF)[0]!;
+  expect(expired.excluded).toBe(true);
+  const unknown = rankWithProfile(
+    [
+      {
+        job: sampleJob('TypeScript required. Must comply with ITAR export restrictions.'),
+        bm25Raw: 0,
+      },
+    ],
+    sampleCandidate(),
+    config,
+    AS_OF,
+  )[0]!;
+  expect(unknown.ranking!.shortlist).toBe(false);
+});
+it.each([
+  'No clearance required and U.S. citizenship required',
+  'U.S. citizenship required and no clearance required',
+])('scopes legal negations to their own conjunction: %s', (text) => {
+  const m = rank(`TypeScript required\n${text}`);
+  expect(m.checks.some((c) => c.rule === 'citizenship' && c.result === 'UNKNOWN')).toBe(true);
+  expect(m.checks.some((c) => c.rule === 'clearance')).toBe(false);
+  expect(m.ranking!.shortlist).toBe(false);
 });

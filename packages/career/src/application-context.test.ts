@@ -1,4 +1,4 @@
-import { ApprovedApplicationContextSchema, sha256Text } from '@rovdo/shared';
+import { ApprovedApplicationContextSchema, sha256Text, contentHash } from '@rovdo/shared';
 import { expect, it } from 'vitest';
 import {
   buildApprovedApplicationContext,
@@ -119,4 +119,56 @@ it('rejects duplicate approved fact bindings and duplicate approval identifiers'
   await expect(validateApprovedApplicationContext(repeated)).rejects.toThrow();
   input.approval.factIds = ['contact', 'contact'];
   await expect(buildApprovedApplicationContext(input)).rejects.toThrow();
+});
+
+it('keeps long fact identities collision-safe and binds current legal decisions and job identity', async () => {
+  const input = await request();
+  const ids = ['a', 'b'].map((suffix) => 'x'.repeat(160) + suffix);
+  for (const [i, id] of ids.entries())
+    input.profile.facts.push({
+      id,
+      field: 'project',
+      value: `Verified project ${i}`,
+      verified: true,
+      source: {
+        kind: 'user',
+        reference: 'Explicit approval',
+        capturedAt: input.approval.approvedAt,
+      },
+    });
+  input.approval.factIds = ids;
+  input.job.descriptionText = 'TypeScript required. Must comply with ITAR export restrictions.';
+  const a = await buildApprovedApplicationContext(input);
+  expect(new Set(a.candidate.facts.flatMap((f) => f.evidenceIds)).size).toBe(2);
+  expect(a.decision?.eligibility).toBe('UNKNOWN');
+  expect(a.decision?.checks.some((c) => c.result === 'UNKNOWN')).toBe(true);
+  await expect(validateApprovedApplicationContext(a)).resolves.toEqual(a);
+  input.job.id += ':merged';
+  input.job.canonicalUrl += '/canonical';
+  const b = await buildApprovedApplicationContext(input);
+  expect(b.hashes.job).not.toBe(a.hashes.job);
+  expect(b.hashes.context).not.toBe(a.hashes.context);
+  input.ranking = { ...input.ranking, thresholds: { ...input.ranking.thresholds, score: 81 } };
+  expect((await buildApprovedApplicationContext(input)).hashes.ranking).not.toBe(b.hashes.ranking);
+  const c = await buildApprovedApplicationContext(input);
+  input.profile.intelligence!.evidence[0]!.excerpt += ' Additional approved evidence.';
+  input.profile.intelligence!.evidence[0]!.sha256 = await sha256Text(
+    input.profile.intelligence!.evidence[0]!.excerpt,
+  );
+  const d = await buildApprovedApplicationContext(input);
+  expect(d.hashes.candidate).not.toBe(c.hashes.candidate);
+  expect(d.hashes.context).not.toBe(c.hashes.context);
+});
+it('keeps historical v1 snapshots without a decision readable without upgrading their stored content', async () => {
+  const current = await buildApprovedApplicationContext(await request());
+  const { decision: capturedDecision, hashes, ...historicalBody } = current;
+  const { context: capturedDigest, ...parts } = hashes;
+  expect(capturedDecision).toBeDefined();
+  expect(capturedDigest).toHaveLength(64);
+  const historical = {
+    ...historicalBody,
+    hashes: { ...parts, context: await contentHash({ ...historicalBody, hashes: parts }) },
+  };
+  expect((await validateApprovedApplicationContext(historical)).decision).toBeUndefined();
+  expect(current.decision).toBeDefined();
 });

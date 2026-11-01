@@ -16,7 +16,28 @@ export class DiscoveryStore {
  CREATE TABLE IF NOT EXISTS discovery_cursor(task_id TEXT NOT NULL REFERENCES discovery_task(id),hash TEXT NOT NULL,PRIMARY KEY(task_id,hash));
  CREATE TABLE IF NOT EXISTS discovery_failure(key TEXT PRIMARY KEY,code TEXT NOT NULL,expires INTEGER NOT NULL);
  CREATE TABLE IF NOT EXISTS discovery_response(url TEXT PRIMARY KEY,json TEXT NOT NULL,expires INTEGER NOT NULL);
+ CREATE INDEX IF NOT EXISTS discovery_failure_expiry ON discovery_failure(expires);
+ CREATE INDEX IF NOT EXISTS discovery_response_expiry ON discovery_response(expires);
  `);
+  }
+  /** Disposable payloads only. Durable runs, jobs, memberships and user history are never pruned here. */
+  cleanupExpired(now: number, limit = 100) {
+    const count = Math.min(500, Math.max(1, Math.floor(limit)));
+    const responses = Number(
+      this.db
+        .prepare(
+          'DELETE FROM discovery_response WHERE url IN (SELECT url FROM discovery_response WHERE expires<=? ORDER BY expires,url LIMIT ?)',
+        )
+        .run(now, count).changes,
+    );
+    const failures = Number(
+      this.db
+        .prepare(
+          'DELETE FROM discovery_failure WHERE key IN (SELECT key FROM discovery_failure WHERE expires<=? ORDER BY expires,key LIMIT ?)',
+        )
+        .run(now, count).changes,
+    );
+    return { responses, failures };
   }
   saveRun(input: DiscoveryRun) {
     const run = DiscoveryRunSchema.parse(input);

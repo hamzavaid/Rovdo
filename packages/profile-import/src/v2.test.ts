@@ -2,6 +2,31 @@ import { expect, it } from 'vitest';
 import { extractDocument, previewDocument, previewText, mergeReviewed } from './index';
 import { zipFixture, positionedPdfFixture } from '../../../tests/fixtures/profile-files';
 const at = '2026-10-19T00:00:00.000Z';
+it('retains a same-column employment continuation across PDF pages without mixing adjacent columns', () => {
+  const p = previewDocument(
+    {
+      format: 'pdf',
+      tables: [],
+      warnings: [],
+      blocks: [
+        { text: 'Experience', kind: 'heading', page: 1, column: 0 },
+        { text: 'Firmware Engineer | Anon Devices', kind: 'paragraph', page: 1, column: 0 },
+        { text: 'Jan 2021 - Dec 2023', kind: 'paragraph', page: 1, column: 0 },
+        { text: 'Developed C++ drivers', kind: 'paragraph', page: 2, column: 0 },
+        { text: 'Education', kind: 'heading', page: 2, column: 1 },
+        { text: 'Bachelor of Science | Example University', kind: 'paragraph', page: 2, column: 1 },
+      ],
+    },
+    'two-pages.pdf',
+    'file',
+    at,
+  );
+  expect(p.intelligence.experience).toHaveLength(1);
+  expect(p.intelligence.experience[0]!.skills).toContain('cpp');
+  expect(p.intelligence.experience[0]!.start).toBe('2021-01');
+  expect(p.intelligence.education).toHaveLength(1);
+  expect(p.intelligence.experience.every((q) => !q.verified)).toBe(true);
+});
 it('groups technical resume records, preserves evidence and rejects incidental/negated skills', () => {
   const p = previewText(
     'Summary\nI go to a robotics club in Spring. Interested in Rust; no experience with Java.\nTechnical Skills\nC++, SystemVerilog, FreeRTOS, RISC-V, ROS 2\nExperience\nEmbedded Engineer | Anon Devices\nJan 2021 - Dec 2023\nDeveloped C++ drivers on FreeRTOS.\nProjects\nAutonomous Rover\nBuilt ROS 2 navigation using C++.\nTested on hardware.\nEducation\nExample University\nBachelor of Science in Electrical Engineering\nExpected May 2027',

@@ -18,3 +18,16 @@ it('uses the selected scorer and canonical verified evidence without protected f
     'deterministic-v1',
   );
 });
+it('preserves query-dependent Legacy scoring in advisory context', () => {
+  const profile = sampleCandidate(),
+    job = sampleJob('TypeScript required'),
+    ranking = BUILTIN_RANKINGS[0]!;
+  const expected = rankWithProfile([{ job, bm25Raw: -0.5 }], profile, ranking, AS_OF)[0]!;
+  const payload = reviewPayload(profile, [job], {
+    ranking,
+    asOf: AS_OF,
+    retrieval: { [job.id]: -0.5 },
+  });
+  expect(payload.jobs[0]!.score).toBe(expected.score);
+  expect(payload.jobs[0]!.checks).toEqual(expected.checks);
+});

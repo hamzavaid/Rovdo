@@ -372,7 +372,8 @@ export function previewDocument(
   };
   let section = 'other';
   let pending: DocumentBlock[] = [];
-  let previousColumn = '';
+  let previousPage: number | undefined;
+  let previousColumn: number | undefined;
   const flush = () => {
     record(section, pending);
     pending = [];
@@ -380,12 +381,14 @@ export function previewDocument(
   for (const original of doc.blocks) {
     const block = { ...original, text: original.text.normalize('NFKC').trim() };
     const line = block.text;
-    const column = block.page ? `${block.page}:${block.column}` : '';
-    if (previousColumn && column && column !== previousColumn) {
+    // Same-column page continuations retain their section and evidence. Crossing columns
+    // is a layout boundary; never attach a neighbouring sidebar to an employment record.
+    if (previousPage !== undefined && block.page !== undefined && block.column !== previousColumn) {
       flush();
       section = 'other';
     }
-    previousColumn = column;
+    previousPage = block.page;
+    previousColumn = block.column;
     if (!line) {
       flush();
       continue;

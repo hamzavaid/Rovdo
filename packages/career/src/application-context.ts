@@ -21,7 +21,8 @@ import type {
   Intelligence,
 } from '@rovdo/shared';
 import { intelligenceOf, CANDIDATE_POLICY_VERSION } from './candidate';
-import { SCORING_POLICY_VERSION } from './scorer-v2';
+import { SCORING_POLICY_VERSION, rankWithProfile } from './scorer-v2';
+import { eligibilityOutcome } from './job-export';
 import { extractRequirements } from './requirements';
 export { validateApprovedApplicationContext } from '@rovdo/shared';
 export type ApplicationContextRequest = {
@@ -92,11 +93,12 @@ export async function buildApprovedApplicationContext(
       omitted.push({ id: `fact:${id}`, reason: fact.verified ? 'sensitive' : 'unverified' });
       continue;
     }
-    const ref = `approved-fact:${id.slice(0, 150)}`;
+    const identity = await sha256Text(id);
+    const ref = `approved-fact:${identity}`;
     const excerpt = JSON.stringify({ value: fact.value, source: fact.source });
     const e = {
       id: ref,
-      sourceId: `user-approval:${id.slice(0, 150)}`,
+      sourceId: `user-approval:${identity}`,
       sourceKind: 'user' as const,
       excerpt,
       sha256: await sha256Text(excerpt),
@@ -120,6 +122,9 @@ export async function buildApprovedApplicationContext(
       selected.evidence.push({ ...e, sha256: await sha256Text(e.excerpt) });
   const requirements = extractRequirements(job.descriptionText, job.title);
   const candidate = { facts, qualifications: selected };
+  // A snapshot records uncertainty; approval of factual claims never grants permission to apply.
+  const asOf = input.approval.approvedAt.slice(0, 10);
+  const match = rankWithProfile([{ job, bm25Raw: 0 }], profile, ranking, asOf)[0]!;
   const body = {
     contractVersion: 'approved-application-v1' as const,
     job,
@@ -130,6 +135,13 @@ export async function buildApprovedApplicationContext(
     approval: input.approval,
     claims,
     omitted,
+    decision: {
+      version: 'application-decision-v1' as const,
+      asOf,
+      eligibility: eligibilityOutcome(match),
+      checks: match.checks,
+      ...(match.ranking?.assessment ? { assessment: match.ranking.assessment } : {}),
+    },
     versions: {
       profileVersion: profile.version,
       scorerPolicy: SCORING_POLICY_VERSION,

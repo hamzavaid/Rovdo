@@ -262,6 +262,7 @@ export class GlobalDiscoveryEngine {
     }
   }
   private async cycle() {
+    this.store.global.cleanupExpired(Date.now());
     for (const run of this.store.global.runningRuns()) {
       if (this.stopping) break;
       const controller = this.controllers.get(run.id) ?? new AbortController();

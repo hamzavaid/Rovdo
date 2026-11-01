@@ -17,6 +17,7 @@ import type {
   Usage,
 } from '@rovdo/shared';
 import { createSafeFetch } from './network';
+import { boundedFetch } from './limits';
 import { normalizeError, ProviderError } from './errors';
 export { ProviderError } from './errors';
 export { validateDestination } from './network';
@@ -98,7 +99,7 @@ export function createAdapter(
   if (!parsed.success || (!key && parsed.data.authMode !== 'none'))
     throw new ProviderError('VALIDATION_ERROR');
   const config = parsed.data;
-  const transport = injectedFetch ?? createSafeFetch(config.baseUrl, config.proxyUrl);
+  const transport = boundedFetch(injectedFetch ?? createSafeFetch(config.baseUrl, config.proxyUrl));
   const fetcher: typeof fetch = (input, init) => {
     const request = new Request(input, init);
     // Ignore SDK ambient custom headers, cookies and unrelated credentials.
@@ -272,12 +273,19 @@ export function createAdapter(
             }
             if (event.type === 'content_block_start') {
               if (event.content_block.type === 'text') append(event.content_block.text);
-              if (event.content_block.type === 'tool_use')
+              if (event.content_block.type === 'tool_use') {
+                if (
+                  event.content_block.id.length > 200 ||
+                  event.content_block.name.length > 200 ||
+                  calls.size >= 8
+                )
+                  throw new ProviderError('INVALID_RESPONSE');
                 calls.set(event.index, {
                   id: event.content_block.id,
                   name: event.content_block.name,
                   json: '',
                 });
+              }
             }
             if (event.type === 'content_block_delta') {
               if (event.delta.type === 'text_delta') append(event.delta.text);
@@ -363,7 +371,12 @@ export function createAdapter(
               call.name += delta.function?.name ?? '';
               call.json += delta.function?.arguments ?? '';
               calls.set(delta.index, call);
-              if (call.json.length > 64_000 || calls.size > 8)
+              if (
+                call.json.length > 64_000 ||
+                call.id.length > 200 ||
+                call.name.length > 200 ||
+                calls.size > 8
+              )
                 throw new ProviderError('INVALID_RESPONSE');
             }
             if (choice.finish_reason)

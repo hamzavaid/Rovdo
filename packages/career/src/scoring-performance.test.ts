@@ -23,11 +23,12 @@ it.runIf(process.env.ROVDO_PERFORMANCE === '1')(
       const before = performance.now();
       rankWithProfile([row], p, BUILTIN_RANKINGS[1]!, AS_OF);
       const singleMs = performance.now() - before;
+      const delay = monitorEventLoopDelay({ resolution: 1 });
+      delay.enable();
+      await new Promise((resolve) => setTimeout(resolve, 5));
       const cpu = process.cpuUsage(),
         heap = process.memoryUsage().heapUsed,
         started = performance.now();
-      const delay = monitorEventLoopDelay({ resolution: 1 });
-      delay.enable();
       const prepared = prepareRanking(p, BUILTIN_RANKINGS[1]!, AS_OF);
       for (let i = 0; i < 1000; i++) {
         prepared.rank([{ ...row, job: { ...row.job, id: `perf-${i}` } }]);

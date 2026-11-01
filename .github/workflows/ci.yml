@@ -33,6 +33,7 @@ jobs:
       - run: npm run typecheck
       - run: npm test
       - name: Report reproducible matching measurements
+        if: always()
         run: node scripts/quality-summary.ts
       - run: npm run build
       - name: Install Electron Linux system dependencies
