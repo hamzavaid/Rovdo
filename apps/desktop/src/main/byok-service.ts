@@ -103,16 +103,17 @@ export class ByokService {
     return { profiles, usage: this.store.usage(), ...(this.cli ? { clis: this.cli.views() } : {}) };
   }
   async refreshClis(): Promise<void> {
-    await this.change(async () => {
-      await this.cli?.scan(true);
-    });
+    this.assertIdle();
+    // Detection owns only CLI status; do not hold the API configuration lock during filesystem/version IO.
+    await this.cli?.scan(true);
   }
   async saveCli(input: unknown): Promise<void> {
     await this.change(async () => {
       if (!this.cli) throw new Error('CLI_UNSUPPORTED');
       const pref = CliPreferenceSchema.parse(input);
       this.cli.save(pref);
-      this.history.clear();
+      const view = this.cli.views().find((v) => v.id === pref.id);
+      if (view) this.history.delete(view.profileId);
     });
   }
   async testCli(id: CliId, requestId: string): Promise<void> {
@@ -120,7 +121,8 @@ export class ByokService {
     if (!this.cli) throw new Error('CLI_UNSUPPORTED');
     const controller = new AbortController();
     this.active = { id: requestId, controller };
-    this.history.clear();
+    const view = this.cli.views().find((v) => v.id === id);
+    if (view) this.history.delete(view.profileId);
     const pending = this.cli.test(id, controller.signal);
     this.pendingRun = pending;
     try {
@@ -133,6 +135,7 @@ export class ByokService {
   async save(input: unknown): Promise<void> {
     const parsed = ProviderConfigSchema.safeParse(input);
     if (!parsed.success || parsed.data.capabilities) throw new Error('VALIDATION_ERROR');
+    if (this.cli?.idForProfile(parsed.data.id)) throw new Error('VALIDATION_ERROR');
     await this.change(async () => {
       const config = parsed.data;
       const previous = this.store.list().find((item) => item.id === config.id);

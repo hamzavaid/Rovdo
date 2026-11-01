@@ -10,12 +10,16 @@ import { CliIdSchema } from '@rovdo/shared';
 import type { CliId } from '@rovdo/shared';
 
 export type Launcher = { executable: string; prefix: string[] };
-const packages: Record<CliId, string> = {
-  codex: '@openai/codex/bin/codex.js',
-  claude: '@anthropic-ai/claude-code/cli.js',
-  gemini: '@google/gemini-cli/dist/index.js',
-  qwen: '@qwen-code/qwen-code/cli.js',
-  ollama: '',
+const packages: Record<CliId, string[]> = {
+  codex: ['@openai/codex/bin/codex.js'],
+  claude: ['@anthropic-ai/claude-code/cli.js'],
+  gemini: ['@google/gemini-cli/bundle/gemini.js', '@google/gemini-cli/dist/index.js'],
+  qwen: [
+    '@qwen-code/qwen-code/scripts/cli-entry.js',
+    '@qwen-code/qwen-code/cli.js',
+    '@qwen-code/qwen-code/dist/index.js',
+  ],
+  ollama: [],
 };
 export function executableCandidates(
   id: CliId,
@@ -66,14 +70,18 @@ export async function resolveLauncher(
   CliIdSchema.parse(id);
   if (!path.isAbsolute(file) || !(await regular(file))) throw new Error('CLI_NOT_INSTALLED');
   if (path.extname(file).toLowerCase() === '.cmd') {
-    if (path.basename(file).toLowerCase() !== `${id}.cmd` || !packages[id])
+    if (path.basename(file).toLowerCase() !== `${id}.cmd` || !packages[id].length)
       throw new Error('CLI_UNSUPPORTED');
     // Never execute batch wrappers. Resolve the fixed package entry relative to the npm shim.
     const root = await realpath(path.join(path.dirname(file), 'node_modules'));
-    const entry = await realpath(path.join(root, packages[id]));
-    if (!entry.startsWith(root + path.sep) || !(await regular(entry)))
-      throw new Error('CLI_UNSUPPORTED');
-    return { executable: node, prefix: [entry] };
+    for (const relative of packages[id]) {
+      const candidate = path.join(root, relative);
+      if (!(await regular(candidate))) continue;
+      const entry = await realpath(candidate);
+      if (!entry.startsWith(root + path.sep)) throw new Error('CLI_UNSUPPORTED');
+      return { executable: node, prefix: [entry] };
+    }
+    throw new Error('CLI_UNSUPPORTED');
   }
   await access(file, process.platform === 'win32' ? constants.F_OK : constants.X_OK);
   return { executable: await realpath(file), prefix: [] };
@@ -167,13 +175,15 @@ export class CliRuntime {
           bytes = 0;
         let failure: string | null = null;
         const stop = (code: string) => {
-          failure ??= code;
+          if (failure) return;
+          failure = code;
           killTree(child);
         };
         const abort = () => stop('CANCELED');
         signal.addEventListener('abort', abort, { once: true });
         const timer = setTimeout(() => stop('TIMEOUT'), timeoutMs);
         child.stdout.on('data', (chunk: Buffer) => {
+          if (failure) return;
           bytes += chunk.length;
           if (bytes > 1_000_000) {
             stop('INVALID_RESPONSE');
@@ -188,6 +198,7 @@ export class CliRuntime {
           }
         });
         child.stderr.on('data', (chunk: Buffer) => {
+          if (failure) return;
           bytes += chunk.length;
           if (bytes > 1_000_000) {
             stop('INVALID_RESPONSE');

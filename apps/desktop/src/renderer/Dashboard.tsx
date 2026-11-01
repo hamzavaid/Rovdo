@@ -94,6 +94,10 @@ export function Dashboard({
       p.config.capabilities.tools === 'supported' &&
       p.config.pricing,
   );
+  const readyCliCount =
+    settings.clis?.filter((cli) => cli.status === 'connected' && cli.text === 'supported').length ??
+    0;
+  const hasModels = settings.profiles.length > 0 || readyCliCount > 0;
   return (
     <div className="dashboard">
       <div className="page-heading">
@@ -153,16 +157,16 @@ export function Dashboard({
               ? 'Loading models...'
               : !settingsAvailable
                 ? 'Model status unavailable'
-                : !settings.profiles.length
+                : !hasModels
                   ? 'No model connected'
-                  : `${readyModels.length} ready for chat`}
+                  : `${readyModels.length + readyCliCount} ready for chat`}
           </strong>
           <button
             className="text-action metric-action"
-            aria-label={settings.profiles.length ? 'Manage models' : 'Set up a model'}
+            aria-label={hasModels ? 'Manage models' : 'Set up a model'}
             onClick={() => navigate('models')}
           >
-            {settings.profiles.length ? 'Manage models' : 'Set up a model'}
+            {hasModels ? 'Manage models' : 'Set up a model'}
           </button>
         </article>
       </section>

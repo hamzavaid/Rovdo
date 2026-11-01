@@ -29,7 +29,7 @@ npx playwright install chromium
 npm run dev
 ```
 
-The app opens the workspace overview without a Rovdo account or environment file. Configuring providers does not make a network request; connection tests, chat and browser model requests require explicit consent.
+The app opens the workspace overview without a Rovdo account or environment file. Saving API profiles does not make a model request; connection tests, chat and browser model requests require explicit consent. CLI discovery uses local version commands and may query the installed Ollama server.
 
 `npm run dev` builds the application and launches Electron. Restart it after source changes. To launch an existing build:
 
@@ -52,6 +52,24 @@ Chat supports text and bounded tool-call roundtrips. The only executable tool is
 Failed or stopped exchanges are excluded from later model context. Requests are never silently replayed; retry explicitly after resolving an error. Rate-limit `Retry-After` cooldowns are honored. Editing a destination invalidates capability results and removes its old key; enter a new key and test again.
 
 Usage distinguishes reported tokens from unavailable accounting. Cost estimates use the saved pricing version and separate cached-input rates. Missing rates, unsupported cache-write pricing, or absent provider usage produce an unavailable estimate. Budget preflight uses a conservative token estimate and bounds tool rounds; it is not a guarantee of the provider's final bill.
+
+## Connect an installed AI CLI
+
+Open **Models & Privacy → Connect your CLI**. Rovdo checks fixed executable names on PATH and common Windows/macOS/Linux installation paths when you open model settings; **Refresh CLIs** rescans. It never installs, updates, signs in or opens a login page automatically. Install/authenticate the CLI yourself using its official instructions. Credentials remain managed by the CLI; environment-only API credentials are deliberately not forwarded by Rovdo.
+
+| CLI | Current integration |
+| --- | --- |
+| Claude Code | Restricted text chat on the documented 2.1.248+ version range within 2.1.x; all built-in/MCP tools, hooks, skills and session persistence disabled. Other versions are unavailable until reviewed. |
+| Ollama | Installed model discovery via `ollama list`; text chat reuses Rovdo's compatible API at `127.0.0.1:11434/v1`. Start the server and install models separately. Rovdo never pulls a model. |
+| OpenAI Codex, Gemini CLI, Qwen Code | Installation/version detection and saved model preferences; **restricted chat unavailable**. Their full tool/configuration isolation has not been verified here, so Rovdo does not run unrestricted inference. |
+
+Expand **Configure**, keep **Default** or choose a discovered/custom model ID, then save. Claude Default copies only the bounded `model` preference from `~/.claude/settings.json` into restricted mode; hooks, helpers and other user/project settings are not loaded. Without that preference, the CLI selects its default. Ollama has no configured chat default, so it uses the first alphabetically listed installed model. Ollama custom IDs must already appear in its installed list. Other CLIs do not have an assumed universal model-list command. Preferences persist independently; successful connection status is session-only and requires testing after restart or model changes.
+
+**Test** shows the exact small prompt and requires approval. Tests are cancellable and bounded to 20 seconds. After success, select **CLI · …** in **Chat**. Review the outbound conversation and approve each request. Only completed exchanges are carried forward; stopping cancels the process/request. CLI connections are text-only, without Rovdo browser tools, file attachments, vision or structured-output claims. Streaming is marked tested only when observed.
+
+**Local executable does not mean local inference or free usage.** Claude and the other hosted CLIs may send content to remote services configured outside Rovdo; Ollama may use local or cloud-backed models. Subscriptions, usage limits and charges can apply. CLI cards/chat display **Cost unknown / managed by CLI**; Rovdo's API spending limits are not enforced for CLI usage. No credentials, repository contents, candidate profile or jobs are added to CLI prompts. CLIs remain trusted installed software, not OS-sandboxed untrusted programs.
+
+Interface references: [Claude CLI flags](https://code.claude.com/docs/en/cli-reference), [Codex CLI](https://developers.openai.com/codex/cli/reference), [Gemini policies](https://geminicli.com/docs/reference/policy-engine/), [Qwen settings](https://qwenlm.github.io/qwen-code-docs/en/users/configuration/settings/), [Ollama compatibility](https://docs.ollama.com/api/openai-compatibility). Existing API profiles, budgeted tool chat and browser workflows remain available separately.
 
 ## Workspace navigation
 

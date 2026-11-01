@@ -58,6 +58,9 @@ test('boots the built shell with isolated preload and blocked egress', async () 
       node: 'undefined',
       process: 'undefined',
       bridgeKeys: [
+        'refreshClis',
+        'saveCli',
+        'testCli',
         'intelligenceCommand',
         'careerCommand',
         'browserCommand',

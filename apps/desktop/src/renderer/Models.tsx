@@ -9,6 +9,7 @@ import { OperationStatus } from './OperationStatus';
 import { useActionState } from './action-state';
 import { formatUsd } from './presentation';
 import { errorMessage } from './messages';
+import { CliModels } from './CliModels';
 
 type Rates = { input: string; output: string; cached: string; version: string };
 const emptyRates: Rates = { input: '', output: '', cached: '', version: '' };
@@ -21,9 +22,11 @@ function draftOf(config: ProviderConfig): ProviderConfig {
 export function Models({
   settings,
   refresh,
+  active = true,
 }: {
   settings: SettingsView;
   refresh(): Promise<void>;
+  active?: boolean;
 }) {
   const [selected, setSelected] = useState('');
   const [draft, setDraft] = useState<ProviderConfig | null>(null);
@@ -136,9 +139,14 @@ export function Models({
         Configure a model and its destination. API keys are entered in a native password dialog and
         stored in your OS credential vault. They never enter this interface.
       </p>
+      <CliModels views={settings.clis ?? []} active={active} refresh={refresh} />
       {!settings.profiles.length && (
         <section className="setup-guide surface-card">
-          <h2>Connect your first model</h2>
+          <h2>
+            {settings.clis?.some((cli) => cli.status === 'connected')
+              ? 'Add an API model (optional)'
+              : 'Connect your first model'}
+          </h2>
           <ol className="setup-steps">
             <li>
               <strong>1. Configure</strong>

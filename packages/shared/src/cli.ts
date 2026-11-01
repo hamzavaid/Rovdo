@@ -35,6 +35,7 @@ export const CliViewSchema = z.strictObject({
   timeoutMs: z.number().int(),
   streaming: z.enum(['supported', 'unknown']),
   text: z.enum(['supported', 'unknown']),
+  revision: z.number().int().nonnegative(),
 });
 export type CliView = z.infer<typeof CliViewSchema>;
 export const CliTestSchema = z.strictObject({

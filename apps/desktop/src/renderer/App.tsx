@@ -145,7 +145,7 @@ export function App() {
             <Chat settings={settings} refresh={refresh} onConfigure={() => setView('models')} />
           </section>
           <section hidden={view !== 'models'}>
-            <Models settings={settings} refresh={refresh} />
+            <Models settings={settings} refresh={refresh} active={view === 'models'} />
           </section>
           <section hidden={view !== 'browser'}>
             <BrowserRun settings={settings} />

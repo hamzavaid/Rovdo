@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { mkdtemp, mkdir, writeFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { CliRuntime, executableCandidates, resolveLauncher } from './cli-runtime';
+import { CliRuntime, executableCandidates, resolveLauncher, cliEnvironment } from './cli-runtime';
 
 const dirs: string[] = [];
 afterEach(async () => {
@@ -16,6 +16,29 @@ async function fixture(code: string) {
   return { executable: process.execPath, prefix: [script] };
 }
 describe('bounded local CLI runtime', () => {
+  it('scrubs ambient credentials, loader injection and provider overrides', () => {
+    const previous = process.env.OPENAI_API_KEY;
+    process.env.OPENAI_API_KEY = 'secret-canary';
+    try {
+      const env = cliEnvironment();
+      expect(env.OPENAI_API_KEY).toBeUndefined();
+      expect(env.NODE_OPTIONS).toBeUndefined();
+      expect(env.OLLAMA_HOST).toBeUndefined();
+      expect(JSON.stringify(env)).not.toContain('secret-canary');
+    } finally {
+      if (previous === undefined) delete process.env.OPENAI_API_KEY;
+      else process.env.OPENAI_API_KEY = previous;
+    }
+  });
+  it('shuts down active processes and prevents new work', async () => {
+    const launcher = await fixture('setInterval(()=>{},1000);');
+    const runtime = new CliRuntime();
+    const pending = runtime.run(launcher, [], '', new AbortController().signal, 2000);
+    // run has an asynchronous temporary-directory boundary; shutdown must also stop pre-spawn work.
+    await runtime.shutdown();
+    await expect(pending).rejects.toThrow('CANCELED');
+    expect(runtime.size).toBe(0);
+  });
   it('transports shell metacharacters only through stdin and streams split UTF-8 safely', async () => {
     const launcher = await fixture("process.stdin.on('data',b=>process.stdout.write(b));");
     const runtime = new CliRuntime();
@@ -88,5 +111,21 @@ describe('bounded local CLI runtime', () => {
     await expect(
       resolveLauncher(join(dir, 'evil.cmd'), 'claude', process.execPath),
     ).rejects.toThrow();
+  });
+  it.each([
+    ['gemini', '@google/gemini-cli/bundle/gemini.js'],
+    ['qwen', '@qwen-code/qwen-code/scripts/cli-entry.js'],
+  ] as const)('recognizes the published %s npm entrypoint', async (id, relative) => {
+    const dir = await mkdtemp(join(tmpdir(), 'rovdo-published-cli-'));
+    dirs.push(dir);
+    const cmd = join(dir, `${id}.cmd`);
+    const entry = join(dir, 'node_modules', relative);
+    await mkdir(join(entry, '..'), { recursive: true });
+    await writeFile(entry, '');
+    await writeFile(cmd, 'never executed');
+    expect(await resolveLauncher(cmd, id, process.execPath)).toEqual({
+      executable: process.execPath,
+      prefix: [entry],
+    });
   });
 });

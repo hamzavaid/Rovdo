@@ -8,6 +8,45 @@ import { BYOK_CHANNELS } from '@rovdo/shared';
 import { APP_URL } from './security';
 
 const profileId = '9b1b7310-0604-4aaa-8000-000000000002';
+it('does not block existing API profile editing while a local version scan is pending', async () => {
+  const store = new SettingsStore(':memory:');
+  let finish!: () => void;
+  const scan = new Promise<void>((resolve) => {
+    finish = resolve;
+  });
+  const cli = {
+    scan: () => scan,
+    views: () => [],
+    idForProfile: () => undefined,
+  } as unknown as CliService;
+  const service = new ByokService(
+    store,
+    { get: vi.fn(), has: vi.fn(), enter: vi.fn(), remove: vi.fn() },
+    undefined,
+    'test',
+    cli,
+  );
+  const pending = service.refreshClis();
+  try {
+    await expect(
+      service.save({
+        id: '6df0fdc2-065d-47a8-b0c9-5f5bf1cf2583',
+        label: 'API during scan',
+        kind: 'openai',
+        baseUrl: 'https://api.openai.com/v1',
+        model: 'fixture',
+        timeoutMs: 5000,
+        maxOutputTokens: 128,
+        includeUsage: true,
+      }),
+    ).resolves.toBeUndefined();
+    expect(store.list()[0]?.label).toBe('API during scan');
+  } finally {
+    finish();
+    await pending;
+    store.close();
+  }
+});
 it('uses text-only CLI chat with committed context, unknown cost, no vault or workspace tools', async () => {
   const store = new SettingsStore(':memory:');
   const calls: NormalizedMessage[][] = [];
@@ -104,4 +143,35 @@ it('validates CLI IPC, rejects paths/commands and prevents untrusted refresh', a
   });
   expect(refreshClis).toHaveBeenCalledTimes(1);
   expect(saveCli).not.toHaveBeenCalled();
+});
+
+it('reserves CLI identity IDs so an API profile cannot masquerade as a CLI destination', async () => {
+  const store = new SettingsStore(':memory:');
+  const cli = {
+    idForProfile: (id: string) => (id === profileId ? 'claude' : undefined),
+  } as unknown as CliService;
+  const service = new ByokService(
+    store,
+    { get: vi.fn(), has: vi.fn(), enter: vi.fn(), remove: vi.fn() },
+    undefined,
+    'test',
+    cli,
+  );
+  try {
+    await expect(
+      service.save({
+        id: profileId,
+        label: 'API',
+        kind: 'openai',
+        baseUrl: 'https://api.openai.com/v1',
+        model: 'fixture',
+        timeoutMs: 5000,
+        maxOutputTokens: 128,
+        includeUsage: true,
+      }),
+    ).rejects.toThrow('VALIDATION_ERROR');
+    expect(store.list()).toEqual([]);
+  } finally {
+    store.close();
+  }
 });

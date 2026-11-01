@@ -39,10 +39,26 @@ export function Chat({
   }, [entries]);
   const active = useRef<string | null>(null);
   const profile = settings.profiles.find((item) => item.config.id === profileId);
-  const signature = profile ? JSON.stringify(profile.config) : '';
+  const cli = settings.clis?.find((item) => item.profileId === profileId);
+  const connectedClis = settings.clis?.filter((item) => item.status === 'connected') ?? [];
+  const signature = cli
+    ? JSON.stringify({
+        id: cli.id,
+        model: cli.model,
+        version: cli.version,
+        status: cli.status,
+        revision: cli.revision,
+      })
+    : profile
+      ? JSON.stringify(profile.config)
+      : '';
   useEffect(() => {
-    if (!profileId || !settings.profiles.some((item) => item.config.id === profileId))
-      setProfileId(settings.profiles[0]?.config.id ?? '');
+    if (
+      !profileId ||
+      (!settings.profiles.some((item) => item.config.id === profileId) &&
+        !connectedClis.some((item) => item.profileId === profileId))
+    )
+      setProfileId(settings.profiles[0]?.config.id ?? connectedClis[0]?.profileId ?? '');
   }, [settings, profileId]);
   useEffect(() => {
     setEntries([]);
@@ -89,12 +105,13 @@ export function Chat({
       }
     });
   }, [refresh]);
-  const ready =
-    !!profile &&
-    ['stored', 'not-required'].includes(profile.credential) &&
-    profile.config.capabilities?.tools === 'supported' &&
-    profile.config.capabilities.streaming === 'supported' &&
-    !!profile.config.pricing;
+  const ready = cli
+    ? cli.status === 'connected' && cli.text === 'supported'
+    : !!profile &&
+      ['stored', 'not-required'].includes(profile.credential) &&
+      profile.config.capabilities?.tools === 'supported' &&
+      profile.config.capabilities.streaming === 'supported' &&
+      !!profile.config.pricing;
   async function clear() {
     if (active.current) return false;
     let cleared = false;
@@ -122,7 +139,7 @@ export function Chat({
     const id = crypto.randomUUID();
     active.current = id;
     setBusy(true);
-    setStatus('Streaming…');
+    setStatus('Generating response…');
     setEntries((previous) => [
       ...previous,
       { role: 'You', text: text.trim(), requestId: id, included: false },
@@ -137,6 +154,7 @@ export function Chat({
         text: outgoing,
         consent: true,
         maxUsd: Number(budget),
+        ...(cli ? { cliManagedCost: true as const } : {}),
       });
       if (!result.ok) {
         active.current = null;
@@ -203,6 +221,15 @@ export function Chat({
                 {config.label} · {config.model}
               </option>
             ))}
+            {connectedClis.length > 0 && (
+              <optgroup label="Connected CLIs">
+                {connectedClis.map((item) => (
+                  <option key={item.profileId} value={item.profileId}>
+                    CLI · {item.name} · {item.model || 'Default'}
+                  </option>
+                ))}
+              </optgroup>
+            )}
           </select>
         </label>
         <button
@@ -212,11 +239,11 @@ export function Chat({
           aria-controls="chat-budget"
           onClick={() => setBudgetOpen(!budgetOpen)}
         >
-          Budget &amp; destination
+          {cli ? 'CLI connection details' : 'Budget & destination'}
         </button>
       </div>
       <div id="chat-budget" className="chat-budget-panel" hidden={!budgetOpen}>
-        <label>
+        <label hidden={!!cli}>
           Estimated spend limit (USD)
           <input
             type="number"
@@ -231,12 +258,18 @@ export function Chat({
             }}
           />
         </label>
-        <p className="destination">{profile?.config.baseUrl ?? 'Choose a model profile'}</p>
+        <p className="destination">
+          {cli
+            ? `${cli.name} · ${cli.model || 'CLI default'} · Cost unknown / managed by CLI. API spending limits do not apply.`
+            : (profile?.config.baseUrl ?? 'Choose a model profile')}
+        </p>
       </div>
-      <p hidden={!profile || budgetOpen} className="destination">
-        {profile
-          ? `${profile.config.kind} · ${profile.config.model} → ${profile.config.baseUrl}`
-          : 'Create a model profile in Models & Privacy first.'}
+      <p hidden={(!profile && !cli) || budgetOpen} className="destination">
+        {cli
+          ? `CLI · ${cli.name} · ${cli.model || 'Default'} · Cost unknown / managed by CLI`
+          : profile
+            ? `${profile.config.kind} · ${profile.config.model} → ${profile.config.baseUrl}`
+            : 'Create a model profile in Models & Privacy first.'}
       </p>
       <section
         ref={transcript}
@@ -254,7 +287,8 @@ export function Chat({
             </h2>
             <p>
               Your chat stays in memory until you clear it or close Rovdo.
-              {!ready && ' Add a model, verify streaming and tool support, and set its rates.'}
+              {!ready &&
+                ' Connect and test a CLI, or configure an API model with streaming, tools and rates.'}
             </p>
             {!ready && (
               <button className="text-action" onClick={onConfigure}>
@@ -279,10 +313,12 @@ export function Chat({
         </p>
       ))}
       <OperationStatus label={resetLabel ?? (busy ? 'Generating response...' : null)} />
-      <div hidden={!usage.reports} className="usage-meter">
-        {usage.reports
-          ? `${usage.input} input / ${usage.output} output tokens · ${usage.unknown ? 'Cost estimate unavailable for some calls' : `Estimated ${formatUsd(usage.usd)}`}`
-          : 'Token usage and costs appear when reported by the provider.'}
+      <div hidden={!usage.reports && !usage.unknown && !cli} className="usage-meter">
+        {cli
+          ? 'Cost unknown / managed by CLI. Subscription limits or charges may apply.'
+          : usage.reports
+            ? `${usage.input} input / ${usage.output} output tokens · ${usage.unknown ? 'Cost estimate unavailable for some calls' : `Estimated ${formatUsd(usage.usd)}`}`
+            : 'Token usage and costs appear when reported by the provider.'}
       </div>
       <form
         className="composer"
@@ -311,9 +347,11 @@ export function Chat({
         <details>
           <summary>Review outbound conversation</summary>
           <p>
-            Completed exchanges listed here, your new message, and the read-only workspace_info
-            definition/results are sent to the selected endpoint. Failed or stopped exchanges are
-            excluded. No credentials, screenshots or files are included in the prompt.
+            {cli
+              ? 'Completed exchanges listed here and your new message are passed to the CLI. Its configured provider may receive them remotely. Tools are disabled. '
+              : 'Completed exchanges listed here, your new message, and the read-only workspace_info definition/results are sent to the selected endpoint. '}
+            Failed or stopped exchanges are excluded. No credentials, screenshots or files are
+            included in the prompt.
           </p>
           {entries
             .filter((entry) => entry.included && entry.text)
@@ -333,7 +371,9 @@ export function Chat({
             checked={consent}
             onChange={(event) => setConsent(event.target.checked)}
           />
-          Allow sending this conversation to the selected endpoint
+          {cli
+            ? 'Allow sending this conversation through the selected CLI; cost is managed by the CLI'
+            : 'Allow sending this conversation to the selected endpoint'}
         </label>
         <div className="button-row">
           <button
@@ -343,7 +383,11 @@ export function Chat({
           >
             Send message
           </button>
-          <span className="help-text">Tools can only read Rovdo workspace metadata.</span>
+          <span className="help-text">
+            {cli
+              ? 'Text-only CLI chat · no file access or agent tools granted.'
+              : 'Tools can only read Rovdo workspace metadata.'}
+          </span>
         </div>
       </form>
       <p role="status" className="operation-status">

@@ -1,0 +1,105 @@
+/* CLI cards share the semantic palette and collapse cleanly on smaller desktop windows. */
+.cli-section {
+  margin-block: var(--space-6);
+  padding-bottom: var(--space-6);
+  border-bottom: 1px solid var(--border);
+}
+.cli-section .section-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-4);
+}
+.cli-section h2,
+.cli-section h3,
+.cli-section .section-heading p {
+  margin: 0;
+}
+.cli-list {
+  display: grid;
+  gap: var(--space-2);
+  margin-top: var(--space-4);
+}
+.cli-card {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-panel);
+  background: var(--panel);
+  overflow: hidden;
+}
+.cli-card.cli-connected {
+  border-color: var(--success);
+}
+.cli-card-heading {
+  display: flex;
+  gap: var(--space-3);
+  align-items: center;
+  padding: var(--space-4);
+  flex-wrap: wrap;
+}
+.cli-icon {
+  color: var(--muted);
+  font-family: monospace;
+  font-size: 20px;
+  width: 30px;
+  flex-shrink: 0;
+}
+.cli-identity {
+  min-width: 150px;
+  flex: 1;
+}
+.cli-identity h3 {
+  font-size: 16px;
+}
+.cli-identity .help-text {
+  font-size: 13px;
+}
+.cli-model-badge {
+  padding: 2px 10px;
+  border: 1px solid var(--border);
+  border-radius: 20px;
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+}
+.cli-state {
+  font-size: 13px;
+  color: var(--muted);
+}
+.cli-ready {
+  color: var(--success);
+}
+.cli-ready::before {
+  content: '✓ ';
+}
+.cli-config {
+  padding: var(--space-4);
+  border-top: 1px solid var(--border);
+  background: var(--panel-subtle);
+}
+.cli-config-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  align-items: end;
+  gap: var(--space-4);
+}
+.cli-config-grid label {
+  display: grid;
+  gap: var(--space-1);
+}
+.cli-config-grid input,
+.cli-config-grid select {
+  width: 100%;
+}
+@media (max-width: 900px) {
+  .cli-state {
+    margin-left: auto;
+  }
+  .cli-model-badge {
+    max-width: 150px;
+  }
+  .cli-section .section-heading {
+    align-items: flex-start;
+  }
+}

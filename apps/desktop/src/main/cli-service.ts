@@ -13,6 +13,35 @@ import type {
 import type { SettingsStore } from '@rovdo/storage';
 import { CliRuntime, findCli } from './cli-runtime';
 import type { Launcher } from './cli-runtime';
+import { open } from 'node:fs/promises';
+import { homedir } from 'node:os';
+import { join } from 'node:path';
+
+/** Copy only the model preference, not user settings/hooks/helpers, into restricted mode. Never read auth files. */
+export async function claudeConfiguredModel(
+  directory = join(homedir(), '.claude'),
+): Promise<string> {
+  let file;
+  try {
+    file = await open(join(directory, 'settings.json'), 'r');
+  } catch (error) {
+    if (error && typeof error === 'object' && 'code' in error && error.code === 'ENOENT') return '';
+    throw new Error('CLI_EXECUTION_FAILED', { cause: error });
+  }
+  try {
+    if ((await file.stat()).size > 65536) throw new Error('CLI_UNSUPPORTED');
+    const buffer = Buffer.alloc(65537);
+    const { bytesRead } = await file.read(buffer, 0, buffer.length, 0);
+    if (bytesRead > 65536) throw new Error('CLI_UNSUPPORTED');
+    const value: unknown = JSON.parse(buffer.subarray(0, bytesRead).toString('utf8'));
+    if (!value || typeof value !== 'object' || !('model' in value)) return '';
+    const parsed = CliModelSchema.safeParse(value.model);
+    if (!parsed.success) throw new Error('CLI_MODEL_INVALID');
+    return parsed.data;
+  } finally {
+    await file.close();
+  }
+}
 
 export const CLI_PROVIDERS = {
   codex: {
@@ -214,11 +243,11 @@ class ClaudeCliAdapter implements ModelAdapter {
   }
 }
 /** Reuse the existing scoped OpenAI-compatible transport; never launch `ollama run` (which can pull models). */
-class OllamaCliAdapter implements ModelAdapter {
+export class OllamaCliAdapter implements ModelAdapter {
   readonly id = 'cli:ollama';
   private caps = capabilities(false);
   private readonly delegate: ModelAdapter;
-  constructor(model: string, timeoutMs: number) {
+  constructor(model: string, timeoutMs: number, fetcher?: typeof fetch) {
     this.delegate = createAdapter(
       {
         id: CLI_PROVIDERS.ollama.profileId,
@@ -232,6 +261,7 @@ class OllamaCliAdapter implements ModelAdapter {
         includeUsage: true,
       },
       '',
+      fetcher,
     );
   }
   estimateCost() {
@@ -290,6 +320,7 @@ export class CliService {
         status: 'not-installed',
         model: pref?.model ?? '',
         timeoutMs: pref?.timeoutMs ?? 60000,
+        revision: 0,
         models: [],
         text: 'unknown',
         streaming: 'unknown',
@@ -395,12 +426,13 @@ export class CliService {
     this.states.set(pref.id, {
       ...base,
       ...pref,
+      revision: base.revision + 1,
       status: base.status === 'connected' ? 'installed' : base.status,
       text: 'unknown',
       streaming: 'unknown',
     });
   }
-  async adapter(id: CliId): Promise<ModelAdapter> {
+  async adapter(id: CliId, timeoutLimit?: number): Promise<ModelAdapter> {
     if (id === 'codex') return new CodexCliAdapter().create();
     if (id === 'gemini') return new GeminiCliAdapter().create();
     if (id === 'qwen') return new QwenCliAdapter().create();
@@ -410,18 +442,24 @@ export class CliService {
     if (view.status === 'unsupported-version' || view.status === 'unsupported-mode')
       throw new Error('CLI_UNSUPPORTED');
     if (id === 'claude')
-      return new ClaudeCliAdapter(this.runtime, launcher, view.model, view.timeoutMs);
+      return new ClaudeCliAdapter(
+        this.runtime,
+        launcher,
+        view.model || (await claudeConfiguredModel()),
+        Math.min(view.timeoutMs, timeoutLimit ?? 300000),
+      );
     const model = view.model || view.models[0];
     if (!model || !view.models.includes(model)) throw new Error('CLI_MODEL_INVALID');
-    return new OllamaCliAdapter(model, view.timeoutMs);
+    return new OllamaCliAdapter(model, Math.min(view.timeoutMs, timeoutLimit ?? 300000));
   }
   async test(id: CliId, signal: AbortSignal): Promise<void> {
     try {
-      const adapter = await this.adapter(id);
+      const adapter = await this.adapter(id, 20000);
       const caps = await adapter.probe(signal);
       this.states.set(id, {
         ...this.views().find((v) => v.id === id)!,
         status: 'connected',
+        revision: this.views().find((v) => v.id === id)!.revision + 1,
         text: 'supported',
         streaming: caps.streaming === 'supported' ? 'supported' : 'unknown',
       });
