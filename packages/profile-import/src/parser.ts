@@ -202,10 +202,15 @@ export function previewDocument(
       }
       const skill = SKILLS.find((s) => s.id === skillId);
       const version =
-        skill?.aliases.flatMap(
-          (a) =>
-            new RegExp(String.raw`${escape(a.label)}\s+(\d+(?:\.\d+){0,2})`, 'i').exec(text)?.[1] ??
-            [],
+        skill?.aliases.flatMap((a) =>
+          (() => {
+            const m = new RegExp(String.raw`${escape(a.label)}\s+(\d+(?:\.\d+){0,2})`, 'i').exec(
+              text,
+            );
+            return m && !/^\s*\+?\s*(?:years?|months?)\b/i.test(text.slice(m.index + m[0].length))
+              ? [m[1]!]
+              : [];
+          })(),
         )[0] ?? null;
       intel.skills.push({
         id: `skill:${hash.slice(0, 16)}:${skillId}`,

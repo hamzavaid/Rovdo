@@ -5,7 +5,7 @@
 import type { Requirement, RequirementSet } from '@rovdo/shared';
 import { PartialDateSchema } from '@rovdo/shared';
 import { SKILLS, TAXONOMY_VERSION, roleOf } from './taxonomy';
-export const REQUIREMENTS_PARSER_VERSION = 'requirements-v6';
+export const REQUIREMENTS_PARSER_VERSION = 'requirements-v7';
 const escape = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 const aliases = SKILLS.flatMap((skill) =>
   skill.aliases.map((alias) => ({
@@ -155,13 +155,17 @@ export function extractRequirements(text: string, title: string): RequirementSet
         const version = /^\s*(>=|<=|>|<|\^|~|=)?\s*(\d+(?:\.\d+){0,2})/.exec(line.slice(token.end));
         group = add('skill', {
           skillId: token.skillId,
-          versionRange: version ? `${version[1] ?? '='}${version[2]}` : null,
+          versionRange:
+            version &&
+            !/^\s*\+?\s*(?:years?|months?)\b/i.test(line.slice(token.end + version[0].length))
+              ? `${version[1] ?? '='}${version[2]}`
+              : null,
         });
       }
       previous = token;
     }
     const years =
-      /(\d+(?:\.\d+)?)\s*\+?\s*(years?|months?)\s+(?:of\s+)?(?:relevant\s+|professional\s+|hands.on\s+)?(?:[a-z]+\s+)?experience/i.exec(
+      /(\d+(?:\.\d+)?)(?:\s*[-\u2013\u2014]\s*\d+(?:\.\d+)?)?\s*\+?\s*(years?|months?)\s+(?:of\s+)?(?:relevant\s+|professional\s+|hands.on\s+)?(?:[a-z]+\s+)?experience/i.exec(
         line,
       );
     if (years)
@@ -301,6 +305,7 @@ export function degreeGate(
 }
 function monthIndex(value: string, end: boolean): number | null {
   if (!PartialDateSchema.safeParse(value).success) return null;
+  if (value.length === 4) return Number(value) * 12 + (end ? 0 : 12);
   const [year, month = end ? 12 : 1, day = 1] = value.split('-').map(Number);
   return (
     year! * 12 +

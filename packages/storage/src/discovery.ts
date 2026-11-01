@@ -1,5 +1,6 @@
 /** Additive SQLite queue/cache for incremental global discovery, independent of saved employer grants. */
 import type { DatabaseSync } from 'node:sqlite';
+import { createHash } from 'node:crypto';
 import { DiscoveryRunSchema, DiscoveryTaskSchema, DiscoveryListingSchema } from '@rovdo/shared';
 import type { DiscoveryRun, DiscoveryTask, DiscoveryListing } from '@rovdo/shared';
 export class DiscoveryStore {
@@ -12,6 +13,7 @@ export class DiscoveryStore {
  CREATE TABLE IF NOT EXISTS discovery_listing(id TEXT PRIMARY KEY,run_id TEXT NOT NULL REFERENCES discovery_run(id),url TEXT NOT NULL,status TEXT NOT NULL,json TEXT NOT NULL,UNIQUE(run_id,url));
  CREATE TABLE IF NOT EXISTS discovery_job(run_id TEXT NOT NULL REFERENCES discovery_run(id),job_id TEXT NOT NULL REFERENCES career_job(id),source_id TEXT NOT NULL,PRIMARY KEY(run_id,job_id,source_id));
  CREATE TABLE IF NOT EXISTS discovery_coverage(run_id TEXT NOT NULL,source_id TEXT NOT NULL,json TEXT NOT NULL,PRIMARY KEY(run_id,source_id));
+ CREATE TABLE IF NOT EXISTS discovery_cursor(task_id TEXT NOT NULL REFERENCES discovery_task(id),hash TEXT NOT NULL,PRIMARY KEY(task_id,hash));
  CREATE TABLE IF NOT EXISTS discovery_failure(key TEXT PRIMARY KEY,code TEXT NOT NULL,expires INTEGER NOT NULL);
  CREATE TABLE IF NOT EXISTS discovery_response(url TEXT PRIMARY KEY,json TEXT NOT NULL,expires INTEGER NOT NULL);
  `);
@@ -40,6 +42,28 @@ export class DiscoveryStore {
     this.db
       .prepare('INSERT INTO discovery_task VALUES(?,?,?,?,?,?) ON CONFLICT DO NOTHING')
       .run(t.id, t.runId, t.status, t.nextAt, t.priority, JSON.stringify(t));
+  }
+  visitCursor(id: string, current: Record<string, unknown>, next: Record<string, unknown>) {
+    const hash = (payload: Record<string, unknown>) =>
+      createHash('sha256')
+        .update(
+          JSON.stringify(
+            Object.fromEntries(
+              Object.entries(payload)
+                .filter(([k]) => k !== 'lastPageHash')
+                .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)),
+            ),
+          ),
+        )
+        .digest('hex');
+    const from = hash(current),
+      to = hash(next);
+    if (
+      from === to ||
+      this.db.prepare('SELECT 1 FROM discovery_cursor WHERE task_id=? AND hash=?').get(id, to)
+    )
+      throw new Error('NON_ADVANCING_PAGE');
+    this.db.prepare('INSERT OR IGNORE INTO discovery_cursor VALUES(?,?)').run(id, from);
   }
   saveTask(input: DiscoveryTask) {
     const t = DiscoveryTaskSchema.parse(input);

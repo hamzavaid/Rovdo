@@ -87,3 +87,20 @@ it('preserves opaque export-control restrictions and keeps preferred legal terms
     ),
   ).toBe(false);
 });
+it('never interprets a country-scoped negative authorization as a positive country match', () => {
+  const p = sampleCandidate();
+  p.facts.push({
+    id: 'negative',
+    field: 'workAuthorization',
+    value: 'US:no',
+    verified: true,
+    source: { kind: 'user', reference: 'Explicit assertion', capturedAt: '2026-10-17T00:00:00Z' },
+  });
+  const m = rankWithProfile(
+    [{ job: sampleJob('TypeScript required\nWork authorization: US required'), bm25Raw: 0 }],
+    p,
+    BUILTIN_RANKINGS[1]!,
+    AS_OF,
+  )[0]!;
+  expect(m.checks.find((c) => c.rule === 'workAuthorization')!.result).toBe('FAIL');
+});

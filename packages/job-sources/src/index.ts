@@ -174,7 +174,7 @@ export class AtsAdapter implements JobSourceAdapter {
     await this.gate?.(url, options.signal ?? new AbortController().signal);
     return this.transport(url, options);
   }
-  private readonly observed = new Set<string>();
+  private readonly observed = new Map<string, Job['activeStatus']>();
   constructor(
     readonly source: SourceConfig,
     private readonly transport: (
@@ -236,6 +236,9 @@ export class AtsAdapter implements JobSourceAdapter {
     } catch {
       throw new SourceError(200, 0, 'SCHEMA_DRIFT');
     }
+    const detailObserved = new Map<string, number>();
+    const detailQuarantine: Quarantine[] = [];
+    let listedCount: number | undefined;
     if (this.source.ats === 'smartrecruiters') {
       const list = z
         .object({
@@ -243,6 +246,7 @@ export class AtsAdapter implements JobSourceAdapter {
           totalFound: z.number().int().nonnegative(),
         })
         .parse(payload);
+      listedCount = list.content.length;
       const details: unknown[] = [];
       for (const item of list.content) {
         const parsed = z.object({ id }).safeParse(item);
@@ -254,7 +258,25 @@ export class AtsAdapter implements JobSourceAdapter {
           `https://api.smartrecruiters.com/v1/companies/${this.source.tenant}/postings/${encodeURIComponent(String(parsed.data.id))}`,
           { signal },
         );
-        if (detail.status !== 200) throw new SourceError(detail.status, 1000, 'DETAIL_UNAVAILABLE');
+        if (detail.status === 404 || detail.status === 410) {
+          detailQuarantine.push({
+            hash: sha256(JSON.stringify(item)),
+            code: `DETAIL_UNAVAILABLE_${detail.status}`,
+            index: detailQuarantine.length,
+          });
+          continue;
+        }
+        if (detail.status !== 200)
+          throw new SourceError(
+            detail.status,
+            Math.max(1000, Number(detail.headers['retry-after'] ?? 1) * 1000),
+            'DETAIL_UNAVAILABLE',
+          );
+        const checked = Number(detail.headers['x-rovdo-observed-at']);
+        detailObserved.set(
+          String(parsed.data.id),
+          Number.isFinite(checked) && checked >= 0 ? checked : Date.now(),
+        );
         try {
           details.push(JSON.parse(detail.body.toString('utf8')));
         } catch {
@@ -265,12 +287,23 @@ export class AtsAdapter implements JobSourceAdapter {
     }
     const normalized = await this.normalizeDetailedAsync(payload, signal);
     const jobs = normalized.jobs;
-    for (const job of jobs) this.observed.add(job.sourceJobId);
-    const count = Array.isArray(payload)
-      ? payload.length
-      : this.source.ats === 'smartrecruiters'
-        ? z.object({ content: z.array(z.unknown()) }).parse(payload).content.length
-        : z.object({ jobs: z.array(z.unknown()) }).parse(payload).jobs.length;
+    for (const job of jobs) {
+      this.observed.set(job.sourceJobId, job.activeStatus);
+      const header = Number(response.headers['x-rovdo-observed-at']);
+      const observed =
+        detailObserved.get(job.sourceJobId) ??
+        (Number.isFinite(header) && header >= 0 ? header : Date.now());
+      job.firstSeenAt = observed;
+      job.lastSeenAt = observed;
+      for (const p of job.provenance) p.collectedAt = observed;
+    }
+    const count =
+      listedCount ??
+      (Array.isArray(payload)
+        ? payload.length
+        : this.source.ats === 'smartrecruiters'
+          ? z.object({ content: z.array(z.unknown()) }).parse(payload).content.length
+          : z.object({ jobs: z.array(z.unknown()) }).parse(payload).jobs.length);
     const next = Number(state.cursor ?? 0) + count;
     const nextCursor =
       this.source.ats === 'lever' && count === 100
@@ -286,7 +319,7 @@ export class AtsAdapter implements JobSourceAdapter {
       returned: count,
       status: 200,
       headers: response.headers,
-      quarantine: normalized.quarantine,
+      quarantine: [...normalized.quarantine, ...detailQuarantine],
     };
   }
   normalize(payload: unknown): Job[] {
@@ -365,6 +398,8 @@ export class AtsAdapter implements JobSourceAdapter {
       let commitment = '';
       let posted: string | null = null;
       let updated: string | null = null;
+      let validThrough: string | null = null;
+      let expirationInvalid = false;
       let requisition: string | null = null;
       let salary: Job['salary'] = null;
       let country = '';
@@ -471,6 +506,12 @@ export class AtsAdapter implements JobSourceAdapter {
         sourceId = sha256(canonicalUrl(url));
         description = plain(r.description);
         posted = timestamp(r.datePosted);
+        validThrough = timestamp(r.validThrough);
+        if (validThrough && /^\d{4}-\d{2}-\d{2}$/.test(r.validThrough ?? ''))
+          validThrough = r.validThrough!;
+        expirationInvalid = r.validThrough !== undefined && validThrough === null;
+        if (expirationInvalid)
+          quarantine.push({ hash: sha256(JSON.stringify(raw)), code: 'INVALID_EXPIRATION', index });
         commitment = String(r.employmentType ?? '');
         const places = Array.isArray(r.jobLocation) ? r.jobLocation : [r.jobLocation];
         location = places
@@ -594,7 +635,16 @@ export class AtsAdapter implements JobSourceAdapter {
           updatedAt: updated,
           firstSeenAt: now,
           lastSeenAt: now,
-          activeStatus: 'open',
+          activeStatus:
+            validThrough &&
+            (validThrough.length === 10
+              ? validThrough < new Date(now).toISOString().slice(0, 10)
+              : Date.parse(validThrough) < now)
+              ? 'closed'
+              : expirationInvalid
+                ? 'unknown'
+                : 'open',
+          validThrough,
           salary,
           contentSha256: sha256(
             JSON.stringify([
@@ -606,6 +656,7 @@ export class AtsAdapter implements JobSourceAdapter {
               salary,
               posted,
               country,
+              validThrough,
             ]),
           ),
           rawSha256: hash,
@@ -673,7 +724,7 @@ export class AtsAdapter implements JobSourceAdapter {
       job.source === this.source.ats &&
       job.tenant === this.source.tenant &&
       this.observed.has(job.sourceJobId)
-      ? 'open'
+      ? this.observed.get(job.sourceJobId)!
       : 'unknown';
   }
 }

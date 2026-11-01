@@ -79,7 +79,7 @@ export function legalChecks(text: string, profile: CandidateProfile): Eligibilit
       preferredSection = false;
     if (preferredSection && !/\brequired|\bmust\b/i.test(excerpt)) continue;
     if (
-      /\b(?:no .{0,70}(?:required|necessary)|not required|optional|preferred|a plus)\b/i.test(
+      /\b(?:no .{0,70}(?:required|necessary|needed)|not (?:required|necessary|needed)|do not require|optional|preferred|a plus)\b/i.test(
         excerpt,
       )
     )
@@ -118,6 +118,7 @@ export function legalChecks(text: string, profile: CandidateProfile): Eligibilit
       const pass =
         !!expected &&
         values.some((v) => {
+          if (/\b(?:no|none|not)\b/.test(v)) return false;
           if (rule === 'citizenship' || rule === 'workAuthorization')
             return jurisdiction(v).country.toLowerCase() === expected;
           return v === expected || (rule === 'clearance' && v === `active ${expected}`);
@@ -126,7 +127,7 @@ export function legalChecks(text: string, profile: CandidateProfile): Eligibilit
         !alternatives && values.some((v) => v === 'no' || v === 'none' || v === `${expected} no`);
       result.push({
         rule,
-        result: pass ? 'PASS' : fail ? 'FAIL' : 'UNKNOWN',
+        result: pass && fail ? 'UNKNOWN' : pass ? 'PASS' : fail ? 'FAIL' : 'UNKNOWN',
         excerpt: excerpt.trim().replace(/\.$/, ''),
         factIds: facts.map((f) => f.id),
       });

@@ -14,10 +14,13 @@ export const DiscoveryRecordSchema = z.object({
   location: z.string().max(500).default(''),
   description: z.string().max(100000).default(''),
   postedAt: z.string().nullable().default(null),
+  updatedAt: z.string().nullable().optional(),
+  observedAt: z.number().nonnegative().optional(),
   employmentType: z.string().default('unknown'),
   workMode: z.enum(['remote', 'hybrid', 'onsite', 'unknown']).default('unknown'),
   requisitionId: z.string().max(200).nullable().default(null),
   salary: JobSchema.shape.salary.default(null),
+  companyEvidence: z.string().max(500).optional(),
   sourceId: z.string(),
   sourceName: z.string(),
   sourceUrl: z.string().url(),
@@ -29,6 +32,7 @@ export type DiscoveryPage = {
   records: DiscoveryRecord[];
   next: Record<string, unknown> | null;
   rejected: number;
+  rawPageHash?: string;
 };
 export type DiscoveryRead = (
   url: string,
@@ -60,43 +64,102 @@ const pageRows = (rows: unknown[], payload: Record<string, unknown>) => {
     next: offset + 100 < rows.length ? { ...payload, offset: offset + 100 } : null,
   };
 };
-/** HTML/Markdown tables retain the application-column URL, not the company homepage. */
-export function parseGithubListings(text: string) {
+/** Repository-specific continuation contracts share a header-aware table decoder, not a universal scraper. */
+export const GITHUB_LIST_CONTRACTS = {
+  'simplify-new-grad-positions': ['\u21b3', '\u21aa', '\u2192', '\u2193'],
+  'simplify-pitt-csc-summer-2027-internships': ['\u21b3', '\u21aa', '\u2192', '\u2193'],
+  'vansh-new-grad-2027': ['\u21b3', '\u21aa', '\u2192', '\u2193'],
+  'vansh-summer-2027-internships': ['\u21b3', '\u21aa', '\u2192', '\u2193'],
+} as const;
+export function parseGithubListings(text: string, sourceId?: string) {
+  const contract = sourceId
+    ? GITHUB_LIST_CONTRACTS[sourceId as keyof typeof GITHUB_LIST_CONTRACTS]
+    : ['\u21b3', '\u21aa', '\u2192', '\u2193'];
+  if (!contract) throw new Error('SOURCE_NOT_IMPLEMENTED');
   const result: {
     url: string;
     title: string;
     company: string | null;
     location: string;
     description: string;
+    companyEvidence: string;
   }[] = [];
   const clean = (s: string) =>
-    plain(s.replace(/\[([^\]]+)\]\([^)]*\)/g, '$1'))
-      .replace(/<[^>]*>/g, '')
+    plain(s.replace(/\[([^\]]+)\]\([^)]*\)/g, '$1').replace(/(?:&rarr;|&#8627;)/g, '\u21b3'))
+      .replace(/\*\*|__|`/g, '')
       .trim();
+  let columns = { company: 0, title: 1, location: 2, application: 3, status: -1 },
+    previous: { name: string; evidence: string } | null = null;
   const add = (cells: string[]) => {
-    if (cells.length < 4) return;
+    const names = cells.map((c) =>
+      clean(c)
+        .toLowerCase()
+        .replace(/[^a-z]/g, ''),
+    );
+    const company = names.findIndex((c) => /^(?:company|companyname|employer)$/.test(c));
+    const title = names.findIndex((c) => /^(?:roles?|positions?|title|jobtitle|job)$/.test(c));
+    const application = names.findIndex((c) =>
+      /^(?:application(?:link)?|apply(?:link)?|link)$/.test(c),
+    );
+    if (company >= 0 && title >= 0 && application >= 0) {
+      columns = {
+        company,
+        title,
+        application,
+        location: names.findIndex((c) => /^locations?$/.test(c)),
+        status: names.findIndex((c) => /^(?:status|availability)$/.test(c)),
+      };
+      previous = null;
+      return;
+    }
+    if (cells.length < 4 || !cells[columns.application]) return;
+    const rawCompany = clean(cells[columns.company] ?? ''),
+      heading = clean(cells[columns.title] ?? '');
+    if (/^-+$/.test(rawCompany) || !heading) return;
+    let employer: string | null = rawCompany || null;
+    let evidence = rawCompany;
+    if (contract.some((marker) => rawCompany === marker)) {
+      employer = previous?.name ?? null;
+      evidence = previous?.evidence ?? '';
+    } else if (rawCompany && !/^(?:n\/a|unknown|[-?]+)$/i.test(rawCompany)) {
+      previous = { name: rawCompany, evidence: rawCompany };
+    } else employer = null;
+    const cell = cells[columns.application]!;
+    const status = clean(columns.status >= 0 ? (cells[columns.status] ?? '') : cell);
+    const alt = [...cell.matchAll(/<img\b[^>]*\balt\s*=\s*["']([^"']*)/gi)]
+      .map((m) => m[1])
+      .join(' ');
+    if (/\uD83D\uDD12|\bclosed\b|no longer|\bexpired\b/i.test(status + ' ' + alt)) return;
     const links = [
-      ...cells[3]!.matchAll(/href=["'](https:\/\/[^"']+)|\]\((https:\/\/[^)]+)\)/gi),
-    ].map((m) => m[1] ?? m[2]!);
-    const url = links[0];
-    const title = clean(cells[1]!),
-      rawCompany = clean(cells[0]!);
-    const company = /^(?:[\u21b3\u21aa\u2192\u2193?\s-]+|n\/a|unknown)?$/i.test(rawCompany)
-      ? null
-      : rawCompany;
-    if (url && title && !/\uD83D\uDD12|closed|no longer/i.test(cells[3]!))
-      result.push({ url, title, company, location: clean(cells[2]!), description: '' });
+      ...cell.matchAll(/href\s*=\s*["'](https:\/\/[^"']+)|\]\((https:\/\/[^)]+)\)/gi),
+    ].map((m) => (m[1] ?? m[2]!).replace(/&amp;/g, '&').trim());
+    const url =
+      links.find((link) =>
+        /https:\/\/(?:jobs\.(?:lever\.co|ashbyhq\.com)|boards\.greenhouse\.io|job-boards\.greenhouse\.io)\//i.test(
+          link,
+        ),
+      ) ?? links[0];
+    if (url)
+      result.push({
+        url,
+        title: heading,
+        company: employer,
+        location: clean(cells[columns.location] ?? ''),
+        description: '',
+        companyEvidence: evidence,
+      });
   };
   for (const row of text.matchAll(/<tr\b[^>]*>([\s\S]*?)<\/tr>/gi))
-    add([...row[1]!.matchAll(/<td\b[^>]*>([\s\S]*?)<\/td>/gi)].map((m) => m[1]!));
-  for (const line of text.split(/\r?\n/))
+    add([...row[1]!.matchAll(/<t[dh]\b[^>]*>([\s\S]*?)<\/t[dh]>/gi)].map((m) => m[1]!));
+  const markdown = text.replace(/<a\b[\s\S]*?<\/a>/gi, (a) => a.replace(/\r?\n/g, ' '));
+  for (const line of markdown.split(/\r?\n/))
     if (line.trim().startsWith('|'))
       add(
         line
           .trim()
           .replace(/^\||\|$/g, '')
-          .split('|')
-          .map((s) => s.trim()),
+          .split(/(?<!\\)\|/)
+          .map((c) => c.trim()),
       );
   return result;
 }
@@ -107,8 +170,11 @@ export async function fetchDiscoveryPage(
 ): Promise<DiscoveryPage> {
   const source = DISCOVERY_SOURCES.find((s) => s.id === sourceId);
   if (!source) throw new Error('UNKNOWN_SOURCE');
+  let observedAt = Date.now();
   const decode = async (url: string, headers?: Record<string, string>) => {
     const response = await read(url, headers);
+    const observed = Number(response.headers['x-rovdo-observed-at']);
+    if (Number.isFinite(observed) && observed >= 0) observedAt = Math.min(observedAt, observed);
     if (response.status !== 200) {
       const retry = response.headers['retry-after'];
       throw new DiscoveryHttpError(
@@ -158,7 +224,7 @@ export async function fetchDiscoveryPage(
         .parse(JSON.parse(response));
       text = Buffer.from(r.content, 'base64').toString('utf8');
     }
-    const page = pageRows(parseGithubListings(text), payload);
+    const page = pageRows(parseGithubListings(text, sourceId), payload);
     raw = page.rows;
     next = page.next;
   } else if (source.adapter === 'wwr') {
@@ -241,7 +307,8 @@ export async function fetchDiscoveryPage(
           company: r.companyName,
           description: plain(string(r.description)),
           location: locations.join(', '),
-          postedAt: date(r.pubDate),
+          postedAt: null,
+          updatedAt: date(r.pubDate),
           salary,
           employmentType: string(r.employmentType),
           workMode: 'remote',
@@ -272,10 +339,16 @@ export async function fetchDiscoveryPage(
         };
       else
         projected = { ...r, kind: source.adapter === 'github-list' ? 'repository' : 'aggregate' };
+      const pay = JobSchema.shape.salary.safeParse(projected.salary ?? null);
+      if (!pay.success) {
+        projected.salary = null;
+        rejected++;
+      }
       const record = DiscoveryRecordSchema.parse({
         sourceId,
         sourceName: source.name,
         sourceUrl: source.url,
+        observedAt,
         ...projected,
       });
       canonicalUrl(record.url);
@@ -289,7 +362,7 @@ export async function fetchDiscoveryPage(
       rejected++;
     }
   }
-  return { records, next, rejected };
+  return { records, next, rejected, rawPageHash: sha256(JSON.stringify(raw)) };
 }
 /** Sufficiently complete records enter existing scoring; unstructured snippets remain discoveries only. */
 export function normalizeDiscoveryJob(
@@ -321,6 +394,7 @@ export function normalizeDiscoveryJob(
             : 'unknown';
   const rawHash = sha256(JSON.stringify(record));
   const postedAt = postingTimestamp(record.postedAt);
+  now = record.observedAt ?? now;
   const key = sha256(url);
   return JobSchema.parse({
     id: `discovered:${key}`,
@@ -346,7 +420,7 @@ export function normalizeDiscoveryJob(
           : 'unknown',
     descriptionText: record.description,
     postedAt,
-    updatedAt: null,
+    updatedAt: postingTimestamp(record.updatedAt),
     firstSeenAt: now,
     lastSeenAt: now,
     activeStatus: 'unknown',

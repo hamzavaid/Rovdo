@@ -9,6 +9,7 @@ import {
   DiscoveryPolicyError,
   DiscoveryRecordSchema,
   plain,
+  postingTimestamp,
 } from '@rovdo/job-sources';
 import type { DiscoveryRead, DiscoveryPage } from '@rovdo/job-sources';
 
@@ -225,9 +226,7 @@ export function jobSpyPage(
       sourceName: 'JobSpy / ' + sites[sourceId]?.site,
       sourceUrl: str('job_url'),
       kind: 'aggregate',
-      postedAt: Number.isFinite(Date.parse(str('date_posted')))
-        ? new Date(str('date_posted')).toISOString()
-        : null,
+      postedAt: postingTimestamp(str('date_posted')),
       employmentType: str('job_type') || 'unknown',
       workMode: raw.is_remote === true ? 'remote' : 'unknown',
       salary:

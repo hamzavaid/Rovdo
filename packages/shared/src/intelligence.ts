@@ -181,6 +181,7 @@ export const RequirementSetSchema = z.strictObject({
     'requirements-v4',
     'requirements-v5',
     'requirements-v6',
+    'requirements-v7',
   ]),
   taxonomyVersion: z.enum(['rovdo-taxonomy-1', 'rovdo-taxonomy-2', 'rovdo-taxonomy-3']),
   items: z.array(RequirementSchema).max(1000),

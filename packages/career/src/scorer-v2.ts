@@ -32,7 +32,7 @@ import { matchSkill, roleOf, TAXONOMY_VERSION } from './taxonomy';
 import { intelligenceOf, CANDIDATE_POLICY_VERSION } from './candidate';
 import { locationOutcome } from './constraints';
 export { intelligenceOf } from './candidate';
-export const SCORING_POLICY_VERSION = 'deterministic-v2.4';
+export const SCORING_POLICY_VERSION = 'deterministic-v2.5';
 type Weights = RankingProfile['weights'];
 const weights = (partial: Partial<Weights>): Weights =>
   Object.fromEntries(COMPONENTS.map((key) => [key, partial[key] ?? 0])) as Weights;
@@ -507,7 +507,11 @@ export function prepareRanking(
           'IC/management tracks remain distinct; no fixed years are invented from title level.',
         );
         // Legal eligibility uses explicit user assertions; technical strength cannot compensate for a failed gate.
-        const checks = evaluateEligibility(job, {
+        const effectiveJob =
+          job.validThrough && job.validThrough.slice(0, 10) < asOf
+            ? { ...job, activeStatus: 'closed' as const }
+            : job;
+        const checks = evaluateEligibility(effectiveJob, {
           ...profile,
           facts: profile.facts.filter(
             (f) =>

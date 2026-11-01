@@ -598,11 +598,14 @@ export class CareerStore {
             : identities.length
               ? this.readJob(String(identities[0]!.json))
               : null;
-        const provenance = { ...raw.provenance[0]!, collectedAt: now };
+        const provenance = {
+          ...raw.provenance[0]!,
+          collectedAt: raw.provenance[0]?.collectedAt ?? now,
+        };
         let job: Job = {
           ...raw,
-          firstSeenAt: old?.firstSeenAt ?? now,
-          lastSeenAt: now,
+          firstSeenAt: old?.firstSeenAt ?? provenance.collectedAt,
+          lastSeenAt: Math.max(old?.lastSeenAt ?? 0, provenance.collectedAt),
           provenance: old
             ? [
                 ...old.provenance.filter(
@@ -1146,10 +1149,12 @@ export class CareerStore {
               'workMode',
               'salary',
               'activeStatus',
+              'validThrough',
               'duplicateGroup',
             ].map((key) => [key, row.job[key as keyof Job]]),
           ),
           lexical: config.method === 'legacy-v1' ? row.bm25Raw : 0,
+          expiryAsOf: row.job.validThrough ? asOf : null,
         }),
       )
       .digest('hex');

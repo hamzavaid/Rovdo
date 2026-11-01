@@ -21,7 +21,7 @@ export function postingTimestamp(
       timestamp = Date.parse(input);
     } else {
       const rfc =
-        /^(?:(?:Mon|Tue|Wed|Thu|Fri|Sat|Sun),?\s+)?(\d{1,2})\s+(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+(\d{4})\s+\d{2}:\d{2}(?::\d{2})?\s+(?:GMT|UTC|[+-]\d{4})$/i.exec(
+        /^(?:(?:Mon|Tue|Wed|Thu|Fri|Sat|Sun),?\s+)?(\d{1,2})\s+(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+(\d{4})\s+(?:[01]\d|2[0-3]):[0-5]\d(?::[0-5]\d)?\s+(?:GMT|UTC|[+-]\d{4})$/i.exec(
           input,
         );
       if (!rfc) return null;

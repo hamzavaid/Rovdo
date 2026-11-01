@@ -60,6 +60,7 @@ export const DiscoveryListingSchema = z.strictObject({
   sourceId: z.string(),
   url: z.string().url().max(2048),
   title: z.string().max(500),
+  companyEvidence: z.string().max(500).optional(),
   company: z.string().max(200).nullable(),
   location: z.string().max(500),
   description: z.string().max(100000),

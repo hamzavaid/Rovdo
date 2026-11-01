@@ -344,6 +344,12 @@ export class GlobalDiscoveryEngine {
           const at = this.store.reserveOrigin(origin, Date.now());
           if (at > Date.now()) await this.sleep(at - Date.now(), signal);
           if (signal.aborted) throw new Error('CANCELED');
+          const deferred = this.store.originBlockedUntil(origin);
+          if (deferred > Date.now()) throw new DiscoveryHttpError(429, deferred - Date.now());
+          const newlyFailed =
+            this.store.global.failure('origin:' + origin, Date.now()) ??
+            this.store.global.failure(url, Date.now());
+          if (newlyFailed) throw new DiscoveryPolicyError(newlyFailed);
           this.store.global.note(run.id, task.sourceId, 'collecting', 0, 0, null, 1);
           let response: PublicResponse;
           try {
@@ -378,6 +384,7 @@ export class GlobalDiscoveryEngine {
             this.store.global.fail(url, `HTTP_${response.status}`, Date.now() + 3600000);
           if (response.status >= 300 && response.status !== 404 && response.status !== 410)
             throw new DiscoveryHttpError(response.status);
+          const capturedAt = Date.now();
           if (response.status === 200) {
             const ttl =
               origin === 'https://remotive.com'
@@ -387,13 +394,13 @@ export class GlobalDiscoveryEngine {
                   : 3600000;
             this.store.global.putCache(
               url,
-              { ...response, body: response.body.toString('base64'), capturedAt: Date.now() },
+              { ...response, body: response.body.toString('base64'), capturedAt },
               Date.now() + ttl,
             );
           }
           return {
             ...response,
-            headers: { ...response.headers, 'x-rovdo-observed-at': String(Date.now()) },
+            headers: { ...response.headers, 'x-rovdo-observed-at': String(capturedAt) },
           };
         });
       this.origins.set(origin, work);
@@ -411,7 +418,14 @@ export class GlobalDiscoveryEngine {
   private async process(run: DiscoveryRun, task: DiscoveryTask, parent: AbortSignal) {
     this.store.global.saveTask({ ...task, status: 'running' });
     const signal = AbortSignal.any([parent, AbortSignal.timeout(60000)]);
-    const read = this.reader(run, task, signal);
+    const baseRead = this.reader(run, task, signal);
+    let observedAt = Date.now();
+    const read: DiscoveryRead = async (url, headers) => {
+      const response = await baseRead(url, headers);
+      const observed = Number(response.headers['x-rovdo-observed-at']);
+      if (Number.isFinite(observed) && observed >= 0) observedAt = Math.min(observedAt, observed);
+      return response;
+    };
     try {
       this.assertActive(run, signal);
       if (task.kind === 'provider') {
@@ -440,13 +454,14 @@ export class GlobalDiscoveryEngine {
             url,
             title: record.title,
             company: record.company,
+            ...(record.companyEvidence ? { companyEvidence: record.companyEvidence } : {}),
             location: record.location,
             description: record.description,
             status: 'pending',
             reason: null,
           };
           this.store.global.saveListing(listing);
-          const job = normalizeDiscoveryJob(record, config, run.id, Date.now());
+          const job = normalizeDiscoveryJob(record, config, run.id, observedAt);
           if (job) {
             jobs.push(job);
             this.store.global.updateListing(run.id, url, 'resolved');
@@ -462,8 +477,16 @@ export class GlobalDiscoveryEngine {
         }
         if (jobs.length) await this.store.ingestDiscoveredAsync(run.id, config, jobs, signal);
         this.store.global.note(run.id, source.id, 'ready', page.records.length, page.rejected);
-        const hash = sha256(JSON.stringify(page.records.map((r) => r.url)));
-        if (page.next && task.payload.lastPageHash === hash) throw new Error('NON_ADVANCING_PAGE');
+        const hash = page.rawPageHash ?? sha256(JSON.stringify(page.records.map((r) => r.url)));
+        if (page.next) {
+          this.store.global.visitCursor(task.id, task.payload, page.next);
+          if (
+            typeof page.next.page === 'number' &&
+            task.payload.lastPageHash === hash &&
+            page.records.length
+          )
+            throw new Error('NON_ADVANCING_PAGE');
+        }
         this.store.global.saveTask({
           ...task,
           payload: page.next ? { ...page.next, lastPageHash: hash } : task.payload,
@@ -696,11 +719,16 @@ export class GlobalDiscoveryEngine {
       ...job,
       discovery: {
         kind: 'employer' as const,
-        availability: 'verified' as const,
+        availability:
+          job.activeStatus === 'closed'
+            ? ('closed' as const)
+            : job.activeStatus === 'open'
+              ? ('verified' as const)
+              : ('unverified' as const),
         sourceName: company,
         sourceUrl: String(task.payload.pageUrl),
         attributionUrl: job.canonicalUrl,
-        checkedAt: observedAt,
+        checkedAt: job.provenance[0]?.collectedAt ?? observedAt,
         runId: run.id,
         exportAllowed: true,
       },

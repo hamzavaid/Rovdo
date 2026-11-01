@@ -208,6 +208,10 @@ export const JobSchema = z.strictObject({
   firstSeenAt: z.number(),
   lastSeenAt: z.number(),
   activeStatus: z.enum(['open', 'closed', 'unknown']),
+  validThrough: z
+    .union([z.iso.date(), z.iso.datetime({ offset: true })])
+    .nullable()
+    .optional(),
   details: z
     .strictObject({
       employmentType: z.enum([
@@ -268,6 +272,7 @@ export const JobMatchSchema = z.strictObject({
     'deterministic-v2.2',
     'deterministic-v2.3',
     'deterministic-v2.4',
+    'deterministic-v2.5',
   ]),
   features: z.record(z.string(), z.number()),
   ranking: RankingDetailsSchema.optional(),
