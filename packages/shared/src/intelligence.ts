@@ -174,7 +174,12 @@ export const RequirementSchema = z.strictObject({
   graduationEnd: z.number().int().nullable(),
 });
 export const RequirementSetSchema = z.strictObject({
-  parserVersion: z.enum(['requirements-v2', 'requirements-v3', 'requirements-v4']),
+  parserVersion: z.enum([
+    'requirements-v2',
+    'requirements-v3',
+    'requirements-v4',
+    'requirements-v5',
+  ]),
   taxonomyVersion: z.enum(['rovdo-taxonomy-1', 'rovdo-taxonomy-2', 'rovdo-taxonomy-3']),
   items: z.array(RequirementSchema).max(1000),
   role: z.strictObject({
@@ -268,6 +273,16 @@ export const RankingDetailsSchema = z.strictObject({
   technicalScore: z.number().min(0).max(100).nullable(),
   preferenceScore: z.number().min(0).max(100).nullable(),
   requiredCoverage: z.number().min(0).max(1),
+  assessment: z
+    .strictObject({
+      version: z.literal('assessment-v1'),
+      status: z.enum(['complete', 'incomplete', 'not-published']),
+      complete: z.boolean(),
+      assessed: z.number().int().nonnegative(),
+      total: z.number().int().nonnegative(),
+      unresolvedIds: z.array(z.string()),
+    })
+    .optional(),
   shortlist: z.boolean(),
   components: z.array(
     z.strictObject({
@@ -288,6 +303,7 @@ export const RankingDetailsSchema = z.strictObject({
       strength: z.number().min(0).max(1),
       evidenceIds: z.array(z.string()),
       explanation: z.string(),
+      matchedSkillId: z.string().nullable().optional(),
     }),
   ),
 });

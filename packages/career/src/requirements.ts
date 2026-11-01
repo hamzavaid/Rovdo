@@ -5,7 +5,7 @@
 import type { Requirement, RequirementSet } from '@rovdo/shared';
 import { PartialDateSchema } from '@rovdo/shared';
 import { SKILLS, TAXONOMY_VERSION, roleOf } from './taxonomy';
-export const REQUIREMENTS_PARSER_VERSION = 'requirements-v4';
+export const REQUIREMENTS_PARSER_VERSION = 'requirements-v5';
 const escape = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 const aliases = SKILLS.flatMap((skill) =>
   skill.aliases.map((alias) => ({
@@ -116,6 +116,7 @@ export function extractRequirements(text: string, title: string): RequirementSet
       graduationStart: null,
       graduationEnd: null,
     };
+    const before = items.length;
     const add = (kind: Requirement['kind'], extra: Partial<Requirement>) => {
       items.push({ ...base, kind, id: `r${items.length}`, alternatives: [], ...extra });
       return items.at(-1)!;
@@ -196,7 +197,11 @@ export function extractRequirements(text: string, title: string): RequirementSet
         graduationStart: Number(graduation[1]),
         graduationEnd: Number(graduation[2] ?? graduation[1]),
       });
-    if (/citizenship|work authori[sz]|authorized to work|clearance|return to school/i.test(line))
+    if (
+      /citizen|work authori[sz]|authorized to work|clearance|return to school|visa|sponsor|ITAR|export.control|permanent residen|U\.?S\.? person/i.test(
+        line,
+      )
+    )
       add('legal', {});
     if (/\bcertification|\blicen[cs]e\b/i.test(line)) {
       // Named credentials are separate requirements. Unknown credential prose remains reviewable.
@@ -211,6 +216,25 @@ export function extractRequirements(text: string, title: string): RequirementSet
       else if (credentials.length)
         for (const credential of new Set(credentials)) add('certification', { credential });
       else add('certification', {});
+    }
+    // Retain opaque mandatory vocabulary, including the unknown half of a mixed skill clause.
+    // Unsupported prose is reviewable, not a new taxonomy equivalence or a fabricated skill.
+    if (importance === 'required') {
+      const extracted = items.slice(before);
+      let residual = line;
+      for (const token of [...tokens].sort((a, b) => b.start - a.start))
+        residual =
+          residual.slice(0, token.start) +
+          ' '.repeat(token.end - token.start) +
+          residual.slice(token.end);
+      residual = residual
+        .replace(
+          /\b(?:required|must|have|be|and|or|with|in|of|the|a|an|is|are|skills?|knowledge|proficiency|proficient|familiarity|familiar|working|strong|excellent|advanced|basic|experience|professional|relevant|hands|on|practical|technical|minimum|qualifications?|years?|months?|at|least|to|using|expertise|understanding|plus)\b/gi,
+          '',
+        )
+        .replace(/[\d\s\p{P}\p{S}]+/gu, '');
+      if (!extracted.length || (extracted.every((r) => r.kind === 'skill') && residual.length > 0))
+        add('unknown', { confidence: 0 });
     }
   }
   return {
@@ -289,6 +313,7 @@ export function scoringRequirements(items: readonly Requirement[]): Requirement[
       r.graduationEnd,
       r.credential ?? (r.kind === 'certification' ? r.excerpt.trim().toLowerCase() : null),
       r.kind === 'certification' ? [...r.alternatives].sort() : null,
+      ['unknown', 'legal'].includes(r.kind) ? r.excerpt.trim().toLowerCase() : null,
     ]);
     const old = seen.get(key);
     if (!old || priority[r.importance] > priority[old.importance]) seen.set(key, r);

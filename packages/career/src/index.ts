@@ -11,6 +11,8 @@ export * from './application-context';
 export * from './import-review';
 export { CANDIDATE_POLICY_VERSION, qualificationKey, qualificationsConflict } from './candidate';
 import type { CandidateProfile, EligibilityCheck, Job, JobMatch } from '@rovdo/shared';
+import { legalChecks, locationOutcome } from './constraints';
+export { legalChecks, locationOutcome } from './constraints';
 const lower = (v: string) => v.trim().toLowerCase();
 export function expandSearch(query: string): string {
   const groups = [
@@ -165,7 +167,21 @@ export function evaluateEligibility(job: Job, profile: CandidateProfile): Eligib
       job.location || 'Location not published',
     );
   }
-  return checks;
+  const legal = legalChecks(job.descriptionText, profile);
+  return [
+    ...checks.filter((c) => !legal.some((l) => l.rule === c.rule) && c.rule !== 'location'),
+    ...legal,
+    ...(p.locations.length
+      ? [
+          {
+            rule: 'location',
+            result: locationOutcome(job, p.locations),
+            excerpt: job.location || 'Location not published',
+            factIds: [],
+          },
+        ]
+      : []),
+  ];
 }
 
 /** Preserved v1 feature formula and tie-breaking, used only by the Legacy v1 ranking path. */

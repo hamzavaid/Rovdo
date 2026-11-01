@@ -29,8 +29,9 @@ import {
 import { matchSkill, roleOf, TAXONOMY_VERSION } from './taxonomy';
 
 import { intelligenceOf, CANDIDATE_POLICY_VERSION } from './candidate';
+import { locationOutcome } from './constraints';
 export { intelligenceOf } from './candidate';
-export const SCORING_POLICY_VERSION = 'deterministic-v2.2';
+export const SCORING_POLICY_VERSION = 'deterministic-v2.3';
 type Weights = RankingProfile['weights'];
 const weights = (partial: Partial<Weights>): Weights =>
   Object.fromEntries(COMPONENTS.map((key) => [key, partial[key] ?? 0])) as Weights;
@@ -293,6 +294,7 @@ export function rankWithProfile(
         depth: strength ? depthValue[best!.s.depth] * strength : 0,
         ids: strength ? qualificationSupport(best!.s, evidence).evidenceIds : [],
         reason: best && strength ? best.reason : 'No verified matching evidence',
+        matchedSkillId: best && strength ? best.s.skillId : null,
       };
     });
     const weighted = (values: { r: Requirement; value: number }[]) =>
@@ -301,9 +303,23 @@ export function rankWithProfile(
           values.reduce((a, v) => a + importance(v.r), 0)
         : null;
     const required = matches.filter((m) => m.r.importance === 'required');
-    const coverage = required.length
-      ? required.filter((m) => m.strength >= 0.8).length / required.length
-      : 1;
+    const opaque = requirements.filter((r) => r.kind === 'unknown' && r.importance === 'required');
+    const coverage =
+      required.length + opaque.length
+        ? required.filter((m) => m.strength >= 0.8).length / (required.length + opaque.length)
+        : 0;
+    const assessment = {
+      version: 'assessment-v1' as const,
+      status: opaque.length
+        ? ('incomplete' as const)
+        : requirements.length
+          ? ('complete' as const)
+          : ('not-published' as const),
+      complete: requirements.length > 0 && opaque.length === 0,
+      assessed: requirements.length - opaque.length,
+      total: requirements.length,
+      unresolvedIds: opaque.map((r) => r.id),
+    };
     const components = new Map<
       string,
       { value: number | null; confidence: number; explanation: string }
@@ -316,7 +332,10 @@ export function rankWithProfile(
       });
     add(
       'skills',
-      weighted(matches.map((m) => ({ r: m.r, value: m.strength }))),
+      weighted([
+        ...matches.map((m) => ({ r: m.r, value: m.strength })),
+        ...opaque.map((r) => ({ r, value: 0 })),
+      ]),
       avg(matches.map((m) => m.confidence)),
       `${matches.filter((m) => m.strength > 0).length}/${matches.length} job skill requirements have verified evidence; required multiplier ${config.requiredMultiplier}, preferred ${config.preferredMultiplier}.`,
     );
@@ -455,6 +474,7 @@ export function rankWithProfile(
         'clearance',
         'returnToSchool',
         'sponsorship-review',
+        'legal-unresolved',
       ].includes(c.rule),
     );
     const qualificationRequirements = requirements.filter(
@@ -555,16 +575,11 @@ export function rankWithProfile(
     );
     const p = profile.preferences;
     const locationActive = p.locations.length > 0 || p.workModes.length > 0;
+    const jurisdiction = locationOutcome(job, p.locations);
     const locationKnown =
-      (!p.locations.length || job.location.length > 0 || job.workMode === 'remote') &&
-      (!p.workModes.length || job.workMode !== 'unknown');
+      jurisdiction !== 'UNKNOWN' && (!p.workModes.length || job.workMode !== 'unknown');
     const locationPass =
-      (!p.locations.length ||
-        p.locations.some(
-          (x) =>
-            job.location.toLowerCase().includes(x.toLowerCase()) ||
-            (x.toLowerCase() === 'remote' && job.workMode === 'remote'),
-        )) &&
+      jurisdiction === 'PASS' &&
       (!p.workModes.length || p.workModes.includes(job.workMode as 'remote' | 'hybrid' | 'onsite'));
     add(
       'location',
@@ -684,8 +699,11 @@ export function rankWithProfile(
       technicalScore: config.method === 'technical-v2' ? score : null,
       preferenceScore,
       requiredCoverage: coverage,
+      assessment,
       shortlist:
         !excluded &&
+        assessment.complete &&
+        !checks.some((c) => c.result === 'UNKNOWN') &&
         score >= config.thresholds.score &&
         confidence >= config.thresholds.confidence &&
         coverage >= config.thresholds.coverage,
@@ -697,6 +715,7 @@ export function rankWithProfile(
         strength: m.strength,
         evidenceIds: [...m.ids].sort(),
         explanation: m.reason,
+        matchedSkillId: m.matchedSkillId,
       })),
     };
     return JobMatchSchema.parse({
@@ -706,20 +725,22 @@ export function rankWithProfile(
       excluded,
       review:
         checks.some((c) => c.result === 'UNKNOWN') ||
+        !assessment.complete ||
         confidence < config.thresholds.confidence ||
         coverage < config.thresholds.coverage ||
         job.duplicateGroup !== null,
       confidence,
       checks,
       matchedSkills: [
-        ...new Set(matches.filter((m) => m.strength > 0).map((m) => m.r.skillId!)),
+        ...new Set(matches.filter((m) => m.strength > 0).map((m) => m.matchedSkillId!)),
       ].sort(),
       gaps: [
-        ...new Set(
-          matches
+        ...new Set([
+          ...matches
             .filter((m) => m.r.importance === 'required' && m.strength < 0.8)
             .map((m) => m.r.skillId!),
-        ),
+          ...opaque.map((r) => r.excerpt),
+        ]),
       ].sort(),
       reasons: details.map(
         (c) =>

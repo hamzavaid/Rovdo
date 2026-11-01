@@ -258,6 +258,7 @@ export const JobMatchSchema = z.strictObject({
     'deterministic-v2',
     'deterministic-v2.1',
     'deterministic-v2.2',
+    'deterministic-v2.3',
   ]),
   features: z.record(z.string(), z.number()),
   ranking: RankingDetailsSchema.optional(),
