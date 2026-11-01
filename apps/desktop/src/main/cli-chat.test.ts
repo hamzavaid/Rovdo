@@ -88,8 +88,17 @@ it('uses text-only CLI chat with committed context, unknown cost, no vault or wo
       cliManagedCost: true,
     };
     await service.run(request, (e) => events.push(e));
-    await service.run({ ...request, requestId: crypto.randomUUID(), text: 'two' }, (e) =>
-      events.push(e),
+    await service.run(
+      {
+        ...request,
+        requestId: crypto.randomUUID(),
+        text: 'two',
+        context: [
+          { role: 'user', content: 'one' },
+          { role: 'assistant', content: 'hello' },
+        ],
+      },
+      (e) => events.push(e),
     );
     expect(calls[1]).toEqual([
       { role: 'user', content: 'one' },

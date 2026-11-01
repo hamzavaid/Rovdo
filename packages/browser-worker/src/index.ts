@@ -127,7 +127,10 @@ export class BrowserWorker {
         const parent = n.parentElement;
         if (
           !parent ||
-          parent.closest('script,style,input,textarea,select,[hidden],[aria-hidden="true"]') ||
+          parent.closest(
+            'script,style,input,textarea,select,[contenteditable]:not([contenteditable="false"]),[role="textbox" i],[role="searchbox" i],[role="combobox" i],[role="spinbutton" i],[hidden],[aria-hidden="true"]',
+          ) ||
+          parent.isContentEditable ||
           !parent.getClientRects().length ||
           getComputedStyle(parent).visibility !== 'visible'
         )
@@ -137,9 +140,44 @@ export class BrowserWorker {
       }
       return text.join(' ').replace(/\s+/g, ' ').slice(0, 15000);
     });
-    const tree = (await page.locator('body').ariaSnapshot())
-      .replace(/(textbox|combobox|checkbox)([^\n]*):[^\n]*/g, '$1$2: [redacted]')
-      .slice(0, 900);
+    // Raw ARIA snapshots can contain rich-editor children even after native value masking.
+    // Project control affordances directly; never mutate the live page or expose editable descendants.
+    const tree = await page.locator('body').evaluate((body) => {
+      const inputLike =
+        'input,textarea,select,[contenteditable]:not([contenteditable="false"]),[role="textbox" i],[role="searchbox" i],[role="combobox" i],[role="spinbutton" i]';
+      return Array.from(body.querySelectorAll(inputLike))
+        .slice(0, 50)
+        .map((node) => {
+          const native = node as HTMLInputElement;
+          const labels = Array.from(native.labels ?? [])
+            .map((label) => {
+              const clone = label.cloneNode(true) as Element;
+              clone.querySelectorAll(inputLike).forEach((n) => n.remove());
+              return clone.textContent ?? '';
+            })
+            .join(' ');
+          const labelled = (node.getAttribute('aria-labelledby') ?? '')
+            .split(/\s+/)
+            .flatMap((id) => {
+              const label = document.getElementById(id);
+              if (!label || label.closest(inputLike)) return [];
+              const clone = label.cloneNode(true) as Element;
+              clone.querySelectorAll(inputLike).forEach((n) => n.remove());
+              return [clone.textContent ?? ''];
+            })
+            .join(' ');
+          const role =
+            node.getAttribute('role') ?? (node.tagName === 'SELECT' ? 'combobox' : 'textbox');
+          return (
+            role +
+            ': ' +
+            (node.getAttribute('aria-label') ?? (labelled || labels)).slice(0, 100) +
+            ' [redacted]'
+          );
+        })
+        .join('\n')
+        .slice(0, 900);
+    });
     const safeUrl = new URL(page.url());
     safeUrl.search = '';
     safeUrl.hash = '';

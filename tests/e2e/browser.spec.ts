@@ -16,7 +16,7 @@ test('isolates contexts, verifies DOM steps and blocks page network bypasses', a
     }
     res.setHeader('content-type', 'text/html');
     res.end(
-      '<h1>Search jobs</h1><label>Role<input aria-label="Role"></label><button type="button" onclick="document.querySelector(\'h1\').textContent=\'Review ready\'">Review</button><button type="submit">Submit</button><script>fetch("/steal",{method:"POST",body:"secret"}).catch(()=>{});localStorage.setItem("session","one")</script>',
+      '<h1>Search jobs</h1><label>Role<input aria-label="Role"></label><div contenteditable="true" role="textbox" aria-label="Notes"><p>EDITABLE_PRIVATE_CANARY</p><span contenteditable="false">NESTED_PRIVATE_CANARY</span></div><div role="textbox" aria-label="Custom input"><span>ARIA_PRIVATE_CANARY</span></div><label>Private native<input value="NATIVE_PRIVATE_CANARY"></label><button type="button" onclick="document.querySelector(\'h1\').textContent=\'Review ready\'">Review</button><button type="submit">Submit</button><script>fetch("/steal",{method:"POST",body:"secret"}).catch(()=>{});localStorage.setItem("session","one")</script>',
     );
   });
   await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
@@ -28,6 +28,9 @@ test('isolates contexts, verifies DOM steps and blocks page network bypasses', a
   try {
     await a.open(origin);
     await b.open(origin);
+    const observation = await a.observe();
+    expect(observation.text).not.toContain('PRIVATE_CANARY');
+    expect(observation.text).toContain('Notes');
     expect(
       (
         await a.execute({

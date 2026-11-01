@@ -114,6 +114,11 @@ export const ChatRequestSchema = z.strictObject({
   consent: z.literal(true),
   maxUsd: z.number().finite().positive().max(100),
   cliManagedCost: z.literal(true).optional(),
+  conversationRevision: z.number().int().nonnegative().optional(),
+  context: z
+    .array(z.strictObject({ role: z.enum(['user', 'assistant']), content: z.string().max(128000) }))
+    .max(200)
+    .optional(),
 });
 export type ChatRequest = z.infer<typeof ChatRequestSchema>;
 export const ProbeRequestSchema = z.strictObject({ profileId: z.uuid(), consent: z.literal(true) });
@@ -146,6 +151,7 @@ export const UsageSummarySchema = z.strictObject({
   unpricedRequests: z.number().int().nonnegative(),
 });
 export const ProfileViewSchema = z.strictObject({
+  conversationRevision: z.number().int().nonnegative().optional(),
   config: ProviderConfigSchema,
   credential: z.enum(['stored', 'missing', 'unavailable', 'not-required']),
 });

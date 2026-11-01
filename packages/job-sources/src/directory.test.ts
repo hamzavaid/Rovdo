@@ -15,6 +15,24 @@ const source = (ats: SourceConfig['ats']): SourceConfig => ({
   priority: 0,
   missingGracePolls: 3,
 });
+it('uses specific robots groups before wildcard, combines exact groups and compares URI octets including queries', () => {
+  expect(
+    robotsAllow('User-agent: Rovdo\nDisallow: /\nUser-agent: *\nAllow: /jobs', '/jobs/1'),
+  ).toBe(false);
+  expect(robotsAllow('User-agent: Rovdo\nAllow: /jobs\nUser-agent: *\nDisallow: /', '/jobs')).toBe(
+    true,
+  );
+  expect(
+    robotsAllow(
+      'User-agent: Rovdo\nDisallow: /private\nUser-agent: rovdo\nAllow: /private/jobs',
+      '/private/jobs',
+    ),
+  ).toBe(true);
+  expect(robotsAllow('User-agent: not-rovdo\nDisallow: /', '/jobs')).toBe(true);
+  expect(robotsAllow('User-agent: *\nDisallow: /jobs?private=1$', '/jobs?private=1')).toBe(false);
+  expect(robotsAllow('User-agent: *\nDisallow: /%7Eprivate', '/~private')).toBe(false);
+  expect(robotsAllow('User-agent: *\nDisallow: /x%2Fy', '/x/y')).toBe(true);
+});
 it('ships provenance-bearing verified finite sources and only resolves exact public ATS hosts', () => {
   expect(EMPLOYERS.length).toBeGreaterThanOrEqual(3);
   expect(

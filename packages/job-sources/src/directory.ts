@@ -92,30 +92,60 @@ export function feedFromUrl(value: string): Pick<SourceConfig, 'ats' | 'tenant' 
     ? { ats, tenant, region: u.hostname === 'jobs.eu.lever.co' ? 'eu' : 'global' }
     : null;
 }
-/** Apply the supported robots rules by longest matching path, with Allow winning equal-length ties. */
+/**
+ * RFC 9309: combine matching product-token groups; wildcard is fallback, never an override.
+ * Compare percent-normalized octets, retaining encoded reserved characters and URL queries.
+ */
 export function robotsAllow(text: string, path: string): boolean {
-  let agents: string[] = [];
-  let rulesStarted = false;
-  const rules: { length: number; allow: boolean }[] = [];
+  type Group = { agents: string[]; rules: { value: string; allow: boolean }[] };
+  const groups: Group[] = [];
+  let group: Group | undefined,
+    rulesStarted = false;
   for (const line of text.split(/\r?\n/)) {
     const m = /^\s*(user-agent|allow|disallow)\s*:\s*([^#]*)/i.exec(line);
     if (!m) continue;
-    const key = m[1]!.toLowerCase();
-    const value = m[2]!.trim();
+    const key = m[1]!.toLowerCase(),
+      value = m[2]!.trim();
     if (key === 'user-agent') {
-      if (rulesStarted) agents = [];
-      agents.push(value.toLowerCase());
+      if (!group || rulesStarted) {
+        group = { agents: [], rules: [] };
+        groups.push(group);
+      }
+      group.agents.push(value.toLowerCase());
       rulesStarted = false;
-    } else {
+    } else if (group) {
       rulesStarted = true;
-      if (!value || !agents.some((a) => a === '*' || /rovdo/.test(a))) continue;
-      const pattern = value.replace(/[.+?^{}()|[\]\\]/g, '\\$&').replace(/\*/g, '.*');
-      if (new RegExp(`^${pattern}`).test(path))
-        rules.push({ length: value.length, allow: key === 'allow' });
+      if (value.startsWith('/')) group.rules.push({ value, allow: key === 'allow' });
     }
   }
-  rules.sort((a, b) => b.length - a.length || Number(b.allow) - Number(a.allow));
-  return rules[0]?.allow ?? true;
+  const exact = groups.filter((g) => g.agents.includes('rovdo'));
+  const selected = exact.length ? exact : groups.filter((g) => g.agents.includes('*'));
+  const normalize = (value: string) =>
+    value.replace(/%[0-9a-f]{2}|[^\x21-\x7e]/giu, (part) => {
+      if (!part.startsWith('%')) return encodeURIComponent(part);
+      const decoded = String.fromCharCode(parseInt(part.slice(1), 16));
+      return /^[a-zA-Z0-9._~-]$/.test(decoded) ? decoded : part.toUpperCase();
+    });
+  const target = normalize(path.split('#')[0]!);
+  let best = -1,
+    allowed = true;
+  for (const rule of selected.flatMap((g) => g.rules)) {
+    const anchored = rule.value.endsWith('$');
+    const value = normalize(anchored ? rule.value.slice(0, -1) : rule.value);
+    const pattern = value
+      .split('*')
+      .map((p) => p.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
+      .join('.*');
+    const length = Buffer.byteLength(value);
+    if (
+      new RegExp('^' + pattern + (anchored ? '$' : '')).test(target) &&
+      (length > best || (length === best && rule.allow))
+    ) {
+      best = length;
+      allowed = rule.allow;
+    }
+  }
+  return allowed;
 }
 /** Inspect inert links/JSON-LD with bounded depth; never execute page scripts or follow arbitrary links. */
 export function inspectCareerPage(

@@ -48,9 +48,14 @@ export function Chat({
         version: cli.version,
         status: cli.status,
         revision: cli.revision,
+        conversationRevision: cli.conversationRevision ?? 0,
       })
     : profile
-      ? JSON.stringify(profile.config)
+      ? JSON.stringify({
+          ...profile.config,
+          capabilities: undefined,
+          conversationRevision: profile.conversationRevision ?? 0,
+        })
       : '';
   useEffect(() => {
     if (
@@ -127,6 +132,7 @@ export function Chat({
         setUsage({ input: 0, output: 0, usd: 0, reports: 0, unknown: false });
         setStatus('Ready');
         setConsent(false);
+        await refresh();
         cleared = true;
       } catch {
         setStatus(errorMessage.INTERNAL_ERROR);
@@ -152,6 +158,13 @@ export function Chat({
         requestId: id,
         profileId,
         text: outgoing,
+        conversationRevision: (cli ?? profile)?.conversationRevision ?? 0,
+        context: entries
+          .filter((entry) => entry.included && entry.text)
+          .map((entry) => ({
+            role: entry.role === 'You' ? ('user' as const) : ('assistant' as const),
+            content: entry.text,
+          })),
         consent: true,
         maxUsd: Number(budget),
         ...(cli ? { cliManagedCost: true as const } : {}),

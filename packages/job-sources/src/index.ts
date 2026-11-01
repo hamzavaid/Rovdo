@@ -206,7 +206,8 @@ export class AtsAdapter implements JobSourceAdapter {
       const robots = await this.read(new URL('/robots.txt', url).href, { signal });
       if (
         robots.status !== 404 &&
-        (robots.status !== 200 || !robotsAllow(robots.body.toString('utf8'), url.pathname))
+        (robots.status !== 200 ||
+          !robotsAllow(robots.body.toString('utf8'), url.pathname + url.search))
       )
         throw new SourceError(robots.status, 0, 'ROBOTS_BLOCKED');
     }

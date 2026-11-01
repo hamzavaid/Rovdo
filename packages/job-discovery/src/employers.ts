@@ -89,7 +89,8 @@ export async function discoverEmployers(
     const robots = await get(new URL('/robots.txt', url).href);
     if (
       robots.status !== 404 &&
-      (robots.status !== 200 || !robotsAllow(robots.body.toString('utf8'), url.pathname))
+      (robots.status !== 200 ||
+        !robotsAllow(robots.body.toString('utf8'), url.pathname + url.search))
     )
       throw new Error('ROBOTS_BLOCKED');
     const page = await get(url.href);

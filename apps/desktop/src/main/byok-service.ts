@@ -54,6 +54,11 @@ export class ByokService {
   private changing = false;
   private pendingRun: Promise<void> | null = null;
   private readonly history = new Map<string, NormalizedMessage[]>();
+  private readonly revisions = new Map<string, number>();
+  private forgetHistory(id: string): void {
+    this.history.delete(id);
+    this.revisions.set(id, (this.revisions.get(id) ?? 0) + 1);
+  }
   private readonly seen = new Set<string>();
   private readonly cooldown = new Map<string, number>();
   private checkCooldown(id: string): void {
@@ -100,7 +105,20 @@ export class ByokService {
         }
       }),
     );
-    return { profiles, usage: this.store.usage(), ...(this.cli ? { clis: this.cli.views() } : {}) };
+    return {
+      profiles: profiles.map((p) => ({
+        ...p,
+        conversationRevision: this.revisions.get(p.config.id) ?? 0,
+      })),
+      usage: this.store.usage(),
+      ...(this.cli
+        ? {
+            clis: this.cli
+              .views()
+              .map((v) => ({ ...v, conversationRevision: this.revisions.get(v.profileId) ?? 0 })),
+          }
+        : {}),
+    };
   }
   async refreshClis(): Promise<void> {
     this.assertIdle();
@@ -113,7 +131,7 @@ export class ByokService {
       const pref = CliPreferenceSchema.parse(input);
       this.cli.save(pref);
       const view = this.cli.views().find((v) => v.id === pref.id);
-      if (view) this.history.delete(view.profileId);
+      if (view) this.forgetHistory(view.profileId);
     });
   }
   async testCli(id: CliId, requestId: string): Promise<void> {
@@ -122,7 +140,7 @@ export class ByokService {
     const controller = new AbortController();
     this.active = { id: requestId, controller };
     const view = this.cli.views().find((v) => v.id === id);
-    if (view) this.history.delete(view.profileId);
+    if (view) this.forgetHistory(view.profileId);
     const pending = this.cli.test(id, controller.signal);
     this.pendingRun = pending;
     try {
@@ -152,7 +170,7 @@ export class ByokService {
           ? { ...config, capabilities: previous.capabilities }
           : config,
       );
-      this.history.delete(config.id);
+      this.forgetHistory(config.id);
     });
   }
   async remove(id: string): Promise<void> {
@@ -160,7 +178,7 @@ export class ByokService {
       const profile = this.store.get(id);
       if (profile.authMode !== 'none') await this.vault.remove(profile);
       this.store.remove(id);
-      this.history.delete(id);
+      this.forgetHistory(id);
     });
   }
   async enterKey(id: string): Promise<void> {
@@ -171,7 +189,7 @@ export class ByokService {
         const { capabilities: _capabilities, ...draft } = profile;
         void _capabilities;
         this.store.save(draft);
-        this.history.delete(id);
+        this.forgetHistory(id);
       }
     });
   }
@@ -182,7 +200,7 @@ export class ByokService {
       if (profile.authMode === 'none') throw new Error('VALIDATION_ERROR');
       await this.vault.remove(profile);
       this.store.save(profile);
-      this.history.delete(id);
+      this.forgetHistory(id);
     });
   }
   async probe(id: string, consent: boolean): Promise<void> {
@@ -213,7 +231,7 @@ export class ByokService {
           },
         );
         this.store.save({ ...profile, capabilities });
-        this.history.delete(id);
+        this.forgetHistory(id);
         if (capabilities.tools !== 'supported') throw new Error('CAPABILITY_REQUIRED');
       } catch (error) {
         this.noteFailure(id, error);
@@ -235,10 +253,14 @@ export class ByokService {
   }
   clear(): void {
     this.assertIdle();
+    for (const p of this.store.list()) this.forgetHistory(p.id);
+    for (const p of this.cli?.views() ?? []) this.forgetHistory(p.profileId);
     this.history.clear();
   }
   reset(): void {
     this.cancel();
+    for (const p of this.store.list()) this.forgetHistory(p.id);
+    for (const p of this.cli?.views() ?? []) this.forgetHistory(p.profileId);
     this.history.clear();
   }
   cancel(id?: string): void {
@@ -272,6 +294,15 @@ export class ByokService {
     const controller = new AbortController();
     this.active = { id: requestId, controller };
     try {
+      const prior = this.history.get(profileId) ?? [];
+      if (
+        request.data.conversationRevision !== undefined &&
+        request.data.conversationRevision !== (this.revisions.get(profileId) ?? 0)
+      )
+        throw new Error('VALIDATION_ERROR');
+      // Consent is bound to the exact visible committed transcript. Old clients may send only a first turn.
+      if (JSON.stringify(request.data.context ?? []) !== JSON.stringify(prior))
+        throw new Error('VALIDATION_ERROR');
       const cliId = this.cli?.idForProfile(profileId);
       if (cliId) {
         if (request.data.cliManagedCost !== true) throw new Error('VALIDATION_ERROR');
@@ -342,6 +373,7 @@ export class ByokService {
       ];
       if (Buffer.byteLength(JSON.stringify(messages)) > 128_000)
         throw new Error('VALIDATION_ERROR');
+      let responseText = '';
       let spent = 0;
       for (let round = 0; round < 3; round++) {
         if (controller.signal.aborted) throw new Error('CANCELED');
@@ -387,6 +419,7 @@ export class ByokService {
           spent += cost?.usd ?? 0;
           if (spent > maxUsd) throw new Error('BUDGET_EXCEEDED');
           if (controller.signal.aborted) throw new Error('CANCELED');
+          responseText += turn.text;
           messages.push({
             role: 'assistant',
             content: turn.text,
@@ -394,7 +427,12 @@ export class ByokService {
           });
           if (!turn.toolCalls.length) {
             if (turn.stopReason === 'length') throw new Error('INVALID_RESPONSE');
-            this.history.set(profileId, messages);
+            // Tool traces are scoped to this request, not hidden context for a later approved preview.
+            this.history.set(profileId, [
+              ...prior,
+              { role: 'user', content: text },
+              { role: 'assistant', content: responseText },
+            ]);
             emit({ type: 'done', requestId, status: 'completed' });
             return;
           }

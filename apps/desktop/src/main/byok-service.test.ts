@@ -35,6 +35,94 @@ const vault = () => ({
   enter: async () => true,
   remove: async () => {},
 });
+it('rejects a stale/omitted approved history and publishes reset revisions independently of capability timestamps', async () => {
+  const store = new SettingsStore(':memory:');
+  const service = new ByokService(store, vault(), (saved, key) =>
+    createAdapter(saved, key, async () => completion('openai', false)),
+  );
+  try {
+    store.save({
+      ...profile,
+      capabilities: {
+        streaming: 'supported',
+        tools: 'supported',
+        reportedUsage: 'supported',
+        vision: 'unknown',
+        jsonSchema: 'unknown',
+        nativeComputerUse: 'unsupported',
+        checkedAt: new Date().toISOString(),
+      },
+    });
+    await service.run({ ...request, requestId: crypto.randomUUID() }, () => {});
+    const events: ChatEvent[] = [];
+    await service.run({ ...request, requestId: crypto.randomUUID(), context: [] }, (e) =>
+      events.push(e),
+    );
+    expect(events.at(-1)).toMatchObject({ status: 'failed', code: 'VALIDATION_ERROR' });
+    const before = (await service.list()).profiles[0]!.conversationRevision;
+    service.clear();
+    expect((await service.list()).profiles[0]!.conversationRevision).not.toBe(before);
+  } finally {
+    await service.shutdown();
+    store.close();
+  }
+});
+it('re-probe clears the authoritative transcript and completed tool turns do not become hidden future context', async () => {
+  const store = new SettingsStore(':memory:');
+  let calls = 0;
+  const payloads: { messages: unknown[] }[] = [];
+  const service = new ByokService(store, vault(), (saved, key) =>
+    createAdapter(saved, key, async (input, init) => {
+      payloads.push((await new Request(input, init).json()) as { messages: unknown[] });
+      return completion('openai', ++calls === 1, 'Final visible reply');
+    }),
+  );
+  try {
+    store.save({
+      ...profile,
+      capabilities: {
+        streaming: 'supported',
+        tools: 'supported',
+        reportedUsage: 'supported',
+        vision: 'unknown',
+        jsonSchema: 'unknown',
+        nativeComputerUse: 'unsupported',
+        checkedAt: new Date().toISOString(),
+      },
+    });
+    await service.run(
+      { ...request, requestId: crypto.randomUUID(), text: 'FIRST_PRIVATE_MESSAGE' },
+      () => {},
+    );
+    await service.run(
+      {
+        ...request,
+        requestId: crypto.randomUUID(),
+        text: 'SECOND',
+        context: [
+          { role: 'user', content: 'FIRST_PRIVATE_MESSAGE' },
+          { role: 'assistant', content: 'Final visible reply' },
+        ],
+      },
+      () => {},
+    );
+    expect(JSON.stringify(payloads.at(-1))).not.toContain('tool_call_id');
+    expect(payloads.at(-1)!.messages).toHaveLength(3);
+    const before = (await service.list()).profiles[0]!.conversationRevision;
+    // A successful probe needs a fixture tool call, then emits only its verification metadata.
+    calls = 0;
+    await service.probe(id, true);
+    expect((await service.list()).profiles[0]!.conversationRevision).not.toBe(before);
+    await service.run(
+      { ...request, requestId: crypto.randomUUID(), text: 'NEW_VISIBLE_MESSAGE', context: [] },
+      () => {},
+    );
+    expect(JSON.stringify(payloads.at(-1))).not.toContain('FIRST_PRIVATE_MESSAGE');
+  } finally {
+    await service.shutdown();
+    store.close();
+  }
+});
 
 describe.each(['openai', 'anthropic', 'compatible'] as const)('%s service integration', (kind) => {
   it('persists a tested profile then streams a safe tool roundtrip and usage', async () => {

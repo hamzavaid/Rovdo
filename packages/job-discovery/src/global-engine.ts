@@ -578,7 +578,8 @@ export class GlobalDiscoveryEngine {
     const robots = await read(robotsUrl);
     if (
       robots.status !== 404 &&
-      (robots.status !== 200 || !robotsAllow(robots.body.toString('utf8'), new URL(url).pathname))
+      (robots.status !== 200 ||
+        !robotsAllow(robots.body.toString('utf8'), new URL(url).pathname + new URL(url).search))
     )
       throw new Error('ROBOTS_BLOCKED');
     const response = await read(url);

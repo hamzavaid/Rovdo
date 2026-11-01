@@ -33,6 +33,11 @@ export type ReadOptions = {
 // The browser never connects to origin servers itself: resolve, validate and pin
 // each request here. Redirects are returned to Chromium and checked again.
 export async function readPublic(url: string, options: ReadOptions = {}): Promise<PublicResponse> {
+  const signal = AbortSignal.any([
+    options.signal ?? new AbortController().signal,
+    AbortSignal.timeout(15000),
+  ]);
+  signal.throwIfAborted();
   const target = new URL(url);
   if (
     target.username ||
@@ -43,14 +48,18 @@ export async function readPublic(url: string, options: ReadOptions = {}): Promis
   const fixture = target.origin === options.fixtureOrigin && target.hostname === '127.0.0.1';
   const addresses = fixture
     ? [{ address: '127.0.0.1', family: 4 }]
-    : await lookup(target.hostname, { all: true });
+    : await new Promise<{ address: string; family: number }[]>((resolve, reject) => {
+        const abort = () => reject(signal.reason ?? new Error('CANCELED'));
+        signal.addEventListener('abort', abort, { once: true });
+        lookup(target.hostname, { all: true })
+          .then(resolve, reject)
+          .finally(() => signal.removeEventListener('abort', abort));
+        if (signal.aborted) abort();
+      });
+  signal.throwIfAborted();
   if (!addresses.length || (!fixture && addresses.some((a) => !publicAddress(a.address))))
     throw new Error('DESTINATION_BLOCKED');
   const address = addresses[0]!;
-  const signal = AbortSignal.any([
-    options.signal ?? new AbortController().signal,
-    AbortSignal.timeout(15000),
-  ]);
   return new Promise((resolve, reject) => {
     const send = target.protocol === 'https:' ? httpsRequest : httpRequest;
     if (Object.keys(options.headers ?? {}).some((h) => /authorization|cookie|proxy/i.test(h)))
