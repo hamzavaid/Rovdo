@@ -84,3 +84,41 @@ Private architecture/progress/next-step records remain under Git-ignored `/docs`
 Windows / Node25.2.1, 2026-10-28: `npm run check` passed source formatting, lint with zero warnings, strict typecheck, **404 tests across 68 files**, all production bundles and **16 Electron E2Es** against Electron44.9.1. This includes the retained 1,000-job zero-AI ingestion, migrations, broker/policy boundaries, native OS vault, browser sandbox/isolation, imports, ranking/search/export, themes and main-loop responsiveness fixtures. `npm ci --dry-run --ignore-scripts`, `npm audit --audit-level=high` (zero vulnerabilities), `node scripts/quality-summary.ts` and `git diff --check` also passed. No unresolved local check failures remain.
 
 Non-failing upstream/runtime diagnostics remain: experimental Node SQLite notice, Zod pure-annotation build warnings, and this workstation's existing npm `msvs_version` configuration warning. Hosted Linux/macOS results are not established by local Windows testing. Previously normalized posting dates are not retroactively reconstructed; malformed historical dates require a permitted source refresh.
+
+## Reliability and responsiveness verification (2026-11-01)
+
+Current policy bindings are `deterministic-v2.6`, `requirements-v7` and `canonical-candidate-v4`. Mandatory opaque requirements remain assessment gaps; material unresolved legal conditions remain UNKNOWN and block automatic shortlisting. The original Legacy v1 weights and saved custom profiles are preserved. Candidate evidence is indexed and prepared per batch; no new scoring worker, paid service or AI dependency was added. Alternative-skill explanations retain the actual matching skill and evidence IDs.
+
+The versioned challenge cases are separate from the frozen provisional matching corpus. Frozen-corpus measurements remain P@10 0.3750, NDCG@10 0.9388, recall@5 0.9500 and labeled hard false-positive rate 0; these did not improve during this remediation. They do not validate broad hiring accuracy or establish acquisition recall. Independent recruiter labels remain pending.
+
+Run the explicit diagnostic workloads serially in addition to `npm run check`:
+
+```powershell
+$env:ROVDO_PERFORMANCE='1'
+npx vitest run packages/career/src/scoring-performance.test.ts packages/storage/src/scoring-performance.test.ts
+Remove-Item Env:ROVDO_PERFORMANCE
+```
+
+The ignored `artifacts/candidate-performance.json` and `artifacts/sqlite-performance.json` record CPU time, RSS, heap deltas, maximum event-loop delay and cancellation, alongside wall time. Windows / Node25.2.1 measurements on this workstation:
+
+| Skills | Before single job, ms (67c2968) | Current single job, ms | Current prepared 1,000 jobs, ms | Batch max loop delay, ms | Batch CPU, ms | RSS, MiB |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| 20 | 332.24 | 232.21 | 313.40 | 120.19 | 437 | 94.6 |
+| 50 | 703.26 | 3.21 | 246.73 | 15.73 | 266 | 95.4 |
+| 100 | 2368.77 | 4.74 | 198.40 | 11.59 | 187 | 96.2 |
+| 150 | 5975.96 | 5.46 | 227.50 | 14.47 | 234 | 96.9 |
+| 240 | 15434.65 | 9.18 | 268.64 | 8.63 | 250 | 97.7 |
+
+The first 20-skill call includes cold extraction/JIT overhead. The event-loop monitor is primed before batch preparation; loop delay includes preparation and runtime scheduling/GC. Runs are diagnostics with uncontrolled host load, not a universal SLA. Heap deltas can be negative after GC and do not establish leak freedom. Before-change thousand-job batches were not run because even single large-profile calls took seconds.
+
+SQLite / 150 skills / 1,000 distinct jobs (cold): 763.45 ms wall, 29.59 ms maximum loop delay, 844 ms CPU, 120.3 MiB RSS. SQLite / 150 skills / 1,000 distinct jobs (warm): 18.65 ms wall, 14.14 ms maximum loop delay, 47 ms CPU, 123.5 MiB RSS. Cancellation settled 1.13 ms after the abort callback (timer dispatch delay 5.55 ms). A separate 1,000-similar-listing ingestion completed in 2826.37 ms after eliminating repeated sibling metadata writes; the previous duplicate-heavy workload exceeded its 60-second test deadline. Duplicate candidates remain reviewable records rather than being deleted or assumed identical.
+
+Career schema 6 adds transactional identity aliases/history. It retains source memberships, saved/applied markers, historical rankings and provenance, and exposes conflicting feedback for resolution. Rollback injection, restart, repeated updates and SQL/eligibility agreement are tested. Stricter optional pay/date read projections preserve historical JSON as stored; malformed new optional pay is quarantined without dropping valid sibling jobs. Derived filter metadata is rebuilt cooperatively, and changed policies invalidate disposable rankings without rewriting presets.
+
+Expired discovery response/failure rows are pruned in bounded indexed batches. Durable jobs, saved opportunities, run checkpoints and historical ranking snapshots are retained. Historical snapshot deletion remains deferred until a user-visible retention policy exists. Source cache observations are not refreshed by replay, partial details cannot advance missing-job closure grace, and source failures remain observable.
+
+Application-context fixtures cover long fact IDs, canonical identity and ranking/evidence hash changes, verified/non-conflicting claim selection, and readable historical v1 snapshots without decision metadata. New snapshots bind the corrected deterministic decision. Integrity validation does not prove current authorization, external factual truth, or permission to generate/submit; future consumers must use current approved inputs.
+
+CI continues the existing Windows/Linux/macOS matrix and now attempts its aggregate synthetic report even after a preceding failure. Hosted Actions, Linux/macOS execution, live ATS/platform certification and native accessibility audits were not performed locally. Fixture-only Electron tests cover the actual local vault, browser isolation, CLI model selection and keyboard filter recovery. Source-specific policy restrictions remain enforced. No real submissions or paid provider calls are part of verification.
+
+Delivery verification on 2026-11-01: `npm run check` exited 0 with 503 passing unit/integration tests across 82 passing files (three opt-in files skipped), all production builds and all 18 Windows Electron E2Es. Both explicit performance workloads passed separately. The native Codex hostile-provider smoke test was not rerun in this task; CLI fixture integrations were exercised. `npm run benchmark:matching`, the aggregate quality reporter, `npm ci --dry-run --ignore-scripts` and `git diff --check` passed. The install check was a dry run, not a fresh installed environment. `npm audit --audit-level=high` exited 0 with no high/critical findings and 11 moderate findings in the ESLint/TypeScript-ESLint/minimatch development-tool chain. Its suggested forced fix would downgrade ESLint incompatibly; no audit suppression or forced breaking change was applied. Compatible tooling remediation remains follow-up work. No unresolved local test failure remains.
