@@ -40,6 +40,7 @@ import {
   rankWithProfile,
   prepareRanking,
   roleOf,
+  expandSearch,
 } from '@rovdo/career';
 import { EmployerSchema, JobSearchSchema, JobMarkerSchema, SavedSearchSchema } from '@rovdo/shared';
 import type { Employer, JobSearch, JobMarker, SavedSearch } from '@rovdo/shared';
@@ -1160,6 +1161,21 @@ export class CareerStore {
       .digest('hex');
   }
   cacheStats = { hits: 0, misses: 0 };
+  /** BM25 is corpus-bound: recompute from the approved query instead of trusting a renderer score. */
+  reviewRetrieval(jobId: string, query: string): number {
+    const words =
+      expandSearch(query)
+        .match(/[\p{L}\p{N}_+#.-]+/gu)
+        ?.slice(0, 30) ?? [];
+    if (!words.length) return 0;
+    const expression = words.map((w) => `"${w.replaceAll('"', '""')}"`).join(' OR ');
+    const row = this.db
+      .prepare(
+        'SELECT bm25(job_fts,4,2,1) AS rank FROM job_fts JOIN career_job j ON j.rowid=job_fts.rowid WHERE job_fts MATCH ? AND j.id=?',
+      )
+      .get(expression, this.resolveJobId(jobId));
+    return Number(row?.rank ?? 0);
+  }
   cachedRanking(
     row: { job: Job; bm25Raw: number },
     profile: CandidateProfile,

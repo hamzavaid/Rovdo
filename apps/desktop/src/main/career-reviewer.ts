@@ -4,11 +4,20 @@
  */
 import { createHash, randomUUID } from 'node:crypto';
 import { createAdapter } from '@rovdo/providers';
-import { evaluateEligibility, reviewPayload } from '@rovdo/career';
+import { reviewPayload, reviewRequestHash, fingerprint } from '@rovdo/career';
 import type { CareerStore, SettingsStore } from '@rovdo/storage';
 import type { CredentialVault } from './vault';
 
-type ReviewRequest = { jobIds: string[]; modelProfileId: string; maxUsd: number; consent: true };
+type ReviewRequest = {
+  jobIds: string[];
+  modelProfileId: string;
+  maxUsd: number;
+  consent: true;
+  rankingId?: string | undefined;
+  asOf?: string | undefined;
+  payloadHash?: string | undefined;
+  query?: string | undefined;
+};
 export async function reviewShortlist(
   request: ReviewRequest,
   store: CareerStore,
@@ -28,34 +37,39 @@ export async function reviewShortlist(
     throw new Error('VALIDATION_ERROR');
   const saved = new Set(store.savedIds());
   const jobs = request.jobIds.map((id) => {
-    if (!saved.has(id)) throw new Error('NOT_SHORTLISTED');
     const job = store.job(id);
-    if (evaluateEligibility(job, profile).some((c) => c.result === 'FAIL'))
-      throw new Error('HARD_EXCLUDED');
+    if (!saved.has(job.id)) throw new Error('NOT_SHORTLISTED');
     return job;
   });
+  const ranking = store
+    .rankings()
+    .find((r) => r.id === (request.rankingId ?? store.defaultRanking()));
+  const asOf = request.asOf ?? new Date().toISOString().slice(0, 10);
+  if (
+    !ranking ||
+    asOf !== new Date().toISOString().slice(0, 10) ||
+    new Set(jobs.map((j) => j.id)).size !== jobs.length
+  )
+    throw new Error('REVIEW_STALE');
+  const retrieval = Object.fromEntries(
+    jobs.map((job) => [job.id, store.reviewRetrieval(job.id, request.query ?? '')]),
+  );
+  const payload = reviewPayload(profile, jobs, { ranking, asOf, retrieval });
+  if (payload.jobs.some((j) => j.eligibility === 'FAIL')) throw new Error('HARD_EXCLUDED');
   const config = settings.get(request.modelProfileId);
+  if (!request.payloadHash || request.payloadHash !== (await reviewRequestHash(payload, config)))
+    throw new Error('REVIEW_STALE');
+
   if (!config.pricing) throw new Error('PRICING_REQUIRED');
   let spent = 0;
   for (const job of jobs) {
+    const part = reviewPayload(profile, [job], { ranking, asOf, retrieval });
     const cacheKey = createHash('sha256')
-      .update(
-        JSON.stringify([
-          job.id,
-          job.contentSha256,
-          profile.version,
-          'review-v1',
-          'deterministic-v1',
-          config.id,
-          config.kind,
-          config.baseUrl,
-          config.model,
-          config.temperature,
-        ]),
-      )
+      .update(await reviewRequestHash(part, config))
       .digest('hex');
     if (store.review(cacheKey)) continue;
-    const content = JSON.stringify(reviewPayload(profile, [job]));
+    const content = JSON.stringify(part);
+    if (Buffer.byteLength(content) > 128000) throw new Error('REVIEW_PAYLOAD_LIMIT');
     const upperInput = Buffer.byteLength(content) + 2048;
     const estimate =
       (upperInput *
@@ -89,6 +103,9 @@ export async function reviewShortlist(
       // Notes cannot change source facts, hard gates, score or saved state.
       store.saveReview(cacheKey, {
         jobId: job.id,
+        rankingHash: fingerprint(ranking),
+        asOf,
+        scorerVersion: part.scorerVersion,
         contentHash: job.contentSha256,
         profileVersion: profile.version,
         model: config.model,

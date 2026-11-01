@@ -88,8 +88,12 @@ async function createWindow(): Promise<void> {
   window.webContents.on('will-frame-navigate', (event) => event.preventDefault());
   window.webContents.on('will-attach-webview', (event) => event.preventDefault());
   window.on('closed', () => {
-    service?.reset();
-    void browserService?.runtime.shutdown();
+    // before-quit already drained services and may have closed their stores.
+    // A second reset here would read a closed database during graceful shutdown.
+    if (!shutdownStarted) {
+      service?.reset();
+      void browserService?.runtime.shutdown();
+    }
     if (mainWindow === window) mainWindow = null;
   });
   await window.loadURL(APP_URL);

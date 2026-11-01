@@ -315,6 +315,9 @@ export const JobSearchSchema = z.strictObject({
 export type JobSearch = z.infer<typeof JobSearchSchema>;
 export const AiReviewSchema = z.strictObject({
   jobId: z.string(),
+  rankingHash: z.string().optional(),
+  asOf: z.iso.date().optional(),
+  scorerVersion: z.string().optional(),
   contentHash: z.string().regex(/^[a-f0-9]{64}$/),
   profileVersion: z.number().int(),
   model: z.string(),
@@ -426,6 +429,13 @@ export const CareerCommandSchema = z.discriminatedUnion('op', [
     op: z.literal('evaluate'),
     jobIds: z.array(z.string().max(300)).min(1).max(5),
     modelProfileId: z.uuid(),
+    rankingId: z.string().max(200).optional(),
+    asOf: z.iso.date().optional(),
+    query: z.string().max(4000).optional(),
+    payloadHash: z
+      .string()
+      .regex(/^[a-f0-9]{64}$/)
+      .optional(),
     maxUsd: z.number().positive().max(10),
     consent: z.literal(true),
   }),

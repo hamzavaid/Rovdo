@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { CareerStore, SettingsStore } from '@rovdo/storage';
 import { DiscoveryEngine } from '@rovdo/job-discovery';
-import { emptyProfile } from '@rovdo/career';
+import { emptyProfile, reviewPayload, reviewRequestHash } from '@rovdo/career';
 import { createCareerService } from './career-service';
 import { reviewShortlist } from './career-reviewer';
 import { AtsAdapter } from '@rovdo/job-sources';
@@ -369,7 +369,20 @@ describe('career IPC and optional inference', () => {
     store.batch(source, jobs, store.sources()[0]!.state, 'fixture', true, Date.now());
     const jobId = store.jobs()[0]!.id;
     store.saveJob(jobId, true);
-    const req = { jobIds: [jobId], modelProfileId: config.id, maxUsd: 1, consent: true as const };
+    const asOf = new Date().toISOString().slice(0, 10),
+      ranking = store.rankings().find((r) => r.id === store.defaultRanking())!;
+    const req = {
+      jobIds: [jobId],
+      modelProfileId: config.id,
+      maxUsd: 1,
+      consent: true as const,
+      rankingId: ranking.id,
+      asOf,
+      payloadHash: await reviewRequestHash(
+        reviewPayload(store.profile()!, [store.job(jobId)], { ranking, asOf }),
+        config,
+      ),
+    };
     const adapter: typeof createAdapter = (c, k) =>
       createAdapter(c, k, async (input) => {
         calls++;
@@ -408,6 +421,24 @@ describe('career IPC and optional inference', () => {
       expect(store.job(jobId).contentSha256).toBe(jobs[0]!.contentSha256);
       const previous = store.profile()!;
       store.saveProfile({ ...previous, version: 2 });
+      await expect(
+        reviewShortlist(
+          req,
+          store,
+          settings,
+          {
+            get: async () => {
+              throw new Error('stale consent must not reach vault');
+            },
+          },
+          new AbortController().signal,
+          adapter,
+        ),
+      ).rejects.toThrow('REVIEW_STALE');
+      req.payloadHash = await reviewRequestHash(
+        reviewPayload(store.profile()!, [store.job(jobId)], { ranking, asOf }),
+        config,
+      );
       await reviewShortlist(
         req,
         store,

@@ -11,7 +11,13 @@ import {
  * Validates career IPC commands and coordinates local profile, job and source operations.
  * Returns a consistent view after mutations while keeping optional AI review separate from discovery.
  */
-import { emptyProfile, expandSearch, exportJobs } from '@rovdo/career';
+import {
+  emptyProfile,
+  expandSearch,
+  exportJobs,
+  fingerprint,
+  SCORING_POLICY_VERSION,
+} from '@rovdo/career';
 import { CareerCommandSchema, CareerResultSchema, JobSearchSchema } from '@rovdo/shared';
 import type { CareerCommand, JobSearch } from '@rovdo/shared';
 import type { CareerStore } from '@rovdo/storage';
@@ -90,6 +96,10 @@ export function createCareerService(
         .filter(
           (r) =>
             r.profileVersion === profile?.version &&
+            r.rankingHash === fingerprint(config) &&
+            r.asOf === asOf &&
+            r.scorerVersion ===
+              (config.method === 'legacy-v1' ? 'deterministic-v1' : SCORING_POLICY_VERSION) &&
             store.job(r.jobId).contentSha256 === r.contentHash,
         ),
       totalJobs,

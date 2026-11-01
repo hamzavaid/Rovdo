@@ -133,6 +133,19 @@ export function JobCard({
           </span>
         </div>
       </section>
+      {m.ranking?.assessment && !m.ranking.assessment.complete && (
+        <p role="note" className="help-text">
+          {m.ranking.assessment.status === 'not-published'
+            ? 'Qualification requirements were not published; automatic shortlisting is unavailable.'
+            : `Assessment incomplete: ${m.ranking.assessment.assessed}/${m.ranking.assessment.total} requirements interpreted. Unresolved mandatory qualifications need review.`}
+        </p>
+      )}
+      {!!marker?.feedbackConflicts?.length && (
+        <p role="note">
+          Merged sources had conflicting relevance feedback. Choose Relevant or Irrelevant to
+          resolve it.
+        </p>
+      )}
       <div className="job-card-actions">
         <button
           className="primary-button"
@@ -252,7 +265,9 @@ export function JobCard({
                 <p key={r.id}>
                   {r.importance}: {r.excerpt} / {Math.round(r.strength * 100)}
                   {'% / '}
-                  {r.explanation} / evidence {r.evidenceIds.join(', ') || 'missing'}
+                  {r.explanation}
+                  {r.matchedSkillId ? ` / satisfied by ${r.matchedSkillId}` : ''} / evidence{' '}
+                  {r.evidenceIds.join(', ') || 'missing'}
                 </p>
               ))}
             </>

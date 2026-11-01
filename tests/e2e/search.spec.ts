@@ -141,6 +141,15 @@ test('filters and pages cached jobs, saves searches, tracks feedback and compare
         .first()
         .screenshot({ path: test.info().outputPath(`job-card-${mode}.png`) });
     }
+    await page.getByRole('button', { name: 'Advanced search filters', exact: true }).click();
+    await page.getByLabel('Eligibility constraint').selectOption('fail');
+    await page.getByRole('button', { name: 'Apply filters', exact: true }).click();
+    await expect(page.getByText('Explicit failure requires Show excluded jobs.')).toBeVisible();
+    await page.getByRole('button', { name: 'Show excluded jobs', exact: true }).focus();
+    await page.keyboard.press('Enter');
+    await expect(page.getByLabel('Show excluded', { exact: true })).toBeChecked();
+    await expect(page.getByText('Explicit failure requires Show excluded jobs.')).toHaveCount(0);
+    await expect(page.getByRole('button', { name: 'Search', exact: true })).toBeEnabled();
   } finally {
     await app.close();
   }

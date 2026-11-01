@@ -4,7 +4,7 @@ import { discoveryOptionsForSearch } from './discovery-search';
  * Backend views remain authoritative; a synchronous action gate prevents duplicate in-flight UI actions.
  */
 import { useEffect, useRef, useState } from 'react';
-import { emptyProfile, reviewPayload } from '@rovdo/career';
+import { emptyProfile, reviewPayload, reviewRequestHash } from '@rovdo/career';
 import { CandidateProfileSchema, ProfileFactSchema } from '@rovdo/shared';
 import type {
   CandidateProfile,
@@ -91,6 +91,7 @@ export function CareerWorkspace({
   const [model, setModel] = useState('');
   const [reviewId, setReviewId] = useState('');
   const [consent, setConsent] = useState(false);
+  const [reviewHash, setReviewHash] = useState('');
   const refreshPending = useRef(0);
   const refresh = async (background = false) => {
     if (background && refreshPending.current) return;
@@ -162,7 +163,16 @@ export function CareerWorkspace({
           setError(result.code);
           return;
         }
-        setView(result.view);
+        setView((previous) =>
+          cmd.op === 'compare' && previous
+            ? {
+                ...result.view,
+                matches: previous.matches,
+                matchedCount: previous.matchedCount,
+                rankingPending: previous.rankingPending,
+              }
+            : result.view,
+        );
         if ((cmd.op === 'saveProfile' || cmd.op === 'proposeFacts') && result.view.profile)
           setDraft(result.view.profile);
         if (cmd.op === 'exportJobs' && result.exported)
@@ -213,9 +223,32 @@ export function CareerWorkspace({
   function resetFilters() {
     void applySearch(initialSearch);
   }
-  const reviewJob = view?.matches.find((m) => m.job.id === reviewId)?.job;
+  const reviewMatch = view?.matches.find((m) => m.job.id === reviewId);
+  const reviewJob = reviewMatch?.job;
+  const reviewRanking = view?.rankingProfiles.find((p) => p.id === reviewMatch?.ranking?.configId);
+  const reviewAsOf = reviewMatch?.ranking?.asOf;
   const selectedModel = settings.profiles.find((p) => p.config.id === model)?.config;
-  const outbound = reviewJob && view?.profile ? reviewPayload(view.profile, [reviewJob]) : null;
+  const outbound =
+    reviewJob && view?.profile && reviewRanking && reviewAsOf
+      ? reviewPayload(view.profile, [reviewJob], {
+          ranking: reviewRanking,
+          asOf: reviewAsOf,
+          retrieval: { [reviewJob.id]: reviewMatch!.bm25Raw },
+        })
+      : null;
+  const reviewSignature = JSON.stringify({ outbound, model: selectedModel });
+  useEffect(() => {
+    setConsent(false);
+    setReviewHash('');
+    let stale = false;
+    if (outbound && selectedModel)
+      void reviewRequestHash(outbound, selectedModel).then((hash) => {
+        if (!stale) setReviewHash(hash);
+      });
+    return () => {
+      stale = true;
+    };
+  }, [reviewSignature]);
   return (
     <div className="career-workspace">
       {error && <p role="alert">{error}</p>}
@@ -775,6 +808,19 @@ export function CareerWorkspace({
                   Export page JSON
                 </button>
               </div>
+              {search.eligibility === 'fail' && !search.includeExcluded && (
+                <div role="alert">
+                  <p>Explicit failure requires Show excluded jobs.</p>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      void applySearch({ ...search, includeExcluded: true, offset: 0 })
+                    }
+                  >
+                    Show excluded jobs
+                  </button>
+                </div>
+              )}
               {exportStatus && <p role="status">{exportStatus}</p>}
               {!!view?.rankingPending && (
                 <p role="status">
@@ -943,12 +989,16 @@ export function CareerWorkspace({
                     I approve sharing this payload with this model
                   </label>
                   <button
-                    disabled={busy || !model || !consent}
+                    disabled={busy || !model || !consent || !reviewHash || reviewMatch?.excluded}
                     onClick={() =>
                       void command({
                         op: 'evaluate',
                         jobIds: [reviewId],
                         modelProfileId: model,
+                        ...(reviewRanking ? { rankingId: reviewRanking.id } : {}),
+                        ...(reviewAsOf ? { asOf: reviewAsOf } : {}),
+                        payloadHash: reviewHash,
+                        query: search.query,
                         maxUsd: 0.1,
                         consent: true,
                       })

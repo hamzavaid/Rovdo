@@ -36,6 +36,10 @@ export function exportJobs(
     reviewRequired: m.review,
     requiredCoverage: m.ranking?.requiredCoverage ?? null,
     ranking: m.ranking?.configId ?? m.scorerVersion,
+    assessment: m.ranking?.assessment?.status ?? 'legacy',
+    matchedSkills: JSON.stringify(m.matchedSkills),
+    gaps: JSON.stringify(m.gaps),
+    requirements: JSON.stringify(m.ranking?.requirements ?? []),
   }));
   if (format === 'json')
     return { data: JSON.stringify(rows, null, 2), skipped: matches.length - allowed.length };
@@ -55,6 +59,10 @@ export function exportJobs(
     'requiredCoverage',
     'ranking',
     'reviewRequired',
+    'assessment',
+    'matchedSkills',
+    'gaps',
+    'requirements',
   ] as const;
   const escape = (value: unknown) => {
     let cell = String(value ?? '');
