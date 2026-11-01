@@ -16,6 +16,13 @@ import type { Launcher } from './cli-runtime';
 import { open } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
+import {
+  assertCodexHome,
+  CODEX_ISOLATED_VERSION,
+  codexArguments,
+  codexFailure,
+  parseCodexLine,
+} from './codex-isolation';
 
 /** Copy only the model preference, not user settings/hooks/helpers, into restricted mode. Never read auth files. */
 export async function claudeConfiguredModel(
@@ -46,7 +53,7 @@ export async function claudeConfiguredModel(
 export const CLI_PROVIDERS = {
   codex: {
     name: 'OpenAI Codex',
-    restricted: false,
+    restricted: true,
     profileId: '9b1b7310-0604-4aaa-8000-000000000001',
   },
   claude: {
@@ -146,7 +153,101 @@ class UnsupportedCliAdapter {
     throw new Error('CAPABILITY_REQUIRED');
   }
 }
-export class CodexCliAdapter extends UnsupportedCliAdapter {}
+/** Exec JSON emits completed messages, not verified token deltas. Keep streaming unknown. */
+export class CodexCliAdapter implements ModelAdapter {
+  readonly id = 'cli:codex';
+  constructor(
+    private readonly runtime: CliRuntime,
+    private readonly launcher: Launcher,
+    private readonly model: string,
+    private readonly timeoutMs: number,
+    private readonly checkHome: () => Promise<void> = assertCodexHome,
+  ) {}
+  estimateCost() {
+    return null;
+  }
+  async capabilities() {
+    return capabilities(false, true);
+  }
+  async probe(signal: AbortSignal, onUsage?: (usage: Usage) => void) {
+    const result = await this.generate(
+      { messages: [{ role: 'user', content: 'Reply with ROVDO_OK only.' }], tools: [] },
+      signal,
+    );
+    onUsage?.(result.usage);
+    return this.capabilities();
+  }
+  async generate(
+    request: { messages: NormalizedMessage[]; tools: unknown[] },
+    signal: AbortSignal,
+    onText?: (text: string) => void,
+  ): Promise<AgentTurn> {
+    if (request.tools.length) throw new Error('CLI_ISOLATION_REQUIRED');
+    await this.checkHome();
+    // Re-check before every inference: an automatic CLI update must not inherit an old safety verdict.
+    const version = await this.runtime.run(this.launcher, ['--version'], '', signal, 3000);
+    if (version.exitCode !== 0 || version.stdout.trim() !== `codex-cli ${CODEX_ISOLATED_VERSION}`)
+      throw new Error('CLI_UNSUPPORTED');
+    let pending = '',
+      text = '',
+      done = false,
+      usage: Usage | undefined,
+      parserError: unknown;
+    const local = new AbortController();
+    const abort = () => local.abort();
+    signal.addEventListener('abort', abort, { once: true });
+    if (signal.aborted) abort();
+    const consume = (line: string) => {
+      if (!line.trim()) return;
+      if (done) throw new Error('INVALID_RESPONSE');
+      const event = parseCodexLine(line);
+      if (event.text !== undefined) text += (text ? '\n\n' : '') + event.text;
+      if (event.done) {
+        done = true;
+        usage = event.usage;
+      }
+    };
+    try {
+      const result = await this.runtime
+        .run(
+          this.launcher,
+          codexArguments(this.model),
+          JSON.stringify({
+            conversation: request.messages.map(({ role, content }) => ({ role, content })),
+          }),
+          local.signal,
+          this.timeoutMs,
+          (chunk) => {
+            pending += chunk;
+            if (Buffer.byteLength(pending) > 256000) {
+              parserError = new Error('INVALID_RESPONSE');
+              local.abort();
+              return;
+            }
+            const lines = pending.split('\n');
+            pending = lines.pop() ?? '';
+            try {
+              for (const line of lines) consume(line);
+            } catch (error) {
+              parserError = error;
+              local.abort();
+            }
+          },
+        )
+        .catch((error) => {
+          throw parserError ?? error;
+        });
+      if (pending.trim()) consume(pending);
+      if (result.exitCode !== 0) throw codexFailure(result.stderr);
+      if (!done || !usage || !text.trim()) throw new Error('INVALID_RESPONSE');
+      // Release text only after a successful, validated turn; no partial tool/error output reaches the renderer.
+      onText?.(text);
+      return { text, usage, toolCalls: [], stopReason: 'stop' };
+    } finally {
+      signal.removeEventListener('abort', abort);
+    }
+  }
+}
 export class GeminiCliAdapter extends UnsupportedCliAdapter {}
 export class QwenCliAdapter extends UnsupportedCliAdapter {}
 
@@ -376,6 +477,20 @@ export class CliService {
           const [a, b, c] = version.split('.').map(Number);
           if (a !== 2 || b !== 1 || !c || c < 248) status = 'unsupported-version';
         }
+        if (base.id === 'codex' && status === 'installed') {
+          if (
+            version !== CODEX_ISOLATED_VERSION ||
+            result.stdout.trim() !== `codex-cli ${CODEX_ISOLATED_VERSION}`
+          )
+            status = 'unsupported-version';
+          else {
+            try {
+              await assertCodexHome();
+            } catch {
+              status = 'unsupported-mode';
+            }
+          }
+        }
         const unchanged =
           JSON.stringify(prior) === JSON.stringify(launcher) && base.version === version;
         this.states.set(base.id, {
@@ -433,7 +548,6 @@ export class CliService {
     });
   }
   async adapter(id: CliId, timeoutLimit?: number): Promise<ModelAdapter> {
-    if (id === 'codex') return new CodexCliAdapter().create();
     if (id === 'gemini') return new GeminiCliAdapter().create();
     if (id === 'qwen') return new QwenCliAdapter().create();
     const view = this.views().find((v) => v.id === id)!;
@@ -441,6 +555,13 @@ export class CliService {
     if (!launcher) throw new Error('CLI_NOT_INSTALLED');
     if (view.status === 'unsupported-version' || view.status === 'unsupported-mode')
       throw new Error('CLI_UNSUPPORTED');
+    if (id === 'codex')
+      return new CodexCliAdapter(
+        this.runtime,
+        launcher,
+        view.model,
+        Math.min(view.timeoutMs, timeoutLimit ?? 300000),
+      );
     if (id === 'claude')
       return new ClaudeCliAdapter(
         this.runtime,

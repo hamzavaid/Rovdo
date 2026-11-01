@@ -17,8 +17,6 @@ const statusLabel: Record<CliView['status'], string> = {
   unavailable: 'Unavailable',
 };
 const safety: Partial<Record<CliId, string>> = {
-  codex:
-    'Detected for visibility. Codex’s read-only sandbox still allows private-file reads and shell tools; a verified tools-off contract is required before Rovdo can enable chat.',
   gemini:
     'Detected for visibility. Gemini policy, hooks and extension isolation have not been verified for this integration. Chat is disabled rather than starting an unrestricted agent.',
   qwen: 'Detected for visibility. Qwen core-tool allowlists do not cover every tool category. Chat is disabled until a complete tool/configuration isolation contract is verified.',
@@ -45,7 +43,10 @@ function CliCard({
   }, [view.model, view.timeoutMs, view.models.join('|')]);
   const installed = view.status !== 'not-installed';
   const supported =
-    !safety[view.id] && view.status !== 'unsupported-version' && view.status !== 'unavailable';
+    !safety[view.id] &&
+    view.status !== 'unsupported-mode' &&
+    view.status !== 'unsupported-version' &&
+    view.status !== 'unavailable';
   const dirty = model !== view.model || timeout !== view.timeoutMs;
   const valid = CliPreferenceSchema.safeParse({ id: view.id, model, timeoutMs: timeout }).success;
   return (
@@ -98,10 +99,22 @@ function CliCard({
       {installed && expanded && (
         <div id={`cli-config-${view.id}`} className="cli-config">
           {safety[view.id] && <p className="help-text">{safety[view.id]}</p>}
+          {view.id === 'codex' && (
+            <p className="help-text">
+              Text chat is reviewed for Codex 0.165.0 only. Tools, hooks, skills and user
+              configuration are disabled. Global ~/.codex/AGENTS.md and AGENTS.override.md must be
+              absent or empty. Default uses Codex’s built-in model; choose a custom ID to override
+              it. Token streaming is not verified.
+            </p>
+          )}
           {view.status === 'unsupported-version' && (
             <p role="note">
-              Claude Code 2.1.248 or later in the 2.1 release line is required for restricted mode.
-              Update separately, then refresh.
+              {view.id === 'codex'
+                ? 'Only Codex 0.165.0 has a reviewed isolation contract. Other versions require another review.'
+                : view.id === 'claude'
+                  ? 'Claude Code 2.1.248 or later in the 2.1 release line is required for restricted mode.'
+                  : 'The installed CLI version could not be verified.'}{' '}
+              Manage CLI versions separately, then refresh.
             </p>
           )}
           <div className="cli-config-grid">
@@ -120,7 +133,9 @@ function CliCard({
                 <option value="">
                   {view.id === 'ollama'
                     ? 'Default · first installed model'
-                    : 'Default · CLI configured model'}
+                    : view.id === 'codex'
+                      ? 'Default · Codex built-in model'
+                      : 'Default · CLI configured model'}
                 </option>
                 {view.models.map((value) => (
                   <option value={value} key={value}>

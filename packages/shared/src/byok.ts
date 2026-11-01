@@ -28,6 +28,7 @@ export const FailureCodeSchema = z.enum([
   'CLI_UNSUPPORTED',
   'CLI_MODEL_INVALID',
   'CLI_EXECUTION_FAILED',
+  'CLI_ISOLATION_REQUIRED',
 ]);
 export type FailureCode = z.infer<typeof FailureCodeSchema>;
 const flag = z.enum(['supported', 'unsupported', 'unknown']);

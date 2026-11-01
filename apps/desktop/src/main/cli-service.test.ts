@@ -212,10 +212,11 @@ describe('CLI provider isolation and configuration', () => {
       await service.scan(true);
       expect(find).toHaveBeenCalledTimes(10);
       expect(service.views().every((v) => v.status === 'not-installed')).toBe(true);
-      for (const id of ['codex', 'gemini', 'qwen'] as const) {
+      for (const id of ['gemini', 'qwen'] as const) {
         expect(CLI_PROVIDERS[id].restricted).toBe(false);
         await expect(service.adapter(id)).rejects.toThrow('CAPABILITY_REQUIRED');
       }
+      await expect(service.adapter('codex')).rejects.toThrow('CLI_NOT_INSTALLED');
     } finally {
       await service.shutdown();
       store.close();

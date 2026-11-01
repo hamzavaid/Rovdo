@@ -5,6 +5,8 @@
 import type { FailureCode } from '@rovdo/shared';
 
 export const errorMessage: Record<FailureCode, string> = {
+  CLI_ISOLATION_REQUIRED:
+    'Codex isolation failed. Global ~/.codex/AGENTS.md and AGENTS.override.md must be absent or empty; unexpected tools are blocked. Rovdo will not modify your CLI files.',
   CLI_NOT_INSTALLED: 'CLI not found. Install and authenticate it separately, then refresh.',
   CLI_UNSUPPORTED:
     'This CLI version or execution mode cannot meet Rovdo’s restricted text-only requirements.',

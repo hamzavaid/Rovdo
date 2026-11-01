@@ -146,10 +146,15 @@ export class CliRuntime {
     signal: AbortSignal,
     timeoutMs: number,
     onText?: (text: string) => void,
+    isolation?: { codexHome: string },
   ): Promise<{ stdout: string; stderr: string; exitCode: number }> {
     if (signal.aborted || this.stopped) throw new Error('CANCELED');
     if (this.active.size >= 2) throw new Error('BUSY');
-    if (Buffer.byteLength(input) > 128000 || !path.isAbsolute(launcher.executable))
+    if (
+      Buffer.byteLength(input) > 128000 ||
+      !path.isAbsolute(launcher.executable) ||
+      (isolation && !path.isAbsolute(isolation.codexHome))
+    )
       throw new Error('VALIDATION_ERROR');
     const cwd = await mkdtemp(path.join(tmpdir(), 'rovdo-cli-'));
     try {
@@ -161,7 +166,8 @@ export class CliRuntime {
           windowsHide: true,
           detached: process.platform !== 'win32',
           cwd,
-          env: cliEnvironment(),
+          // Main/test-only capability for credential-free offline verification. Never accepted by IPC.
+          env: { ...cliEnvironment(), ...(isolation ? { CODEX_HOME: isolation.codexHome } : {}) },
           stdio: ['pipe', 'pipe', 'pipe'],
         });
         let released!: () => void;
