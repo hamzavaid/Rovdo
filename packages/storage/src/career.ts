@@ -37,6 +37,7 @@ import {
   stable,
   intelligenceOf,
   rankWithProfile,
+  prepareRanking,
   roleOf,
 } from '@rovdo/career';
 import { EmployerSchema, JobSearchSchema, JobMarkerSchema, SavedSearchSchema } from '@rovdo/shared';
@@ -1070,6 +1071,8 @@ export class CareerStore {
     const insert = this.db.prepare('INSERT INTO current_search VALUES(?,?,?)');
     let scored = 0;
     const binding = this.rankingBinding(profile, config, asOf);
+    const prepared = prepareRanking(profile, config, asOf);
+    const ranker: typeof rankWithProfile = (rows) => prepared.rank(rows);
     this.transaction(() => {
       for (const row of rows) {
         const key = this.cacheKey(row, profile, config, asOf, binding);
@@ -1077,7 +1080,7 @@ export class CareerStore {
           !this.db.prepare('SELECT 1 FROM rank_cache WHERE cache_key=?').get(key) &&
           scored < budget
         ) {
-          this.cachedRanking(row, profile, config, asOf, undefined, key);
+          this.cachedRanking(row, profile, config, asOf, ranker, key);
           scored++;
         }
         insert.run(row.job.id, key, row.bm25Raw);
@@ -1095,6 +1098,7 @@ export class CareerStore {
     search: JobSearch,
     budget = Number.POSITIVE_INFINITY,
     reuse = false,
+    signal?: AbortSignal,
   ): Promise<{ matches: JobMatch[]; total: number; pending: number }> {
     const previous = this.rankingWork;
     let release!: () => void;
@@ -1103,8 +1107,11 @@ export class CareerStore {
     });
     await previous;
     try {
+      if (signal?.aborted) throw new Error('CANCELED');
       await yieldTurn();
       const binding = this.rankingBinding(profile, config, asOf);
+      const prepared = prepareRanking(profile, config, asOf);
+      const ranker: typeof rankWithProfile = (rows) => prepared.rank(rows);
       const stamp = stable({
         binding,
         search,
@@ -1121,12 +1128,13 @@ export class CareerStore {
           let n = 0;
           try {
             for (const row of pending) {
+              if (signal?.aborted) throw new Error('CANCELED');
               this.cachedRanking(
                 { job: JobSchema.parse(JSON.parse(String(row.json))), bm25Raw: Number(row.bm25) },
                 profile,
                 config,
                 asOf,
-                undefined,
+                ranker,
                 String(row.cache_key),
               );
               if (++n % 8 === 0) await yieldTurn();
@@ -1150,6 +1158,7 @@ export class CareerStore {
         scored = 0;
       try {
         while (!done) {
+          if (signal?.aborted) throw new Error('CANCELED');
           const started = performance.now();
           this.transaction(() => {
             for (let n = 0; n < 8; n++) {
@@ -1161,7 +1170,7 @@ export class CareerStore {
               const row = next.value;
               const key = this.cacheKey(row, profile, config, asOf, binding);
               if (scored < budget && !cached.get(key)) {
-                this.cachedRanking(row, profile, config, asOf, undefined, key);
+                this.cachedRanking(row, profile, config, asOf, ranker, key);
                 scored++;
               }
               insert.run(row.job.id, key, row.bm25Raw);

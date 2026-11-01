@@ -158,14 +158,17 @@ export const SKILLS: readonly Skill[] = Object.freeze(
     }),
   ),
 );
+// Build once: unknown custom skills must not scan/normalize the whole taxonomy per comparison.
+const skillAliases = new Map<string, Skill>();
+const anyAliases = new Map<string, Skill>();
+for (const skill of SKILLS)
+  for (const alias of skill.aliases) {
+    if (!skillAliases.has(norm(alias.label))) skillAliases.set(norm(alias.label), skill);
+    if (alias.context === 'any' && !anyAliases.has(norm(alias.label)))
+      anyAliases.set(norm(alias.label), skill);
+  }
 export function resolveSkill(value: string, context: 'any' | 'skill' = 'any'): Skill | null {
-  return (
-    SKILLS.find((s) =>
-      s.aliases.some(
-        (a) => norm(a.label) === norm(value) && (a.context === 'any' || context === 'skill'),
-      ),
-    ) ?? null
-  );
+  return (context === 'skill' ? skillAliases : anyAliases).get(norm(value)) ?? null;
 }
 // Only directional implies edges grant transferable credit; related edges document adjacency, not equivalence.
 export const SKILL_RELATIONS = Object.freeze([

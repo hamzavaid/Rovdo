@@ -5,7 +5,7 @@
 import { IntelligenceSchema } from '@rovdo/shared';
 import type { CandidateProfile, Intelligence } from '@rovdo/shared';
 import { resolveSkill } from './taxonomy';
-export const CANDIDATE_POLICY_VERSION = 'canonical-candidate-v2';
+export const CANDIDATE_POLICY_VERSION = 'canonical-candidate-v3';
 export type Qualification =
   | Intelligence['skills'][number]
   | Intelligence['experience'][number]
@@ -55,6 +55,10 @@ export function intelligenceOf(profile: CandidateProfile): Intelligence {
         projects: [],
         certifications: [],
       } as Intelligence);
+  for (const skill of intel.skills)
+    skill.skillId = resolveSkill(skill.skillId, 'skill')?.id ?? skill.skillId;
+  for (const q of [...intel.experience, ...intel.projects])
+    q.skills = [...new Set(q.skills.map((s) => resolveSkill(s, 'skill')?.id ?? s))];
   // Project legacy assertions conservatively; never manufacture typed employment or completion dates.
   for (const fact of profile.facts) {
     if (
@@ -133,12 +137,20 @@ export function intelligenceOf(profile: CandidateProfile): Intelligence {
     // Free-form employment/project assertions remain accessible in facts. No typed dates,
     // employers, completed degrees or project authorship are invented from them.
   }
+  const evidenceById = new Map(intel.evidence.map((e) => [e.id, e]));
+  const factsBySource = new Map<string, CandidateProfile['facts'][number]>(
+    profile.facts.flatMap(
+      (f) =>
+        [
+          [`legacy:${f.id}`, f],
+          [`legacy:${f.id.slice(0, 180)}`, f],
+        ] as const,
+    ),
+  );
   // Recheck the original fact so a copied legacy assertion cannot outlive revoked verification.
   for (const e of intel.evidence)
     if (e.sourceKind === 'legacy') {
-      const fact = profile.facts.find(
-        (f) => e.sourceId === `legacy:${f.id}` || e.sourceId === `legacy:${f.id.slice(0, 180)}`,
-      );
+      const fact = factsBySource.get(e.sourceId);
       e.verified = !!fact?.verified && fact.value === e.excerpt;
     }
   for (const key of ['skills', 'experience', 'education', 'projects', 'certifications'] as const) {
@@ -146,44 +158,49 @@ export function intelligenceOf(profile: CandidateProfile): Intelligence {
     for (const q of target)
       if (
         q.verified &&
-        q.evidenceIds.some(
-          (id) => intel.evidence.find((e) => e.id === id)?.sourceKind === 'legacy',
-        ) &&
-        !q.evidenceIds.some((id) => intel.evidence.find((e) => e.id === id)?.verified)
+        q.evidenceIds.some((id) => evidenceById.get(id)?.sourceKind === 'legacy') &&
+        !q.evidenceIds.some((id) => evidenceById.get(id)?.verified)
       )
         q.verified = false;
-    for (let i = 0; i < target.length; i++)
-      for (let j = i + 1; j < target.length; j++) {
-        const a = target[i]!,
-          b = target[j]!;
-        if (
-          qualificationKey(a) === qualificationKey(b) &&
-          !qualificationsConflict(a, b) &&
-          JSON.stringify(
-            Object.fromEntries(
-              Object.entries(a).filter(
-                ([k]) => !['id', 'evidenceIds', 'verified', 'conflictWith'].includes(k),
-              ),
+    // Only natural-key peers can duplicate/conflict. Distinct skills are one Map insertion each.
+    const groups = new Map<string, Qualification[]>();
+    for (const q of target) {
+      const key = qualificationKey(q);
+      const group = groups.get(key) ?? [];
+      group.push(q);
+      groups.set(key, group);
+    }
+    const merged = new Set<Qualification>();
+    for (const peers of groups.values()) {
+      const signatures = new Map<string, Qualification>();
+      for (const q of peers) {
+        const signature = JSON.stringify(
+          Object.fromEntries(
+            Object.entries(q).filter(
+              ([k]) => !['id', 'evidenceIds', 'verified', 'conflictWith'].includes(k),
             ),
-          ) ===
-            JSON.stringify(
-              Object.fromEntries(
-                Object.entries(b).filter(
-                  ([k]) => !['id', 'evidenceIds', 'verified', 'conflictWith'].includes(k),
-                ),
-              ),
-            )
-        ) {
-          a.evidenceIds = [...new Set([...a.evidenceIds, ...b.evidenceIds])].slice(0, 50);
-          a.verified = a.verified || b.verified;
-          target.splice(j--, 1);
-          continue;
-        }
-        if (a.verified && b.verified && qualificationsConflict(a, b)) {
-          a.conflictWith = [...new Set([...(a.conflictWith ?? []), b.id])];
-          b.conflictWith = [...new Set([...(b.conflictWith ?? []), a.id])];
-        }
+          ),
+        );
+        const old = signatures.get(signature);
+        if (old) {
+          old.evidenceIds = [...new Set([...old.evidenceIds, ...q.evidenceIds])].slice(0, 50);
+          old.verified ||= q.verified;
+          old.conflictWith = [...new Set([...(old.conflictWith ?? []), ...(q.conflictWith ?? [])])];
+          merged.add(q);
+        } else signatures.set(signature, q);
       }
+      const remaining = [...signatures.values()];
+      for (let i = 0; i < remaining.length; i++)
+        for (let j = i + 1; j < remaining.length; j++) {
+          const a = remaining[i]!,
+            b = remaining[j]!;
+          if (a.verified && b.verified && qualificationsConflict(a, b)) {
+            a.conflictWith = [...new Set([...(a.conflictWith ?? []), b.id])];
+            b.conflictWith = [...new Set([...(b.conflictWith ?? []), a.id])];
+          }
+        }
+    }
+    target.splice(0, target.length, ...target.filter((q) => !merged.has(q)));
   }
   return IntelligenceSchema.parse(intel);
 }

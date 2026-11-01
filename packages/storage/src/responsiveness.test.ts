@@ -11,6 +11,41 @@ const search = {
   savedOnly: false,
   includeExcluded: false,
 };
+it('cancels large-candidate ranking between bounded batches and can recover', async () => {
+  const store = new CareerStore(':memory:');
+  try {
+    const controller = new AbortController();
+    const p = sampleCandidate();
+    p.intelligence!.skills.push(
+      ...Array.from({ length: 200 }, (_, i) => ({
+        id: `large-${i}`,
+        skillId: `custom:large-${i}`,
+        version: null,
+        depth: 'declared' as const,
+        verified: true,
+        evidenceIds: ['assertion'],
+      })),
+    );
+    const start = performance.now();
+    setImmediate(() => controller.abort());
+    await expect(
+      store.rankedPageAsync(
+        [],
+        p,
+        BUILTIN_RANKINGS[1]!,
+        AS_OF,
+        search,
+        Infinity,
+        false,
+        controller.signal,
+      ),
+    ).rejects.toThrow('CANCELED');
+    expect(performance.now() - start).toBeLessThan(500);
+    expect((await store.rankedPageAsync([], p, BUILTIN_RANKINGS[1]!, AS_OF, search)).total).toBe(0);
+  } finally {
+    store.close();
+  }
+});
 it('yields during cache preparation and serializes overlapping searches without mixing results', async () => {
   const store = new CareerStore(':memory:');
   try {

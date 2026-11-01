@@ -175,6 +175,15 @@ export function rankWithProfile(
   input: RankingProfile,
   asOf: string,
 ): JobMatch[] {
+  return prepareRanking(profile, input, asOf).rank(rows);
+}
+/** Snapshot is owned by this batch; caller edits cannot change an already prepared decision. */
+export function prepareRanking(
+  candidate: CandidateProfile,
+  input: RankingProfile,
+  asOf: string,
+): { rank(rows: { job: Job; bm25Raw: number }[]): JobMatch[] } {
+  const profile = structuredClone(candidate);
   const config = RankingProfileSchema.parse(input);
   if (asOf.length !== 10 || !PartialDateSchema.safeParse(asOf).success)
     throw new Error('AS_OF_REQUIRED');
@@ -187,53 +196,71 @@ export function rankWithProfile(
       config.weights.eligibility +
       config.weights.preferences;
     if (!total) throw new Error('NO_LEGACY_WEIGHTS');
-    return rankJobs(rows, {
-      ...profile,
-      preferences: {
-        ...profile.preferences,
-        weights: {
-          skills: config.weights.skills / total,
-          role: config.weights.role / total,
-          location: config.weights.location / total,
-          eligibility: config.weights.eligibility / total,
-          preferences: config.weights.preferences / total,
-        },
-      },
-    }).map((m) => ({
-      ...m,
-      ranking: {
-        method: config.method,
-        configId: config.id,
-        configRevision: config.revision,
-        configHash: fingerprint(config),
-        taxonomyVersion: 'legacy-v1',
-        parserVersion: 'legacy-v1',
-        evidenceVersion: fingerprint(
-          profile.facts.filter((f) => !['name', 'email', 'phone', 'citizenship'].includes(f.field)),
-        ),
-        asOf,
-        technicalScore: null,
-        preferenceScore: null,
-        requiredCoverage: 0,
-        shortlist:
-          !m.excluded &&
-          m.score >= config.thresholds.score &&
-          m.confidence >= config.thresholds.confidence,
-        components: [],
-        requirements: [],
-      },
-    }));
+    return {
+      rank: (rows) =>
+        rankJobs(rows, {
+          ...profile,
+          preferences: {
+            ...profile.preferences,
+            weights: {
+              skills: config.weights.skills / total,
+              role: config.weights.role / total,
+              location: config.weights.location / total,
+              eligibility: config.weights.eligibility / total,
+              preferences: config.weights.preferences / total,
+            },
+          },
+        }).map((m) => ({
+          ...m,
+          ranking: {
+            method: config.method,
+            configId: config.id,
+            configRevision: config.revision,
+            configHash: fingerprint(config),
+            taxonomyVersion: 'legacy-v1',
+            parserVersion: 'legacy-v1',
+            evidenceVersion: fingerprint(
+              profile.facts.filter(
+                (f) => !['name', 'email', 'phone', 'citizenship'].includes(f.field),
+              ),
+            ),
+            asOf,
+            technicalScore: null,
+            preferenceScore: null,
+            requiredCoverage: 0,
+            shortlist:
+              !m.excluded &&
+              m.score >= config.thresholds.score &&
+              m.confidence >= config.thresholds.confidence,
+            components: [],
+            requirements: [],
+          },
+        })),
+    };
   }
   // Resolve legacy/structured differences once, then apply the same supported-evidence policy throughout.
   const intel = intelligenceOf(profile);
   const configHash = fingerprint(config);
   const evidenceVersion = fingerprint([intel, EVIDENCE_POLICY_VERSION, CANDIDATE_POLICY_VERSION]);
   const evidence = new Map(intel.evidence.map((e) => [e.id, e]));
+  const supports = new WeakMap<object, ReturnType<typeof qualificationSupport>>();
+  const supportOf = (item: {
+    verified: boolean;
+    evidenceIds: string[];
+    conflictWith?: string[] | undefined;
+  }) => {
+    let value = supports.get(item);
+    if (!value) {
+      value = qualificationSupport(item, evidence);
+      supports.set(item, value);
+    }
+    return value;
+  };
   const confidenceOf = (item: {
     verified: boolean;
     evidenceIds: string[];
     conflictWith?: string[] | undefined;
-  }) => qualificationSupport(item, evidence).confidence;
+  }) => supportOf(item).confidence;
   const usable = <T extends { verified: boolean; evidenceIds: string[] }>(items: T[]) =>
     items.filter(
       (i) => i.verified && confidenceOf(i) > 0 && confidenceOf(i) >= config.minimumEvidence,
@@ -259,506 +286,561 @@ export function rankWithProfile(
       p.skills.map((skillId) => ({ ...p, skillId, version: null, depth: 'project' as const })),
     ),
   ];
-  const results = rows.map(({ job, bm25Raw }): JobMatch => {
-    const parsed = extractRequirements(job.descriptionText, job.title);
-    const requirements = scoringRequirements(parsed.items);
-    const skillRequirements = requirements.filter(
-      (r) => r.kind === 'skill' && r.importance !== 'mentioned',
-    );
-    const importance = (r: Requirement) =>
-      r.importance === 'required'
-        ? config.requiredMultiplier
-        : r.importance === 'preferred'
-          ? config.preferredMultiplier
-          : 0.2;
-    const matches = skillRequirements.map((r) => {
-      const possible = competencies.flatMap((s) =>
-        [r.skillId!, ...r.alternatives].map((required) => ({
-          s,
-          ...matchSkill(s.skillId, required, s.version, r.versionRange, config.implicationCredit),
-        })),
-      );
-      possible.sort(
-        (a, b) =>
-          b.strength - a.strength ||
-          confidenceOf(b.s) - confidenceOf(a.s) ||
-          depthValue[b.s.depth] - depthValue[a.s.depth] ||
-          a.s.id.localeCompare(b.s.id),
-      );
-      const best = possible[0];
-      const strength = best?.strength ?? 0;
-      return {
-        r,
-        strength,
-        confidence: strength ? confidenceOf(best!.s) * r.confidence : 0,
-        depth: strength ? depthValue[best!.s.depth] * strength : 0,
-        ids: strength ? qualificationSupport(best!.s, evidence).evidenceIds : [],
-        reason: best && strength ? best.reason : 'No verified matching evidence',
-        matchedSkillId: best && strength ? best.s.skillId : null,
-      };
-    });
-    const weighted = (values: { r: Requirement; value: number }[]) =>
-      values.length
-        ? values.reduce((a, v) => a + importance(v.r) * v.value, 0) /
-          values.reduce((a, v) => a + importance(v.r), 0)
-        : null;
-    const required = matches.filter((m) => m.r.importance === 'required');
-    const opaque = requirements.filter((r) => r.kind === 'unknown' && r.importance === 'required');
-    const coverage =
-      required.length + opaque.length
-        ? required.filter((m) => m.strength >= 0.8).length / (required.length + opaque.length)
-        : 0;
-    const assessment = {
-      version: 'assessment-v1' as const,
-      status: opaque.length
-        ? ('incomplete' as const)
-        : requirements.length
-          ? ('complete' as const)
-          : ('not-published' as const),
-      complete: requirements.length > 0 && opaque.length === 0,
-      assessed: requirements.length - opaque.length,
-      total: requirements.length,
-      unresolvedIds: opaque.map((r) => r.id),
-    };
-    const components = new Map<
-      string,
-      { value: number | null; confidence: number; explanation: string }
-    >();
-    const add = (name: string, value: number | null, confidence: number, explanation: string) =>
-      components.set(name, {
-        value: value === null ? null : rounded(clamp(value)),
-        confidence: rounded(clamp(confidence)),
-        explanation,
-      });
-    add(
-      'skills',
-      weighted([
-        ...matches.map((m) => ({ r: m.r, value: m.strength })),
-        ...opaque.map((r) => ({ r, value: 0 })),
-      ]),
-      avg(matches.map((m) => m.confidence)),
-      `${matches.filter((m) => m.strength > 0).length}/${matches.length} job skill requirements have verified evidence; required multiplier ${config.requiredMultiplier}, preferred ${config.preferredMultiplier}.`,
-    );
-    add(
-      'depth',
-      weighted(matches.map((m) => ({ r: m.r, value: m.depth }))),
-      avg(matches.map((m) => m.confidence)),
-      'Depth uses verified production/project/supporting/course context, not keyword frequency.',
-    );
-    // Compare scoped, unioned employment duration with the job requirement, not total career keyword counts.
-    const experienceRequirements = requirements.filter(
-      (r) => r.kind === 'experience' && r.months !== null,
-    );
-    const experienceValues = experienceRequirements.map((r) => {
-      const relevantWork = work.filter((w) => {
-        const specialty = roleOf(w.title).specialty;
-        return (
-          !(
-            specialty &&
-            parsed.role.specialty &&
-            specialty !== parsed.role.specialty &&
-            specialty !== 'fullstack'
-          ) &&
-          unionMonths([w], asOf) > 0 &&
-          relevant(w.roleFamily, r.roleFamily ?? 'unknown', config.implicationCredit) > 0 &&
-          (!r.skillId ||
-            w.skills.some(
-              (s) => matchSkill(s, r.skillId!, null, null, config.implicationCredit).strength > 0,
-            ))
+  return {
+    rank(rows) {
+      const results = rows.map(({ job, bm25Raw }): JobMatch => {
+        const parsed = extractRequirements(job.descriptionText, job.title);
+        const requirements = scoringRequirements(parsed.items);
+        const skillRequirements = requirements.filter(
+          (r) => r.kind === 'skill' && r.importance !== 'mentioned',
         );
-      });
-      const months = unionMonths(relevantWork, asOf);
-      return {
-        r,
-        value: Math.min(1, months / Math.max(1, r.months!)),
-        confidence: avg(relevantWork.map(confidenceOf)) * r.confidence,
-      };
-    });
-    add(
-      'experience',
-      weighted(experienceValues),
-      avg(experienceValues.map((v) => v.confidence)),
-      'Relevant scoped employment intervals are unioned before comparing against requested months; absent year requirements are inactive.',
-    );
-    const projectValues = projects
-      .map((p) => {
-        const matched =
-          weighted(
-            skillRequirements.map((r) => ({
-              r,
-              value: Math.max(
-                0,
-                ...p.skills.flatMap((s) =>
-                  [r.skillId!, ...r.alternatives].map(
-                    (required) =>
-                      matchSkill(s, required, null, r.versionRange, config.implicationCredit)
-                        .strength,
-                  ),
+        const importance = (r: Requirement) =>
+          r.importance === 'required'
+            ? config.requiredMultiplier
+            : r.importance === 'preferred'
+              ? config.preferredMultiplier
+              : 0.2;
+        const matches = skillRequirements.map((r) => {
+          let best:
+            | { s: (typeof competencies)[number]; strength: number; reason: string }
+            | undefined;
+          for (const s of competencies)
+            for (const required of [r.skillId!, ...r.alternatives]) {
+              const match = {
+                s,
+                ...matchSkill(
+                  s.skillId,
+                  required,
+                  s.version,
+                  r.versionRange,
+                  config.implicationCredit,
                 ),
-              ),
-            })),
-          ) ?? 0;
-        return {
-          value: matched,
-          confidence: confidenceOf(p),
-        };
-      })
-      .sort((a, b) => b.value - a.value || b.confidence - a.confidence);
-    add(
-      'projects',
-      skillRequirements.length ? (projectValues.length ? projectValues[0]!.value : 0) : null,
-      projectValues[0]?.confidence ?? 0,
-      'Strongest verified project requirement coverage, respecting alternatives, versions and required/preferred weights. Extra or duplicate projects grant no bonus.',
-    );
-    const candidateRoles = work.map((w) => ({
-      ...roleOf(w.title),
-      family: w.roleFamily,
-      level: w.level,
-      track: w.track,
-    }));
-    const roleScores = candidateRoles.map(
-      (r) =>
-        relevant(r.family, parsed.role.family, config.implicationCredit) *
-        (r.track !== 'unknown' && parsed.role.track !== 'unknown' && r.track !== parsed.role.track
-          ? 0.3
-          : 1),
-    );
-    add(
-      'role',
-      parsed.role.family === 'unknown' ? null : Math.max(0, ...roleScores),
-      avg(work.map(confidenceOf)),
-      'Canonical family/track match; adjacent software/platform roles receive only curated partial credit.',
-    );
-    const levels = ['intern', 'entry', 'junior', 'mid', 'senior', 'staff', 'principal', 'lead'];
-    const requested = levels.indexOf(parsed.role.level);
-    const levelsScores = candidateRoles.map((r) => {
-      const relation = relevant(r.family, parsed.role.family, config.implicationCredit);
-      if (!relation) return 0;
-      const n = levels.indexOf(r.level);
-      if (n < 0) return 0;
-      const delta = n - requested;
-      return (
-        relation *
-        (r.track !== parsed.role.track
-          ? 0.2
-          : delta === 0
-            ? 1
-            : delta === 1
-              ? 0.85
-              : delta === -1
-                ? 0.65
-                : delta > 1
-                  ? 0.6
-                  : 0.3)
-      );
-    });
-    add(
-      'seniority',
-      requested < 0 ? null : Math.max(0, ...levelsScores),
-      avg(work.map(confidenceOf)),
-      'IC/management tracks remain distinct; no fixed years are invented from title level.',
-    );
-    // Legal eligibility uses explicit user assertions; technical strength cannot compensate for a failed gate.
-    const checks = evaluateEligibility(job, {
-      ...profile,
-      facts: profile.facts.filter(
-        (f) =>
-          ['workAuthorization', 'citizenship', 'clearance', 'returnToSchool'].includes(f.field) &&
-          f.source.kind === 'user',
-      ),
-    }).filter((c) =>
-      [
-        'open',
-        'workAuthorization',
-        'citizenship',
-        'clearance',
-        'returnToSchool',
-        'sponsorship-review',
-        'legal-unresolved',
-      ].includes(c.rule),
-    );
-    const qualificationRequirements = requirements.filter(
-      (r) => r.kind === 'education' || r.kind === 'certification',
-    );
-    const educationValues = qualificationRequirements.map((r) => {
-      let result: 'PASS' | 'FAIL' | 'UNKNOWN' = 'UNKNOWN';
-      let supportingIds: string[];
-      let supportConfidence: number;
-      if (r.kind === 'education') {
-        const outcomes = education.map((e) =>
-          e.graduation &&
-          e.graduation > asOf.slice(0, e.graduation.length) &&
-          e.status === 'completed'
-            ? 'UNKNOWN'
-            : degreeGate(e, {
-                level: r.degree ?? 'other',
-                field: r.degreeField,
-                relatedFieldsAllowed: r.relatedFieldsAllowed,
-                enrollmentAllowed: r.enrollmentAllowed,
-                equivalentAllowed: r.equivalentAllowed,
-              }),
-        );
-        result = outcomes.includes('PASS')
-          ? 'PASS'
-          : outcomes.length && outcomes.every((v) => v === 'FAIL')
-            ? 'FAIL'
-            : 'UNKNOWN';
-        const supporting = education.filter((_e, index) => outcomes[index] === result);
-        supportingIds = [
-          ...new Set(supporting.flatMap((e) => qualificationSupport(e, evidence).evidenceIds)),
-        ].sort();
-        supportConfidence = Math.max(0, ...supporting.map(confidenceOf));
-      } else {
-        const normalize = (v: string) =>
-          v.normalize('NFKC').trim().toLowerCase().replace(/\s+/g, ' ');
-        const expected = r.credential ? [r.credential, ...r.alternatives] : [];
-        const matching = certifications.filter((c) =>
-          expected.some((name) => normalize(c.name) === normalize(name)),
-        );
-        const outcomes = matching.map((c) => credentialStatus(c.expires, asOf));
-        result = outcomes.includes('PASS')
-          ? 'PASS'
-          : outcomes.length &&
-              outcomes.every((v) => v === 'FAIL') &&
-              expected.every((name) => matching.some((c) => normalize(c.name) === normalize(name)))
-            ? 'FAIL'
-            : 'UNKNOWN';
-        const supporting = matching.filter((_c, index) => outcomes[index] === result);
-        supportingIds = [
-          ...new Set(supporting.flatMap((c) => qualificationSupport(c, evidence).evidenceIds)),
-        ].sort();
-        supportConfidence = Math.max(0, ...supporting.map(confidenceOf));
-      }
-      if (r.importance === 'required')
-        checks.push({
-          rule: r.kind,
-          result: config.gates.education ? result : result === 'FAIL' ? 'UNKNOWN' : result,
-          excerpt: r.excerpt,
-          factIds: supportingIds,
+              };
+              if (
+                !best ||
+                match.strength > best.strength ||
+                (match.strength === best.strength &&
+                  (confidenceOf(s) > confidenceOf(best.s) ||
+                    (confidenceOf(s) === confidenceOf(best.s) &&
+                      (depthValue[s.depth] > depthValue[best.s.depth] ||
+                        (depthValue[s.depth] === depthValue[best.s.depth] &&
+                          s.id.localeCompare(best.s.id) < 0)))))
+              )
+                best = match;
+            }
+          const strength = best?.strength ?? 0;
+          return {
+            r,
+            strength,
+            confidence: strength ? confidenceOf(best!.s) * r.confidence : 0,
+            depth: strength ? depthValue[best!.s.depth] * strength : 0,
+            ids: strength ? supportOf(best!.s).evidenceIds : [],
+            reason: best && strength ? best.reason : 'No verified matching evidence',
+            matchedSkillId: best && strength ? best.s.skillId : null,
+          };
         });
-      return {
-        r,
-        value: result === 'PASS' ? 1 : 0,
-        confidence: result === 'UNKNOWN' ? 0 : supportConfidence * r.confidence,
-      };
-    });
-    for (const r of requirements.filter(
-      (r) => r.kind === 'graduation' && r.importance === 'required',
-    )) {
-      const years = education.flatMap((e) =>
-        e.graduation ? [Number(e.graduation.slice(0, 4))] : [],
+        const weighted = (values: { r: Requirement; value: number }[]) =>
+          values.length
+            ? values.reduce((a, v) => a + importance(v.r) * v.value, 0) /
+              values.reduce((a, v) => a + importance(v.r), 0)
+            : null;
+        const required = matches.filter((m) => m.r.importance === 'required');
+        const opaque = requirements.filter(
+          (r) => r.kind === 'unknown' && r.importance === 'required',
+        );
+        const coverage =
+          required.length + opaque.length
+            ? required.filter((m) => m.strength >= 0.8).length / (required.length + opaque.length)
+            : 0;
+        const assessment = {
+          version: 'assessment-v1' as const,
+          status: opaque.length
+            ? ('incomplete' as const)
+            : requirements.length
+              ? ('complete' as const)
+              : ('not-published' as const),
+          complete: requirements.length > 0 && opaque.length === 0,
+          assessed: requirements.length - opaque.length,
+          total: requirements.length,
+          unresolvedIds: opaque.map((r) => r.id),
+        };
+        const components = new Map<
+          string,
+          { value: number | null; confidence: number; explanation: string }
+        >();
+        const add = (name: string, value: number | null, confidence: number, explanation: string) =>
+          components.set(name, {
+            value: value === null ? null : rounded(clamp(value)),
+            confidence: rounded(clamp(confidence)),
+            explanation,
+          });
+        add(
+          'skills',
+          weighted([
+            ...matches.map((m) => ({ r: m.r, value: m.strength })),
+            ...opaque.map((r) => ({ r, value: 0 })),
+          ]),
+          avg(matches.map((m) => m.confidence)),
+          `${matches.filter((m) => m.strength > 0).length}/${matches.length} job skill requirements have verified evidence; required multiplier ${config.requiredMultiplier}, preferred ${config.preferredMultiplier}.`,
+        );
+        add(
+          'depth',
+          weighted(matches.map((m) => ({ r: m.r, value: m.depth }))),
+          avg(matches.map((m) => m.confidence)),
+          'Depth uses verified production/project/supporting/course context, not keyword frequency.',
+        );
+        // Compare scoped, unioned employment duration with the job requirement, not total career keyword counts.
+        const experienceRequirements = requirements.filter(
+          (r) => r.kind === 'experience' && r.months !== null,
+        );
+        const experienceValues = experienceRequirements.map((r) => {
+          const relevantWork = work.filter((w) => {
+            const specialty = roleOf(w.title).specialty;
+            return (
+              !(
+                specialty &&
+                parsed.role.specialty &&
+                specialty !== parsed.role.specialty &&
+                specialty !== 'fullstack'
+              ) &&
+              unionMonths([w], asOf) > 0 &&
+              relevant(w.roleFamily, r.roleFamily ?? 'unknown', config.implicationCredit) > 0 &&
+              (!r.skillId ||
+                w.skills.some(
+                  (s) =>
+                    matchSkill(s, r.skillId!, null, null, config.implicationCredit).strength > 0,
+                ))
+            );
+          });
+          const months = unionMonths(relevantWork, asOf);
+          return {
+            r,
+            value: Math.min(1, months / Math.max(1, r.months!)),
+            confidence: avg(relevantWork.map(confidenceOf)) * r.confidence,
+          };
+        });
+        add(
+          'experience',
+          weighted(experienceValues),
+          avg(experienceValues.map((v) => v.confidence)),
+          'Relevant scoped employment intervals are unioned before comparing against requested months; absent year requirements are inactive.',
+        );
+        const projectValues = projects
+          .map((p) => {
+            const matched =
+              weighted(
+                skillRequirements.map((r) => ({
+                  r,
+                  value: Math.max(
+                    0,
+                    ...p.skills.flatMap((s) =>
+                      [r.skillId!, ...r.alternatives].map(
+                        (required) =>
+                          matchSkill(s, required, null, r.versionRange, config.implicationCredit)
+                            .strength,
+                      ),
+                    ),
+                  ),
+                })),
+              ) ?? 0;
+            return {
+              value: matched,
+              confidence: confidenceOf(p),
+            };
+          })
+          .sort((a, b) => b.value - a.value || b.confidence - a.confidence);
+        add(
+          'projects',
+          skillRequirements.length ? (projectValues.length ? projectValues[0]!.value : 0) : null,
+          projectValues[0]?.confidence ?? 0,
+          'Strongest verified project requirement coverage, respecting alternatives, versions and required/preferred weights. Extra or duplicate projects grant no bonus.',
+        );
+        const candidateRoles = work.map((w) => ({
+          ...roleOf(w.title),
+          family: w.roleFamily,
+          level: w.level,
+          track: w.track,
+        }));
+        const roleScores = candidateRoles.map(
+          (r) =>
+            relevant(r.family, parsed.role.family, config.implicationCredit) *
+            (r.track !== 'unknown' &&
+            parsed.role.track !== 'unknown' &&
+            r.track !== parsed.role.track
+              ? 0.3
+              : 1),
+        );
+        add(
+          'role',
+          parsed.role.family === 'unknown' ? null : Math.max(0, ...roleScores),
+          avg(work.map(confidenceOf)),
+          'Canonical family/track match; adjacent software/platform roles receive only curated partial credit.',
+        );
+        const levels = ['intern', 'entry', 'junior', 'mid', 'senior', 'staff', 'principal', 'lead'];
+        const requested = levels.indexOf(parsed.role.level);
+        const levelsScores = candidateRoles.map((r) => {
+          const relation = relevant(r.family, parsed.role.family, config.implicationCredit);
+          if (!relation) return 0;
+          const n = levels.indexOf(r.level);
+          if (n < 0) return 0;
+          const delta = n - requested;
+          return (
+            relation *
+            (r.track !== parsed.role.track
+              ? 0.2
+              : delta === 0
+                ? 1
+                : delta === 1
+                  ? 0.85
+                  : delta === -1
+                    ? 0.65
+                    : delta > 1
+                      ? 0.6
+                      : 0.3)
+          );
+        });
+        add(
+          'seniority',
+          requested < 0 ? null : Math.max(0, ...levelsScores),
+          avg(work.map(confidenceOf)),
+          'IC/management tracks remain distinct; no fixed years are invented from title level.',
+        );
+        // Legal eligibility uses explicit user assertions; technical strength cannot compensate for a failed gate.
+        const checks = evaluateEligibility(job, {
+          ...profile,
+          facts: profile.facts.filter(
+            (f) =>
+              ['workAuthorization', 'citizenship', 'clearance', 'returnToSchool'].includes(
+                f.field,
+              ) && f.source.kind === 'user',
+          ),
+        }).filter((c) =>
+          [
+            'open',
+            'workAuthorization',
+            'citizenship',
+            'clearance',
+            'returnToSchool',
+            'sponsorship-review',
+            'legal-unresolved',
+          ].includes(c.rule),
+        );
+        const qualificationRequirements = requirements.filter(
+          (r) => r.kind === 'education' || r.kind === 'certification',
+        );
+        const educationValues = qualificationRequirements.map((r) => {
+          let result: 'PASS' | 'FAIL' | 'UNKNOWN' = 'UNKNOWN';
+          let supportingIds: string[];
+          let supportConfidence: number;
+          if (r.kind === 'education') {
+            const outcomes = education.map((e) =>
+              e.graduation &&
+              e.graduation > asOf.slice(0, e.graduation.length) &&
+              e.status === 'completed'
+                ? 'UNKNOWN'
+                : degreeGate(e, {
+                    level: r.degree ?? 'other',
+                    field: r.degreeField,
+                    relatedFieldsAllowed: r.relatedFieldsAllowed,
+                    enrollmentAllowed: r.enrollmentAllowed,
+                    equivalentAllowed: r.equivalentAllowed,
+                  }),
+            );
+            result = outcomes.includes('PASS')
+              ? 'PASS'
+              : outcomes.length && outcomes.every((v) => v === 'FAIL')
+                ? 'FAIL'
+                : 'UNKNOWN';
+            const supporting = education.filter((_e, index) => outcomes[index] === result);
+            supportingIds = [
+              ...new Set(supporting.flatMap((e) => qualificationSupport(e, evidence).evidenceIds)),
+            ].sort();
+            supportConfidence = Math.max(0, ...supporting.map(confidenceOf));
+          } else {
+            const normalize = (v: string) =>
+              v.normalize('NFKC').trim().toLowerCase().replace(/\s+/g, ' ');
+            const expected = r.credential ? [r.credential, ...r.alternatives] : [];
+            const matching = certifications.filter((c) =>
+              expected.some((name) => normalize(c.name) === normalize(name)),
+            );
+            const outcomes = matching.map((c) => credentialStatus(c.expires, asOf));
+            result = outcomes.includes('PASS')
+              ? 'PASS'
+              : outcomes.length &&
+                  outcomes.every((v) => v === 'FAIL') &&
+                  expected.every((name) =>
+                    matching.some((c) => normalize(c.name) === normalize(name)),
+                  )
+                ? 'FAIL'
+                : 'UNKNOWN';
+            const supporting = matching.filter((_c, index) => outcomes[index] === result);
+            supportingIds = [
+              ...new Set(supporting.flatMap((c) => qualificationSupport(c, evidence).evidenceIds)),
+            ].sort();
+            supportConfidence = Math.max(0, ...supporting.map(confidenceOf));
+          }
+          if (r.importance === 'required')
+            checks.push({
+              rule: r.kind,
+              result: config.gates.education ? result : result === 'FAIL' ? 'UNKNOWN' : result,
+              excerpt: r.excerpt,
+              factIds: supportingIds,
+            });
+          return {
+            r,
+            value: result === 'PASS' ? 1 : 0,
+            confidence: result === 'UNKNOWN' ? 0 : supportConfidence * r.confidence,
+          };
+        });
+        for (const r of requirements.filter(
+          (r) => r.kind === 'graduation' && r.importance === 'required',
+        )) {
+          const years = education.flatMap((e) =>
+            e.graduation ? [Number(e.graduation.slice(0, 4))] : [],
+          );
+          checks.push({
+            rule: 'graduation',
+            result: years.some((y) => y >= r.graduationStart! && y <= r.graduationEnd!)
+              ? 'PASS'
+              : years.length
+                ? 'FAIL'
+                : 'UNKNOWN',
+            excerpt: r.excerpt,
+            factIds: education.flatMap((e) => e.evidenceIds),
+          });
+        }
+        add(
+          'education',
+          weighted(educationValues),
+          avg(educationValues.map((v) => v.confidence)),
+          'Completed degree, explicit enrollment alternatives, or unexpired certification evidence; equivalency is unresolved rather than rejected.',
+        );
+        // Bounded lexical support only. No applicant name/contact or protected facts enter it.
+        const lexical = matches.length ? avg(matches.map((m) => Number(m.strength === 1))) : null;
+        add(
+          'lexical',
+          lexical,
+          avg(matches.map((m) => m.confidence)),
+          'Canonical requirement text corroboration; BM25 remains retrieval metadata, not a qualification multiplier.',
+        );
+        const p = profile.preferences;
+        const locationActive = p.locations.length > 0 || p.workModes.length > 0;
+        const jurisdiction = locationOutcome(job, p.locations);
+        const locationKnown =
+          jurisdiction !== 'UNKNOWN' && (!p.workModes.length || job.workMode !== 'unknown');
+        const locationPass =
+          jurisdiction === 'PASS' &&
+          (!p.workModes.length ||
+            p.workModes.includes(job.workMode as 'remote' | 'hybrid' | 'onsite'));
+        add(
+          'location',
+          locationActive && locationKnown ? Number(locationPass) : null,
+          locationKnown ? 0.95 : 0,
+          'User-selected location/work mode is a separate preference component.',
+        );
+        if (config.gates.location && locationActive)
+          checks.push({
+            rule: 'location',
+            result: !locationKnown ? 'UNKNOWN' : locationPass ? 'PASS' : 'FAIL',
+            excerpt: `${job.location}; ${job.workMode}`,
+            factIds: [],
+          });
+        const salaryKnown =
+          p.minimumSalary !== null &&
+          job.salary &&
+          job.salary.currency === p.currency &&
+          /annual|year/i.test(job.salary.interval) &&
+          (job.salary.max ?? job.salary.min) !== null;
+        const salaryPass = salaryKnown
+          ? (job.salary!.max ?? job.salary!.min!) >= p.minimumSalary!
+          : false;
+        add(
+          'salary',
+          salaryKnown ? Number(salaryPass) : null,
+          salaryKnown ? 0.95 : 0,
+          'Missing currency/period/amount is inactive; no exchange-rate or annualization assumption is invented.',
+        );
+        if (config.gates.salary && p.minimumSalary !== null)
+          checks.push({
+            rule: 'salary',
+            result: !salaryKnown ? 'UNKNOWN' : salaryPass ? 'PASS' : 'FAIL',
+            excerpt: job.salary ? JSON.stringify(job.salary) : 'Salary not published',
+            factIds: [],
+          });
+        const excludedRole = p.excludedRoles.some((r) =>
+          job.title.toLowerCase().includes(r.toLowerCase()),
+        );
+        if (excludedRole)
+          checks.push({ rule: 'role-exclusion', result: 'FAIL', excerpt: job.title, factIds: [] });
+        const companyExcluded =
+          p.excludedCompanies?.some((name) => name.toLowerCase() === job.company.toLowerCase()) ??
+          false;
+        if (companyExcluded)
+          checks.push({
+            rule: 'company-exclusion',
+            result: 'FAIL',
+            excerpt: job.company,
+            factIds: [],
+          });
+        add(
+          'company',
+          p.preferredCompanies?.length
+            ? Number(
+                p.preferredCompanies.some(
+                  (name) => name.toLowerCase() === job.company.toLowerCase(),
+                ),
+              )
+            : null,
+          p.preferredCompanies?.length ? 1 : 0,
+          'Only explicit company preferences apply; employer prestige is never inferred.',
+        );
+        if (config.gates.requiredSkills && coverage < config.thresholds.coverage)
+          checks.push({
+            rule: 'required-skills',
+            result: 'UNKNOWN',
+            excerpt:
+              'Configured essential-skill coverage lacks verified evidence; missing evidence is not a fabricated absence.',
+            factIds: [],
+          });
+        if (
+          config.gates.experience &&
+          experienceValues.some((v) => v.r.importance === 'required' && v.value < 1)
+        )
+          checks.push({
+            rule: 'experience',
+            // A profile is a partial history. Its evidenced duration is a lower bound,
+            // not an explicit assertion that additional relevant employment does not exist.
+            result: 'UNKNOWN',
+            excerpt:
+              'Relevant verified employment does not establish the configured experience gate.',
+            factIds: work.flatMap((w) => w.evidenceIds),
+          });
+        const selectedNames =
+          config.method === 'technical-v2'
+            ? [
+                'skills',
+                'experience',
+                'projects',
+                'seniority',
+                'role',
+                'depth',
+                'education',
+                'lexical',
+              ]
+            : [
+                'skills',
+                'role',
+                'experience',
+                'location',
+                'salary',
+                'education',
+                'lexical',
+                'company',
+              ];
+        // Normalize only applicable components. An unpublished requirement is inactive, not a fabricated failure.
+        const activeTotal = selectedNames.reduce(
+          (sum, name) =>
+            sum +
+            (components.get(name)?.value !== null ? config.weights[name as keyof Weights] : 0),
+          0,
+        );
+        const details = selectedNames.map((name) => {
+          const c = components.get(name)!;
+          const weight = config.weights[name as keyof Weights];
+          const activeWeight = c.value !== null && activeTotal ? weight / activeTotal : 0;
+          return {
+            name,
+            ...c,
+            configuredWeight: weight,
+            activeWeight,
+            contribution: 100 * activeWeight * (c.value ?? 0),
+          };
+        });
+        const score = Math.round(details.reduce((sum, c) => sum + c.contribution, 0) * 100) / 100;
+        const confidence = rounded(
+          details.reduce((sum, c) => sum + c.activeWeight * c.confidence, 0),
+        );
+        const prefs = ['location', 'salary']
+          .map((n) => components.get(n)!)
+          .filter((c) => c.value !== null);
+        const preferenceScore = prefs.length
+          ? Math.round(avg(prefs.map((p) => p.value!)) * 10000) / 100
+          : null;
+        const excluded = checks.some((c) => c.result === 'FAIL');
+        const ranking: RankingDetails = {
+          method: config.method,
+          configId: config.id,
+          configRevision: config.revision,
+          configHash,
+          taxonomyVersion: TAXONOMY_VERSION,
+          parserVersion: parsed.parserVersion,
+          evidenceVersion,
+          asOf,
+          technicalScore: config.method === 'technical-v2' ? score : null,
+          preferenceScore,
+          requiredCoverage: coverage,
+          assessment,
+          shortlist:
+            !excluded &&
+            assessment.complete &&
+            !checks.some((c) => c.result === 'UNKNOWN') &&
+            score >= config.thresholds.score &&
+            confidence >= config.thresholds.confidence &&
+            coverage >= config.thresholds.coverage,
+          components: details,
+          requirements: matches.map((m) => ({
+            id: m.r.id,
+            excerpt: m.r.excerpt,
+            importance: m.r.importance,
+            strength: m.strength,
+            evidenceIds: [...m.ids].sort(),
+            explanation: m.reason,
+            matchedSkillId: m.matchedSkillId,
+          })),
+        };
+        return JobMatchSchema.parse({
+          job,
+          score,
+          bm25Raw,
+          excluded,
+          review:
+            checks.some((c) => c.result === 'UNKNOWN') ||
+            !assessment.complete ||
+            confidence < config.thresholds.confidence ||
+            coverage < config.thresholds.coverage ||
+            job.duplicateGroup !== null,
+          confidence,
+          checks,
+          matchedSkills: [
+            ...new Set(matches.filter((m) => m.strength > 0).map((m) => m.matchedSkillId!)),
+          ].sort(),
+          gaps: [
+            ...new Set([
+              ...matches
+                .filter((m) => m.r.importance === 'required' && m.strength < 0.8)
+                .map((m) => m.r.skillId!),
+              ...opaque.map((r) => r.excerpt),
+            ]),
+          ].sort(),
+          reasons: details.map(
+            (c) =>
+              `${c.name}: ${c.value === null ? 'inactive' : `${c.contribution.toFixed(2)} points`}. ${c.explanation}`,
+          ),
+          features: Object.fromEntries(
+            details.filter((c) => c.value !== null).map((c) => [c.name, c.value!]),
+          ),
+          profileVersion: profile.version,
+          scorerVersion: SCORING_POLICY_VERSION,
+          ranking,
+        });
+      });
+      return results.sort(
+        (a, b) =>
+          Number(a.excluded) - Number(b.excluded) ||
+          b.score - a.score ||
+          b.confidence - a.confidence ||
+          (a.job.id < b.job.id ? -1 : a.job.id > b.job.id ? 1 : 0),
       );
-      checks.push({
-        rule: 'graduation',
-        result: years.some((y) => y >= r.graduationStart! && y <= r.graduationEnd!)
-          ? 'PASS'
-          : years.length
-            ? 'FAIL'
-            : 'UNKNOWN',
-        excerpt: r.excerpt,
-        factIds: education.flatMap((e) => e.evidenceIds),
-      });
-    }
-    add(
-      'education',
-      weighted(educationValues),
-      avg(educationValues.map((v) => v.confidence)),
-      'Completed degree, explicit enrollment alternatives, or unexpired certification evidence; equivalency is unresolved rather than rejected.',
-    );
-    // Bounded lexical support only. No applicant name/contact or protected facts enter it.
-    const lexical = matches.length ? avg(matches.map((m) => Number(m.strength === 1))) : null;
-    add(
-      'lexical',
-      lexical,
-      avg(matches.map((m) => m.confidence)),
-      'Canonical requirement text corroboration; BM25 remains retrieval metadata, not a qualification multiplier.',
-    );
-    const p = profile.preferences;
-    const locationActive = p.locations.length > 0 || p.workModes.length > 0;
-    const jurisdiction = locationOutcome(job, p.locations);
-    const locationKnown =
-      jurisdiction !== 'UNKNOWN' && (!p.workModes.length || job.workMode !== 'unknown');
-    const locationPass =
-      jurisdiction === 'PASS' &&
-      (!p.workModes.length || p.workModes.includes(job.workMode as 'remote' | 'hybrid' | 'onsite'));
-    add(
-      'location',
-      locationActive && locationKnown ? Number(locationPass) : null,
-      locationKnown ? 0.95 : 0,
-      'User-selected location/work mode is a separate preference component.',
-    );
-    if (config.gates.location && locationActive)
-      checks.push({
-        rule: 'location',
-        result: !locationKnown ? 'UNKNOWN' : locationPass ? 'PASS' : 'FAIL',
-        excerpt: `${job.location}; ${job.workMode}`,
-        factIds: [],
-      });
-    const salaryKnown =
-      p.minimumSalary !== null &&
-      job.salary &&
-      job.salary.currency === p.currency &&
-      /annual|year/i.test(job.salary.interval) &&
-      (job.salary.max ?? job.salary.min) !== null;
-    const salaryPass = salaryKnown
-      ? (job.salary!.max ?? job.salary!.min!) >= p.minimumSalary!
-      : false;
-    add(
-      'salary',
-      salaryKnown ? Number(salaryPass) : null,
-      salaryKnown ? 0.95 : 0,
-      'Missing currency/period/amount is inactive; no exchange-rate or annualization assumption is invented.',
-    );
-    if (config.gates.salary && p.minimumSalary !== null)
-      checks.push({
-        rule: 'salary',
-        result: !salaryKnown ? 'UNKNOWN' : salaryPass ? 'PASS' : 'FAIL',
-        excerpt: job.salary ? JSON.stringify(job.salary) : 'Salary not published',
-        factIds: [],
-      });
-    const excludedRole = p.excludedRoles.some((r) =>
-      job.title.toLowerCase().includes(r.toLowerCase()),
-    );
-    if (excludedRole)
-      checks.push({ rule: 'role-exclusion', result: 'FAIL', excerpt: job.title, factIds: [] });
-    const companyExcluded =
-      p.excludedCompanies?.some((name) => name.toLowerCase() === job.company.toLowerCase()) ??
-      false;
-    if (companyExcluded)
-      checks.push({ rule: 'company-exclusion', result: 'FAIL', excerpt: job.company, factIds: [] });
-    add(
-      'company',
-      p.preferredCompanies?.length
-        ? Number(
-            p.preferredCompanies.some((name) => name.toLowerCase() === job.company.toLowerCase()),
-          )
-        : null,
-      p.preferredCompanies?.length ? 1 : 0,
-      'Only explicit company preferences apply; employer prestige is never inferred.',
-    );
-    if (config.gates.requiredSkills && coverage < config.thresholds.coverage)
-      checks.push({
-        rule: 'required-skills',
-        result: 'UNKNOWN',
-        excerpt:
-          'Configured essential-skill coverage lacks verified evidence; missing evidence is not a fabricated absence.',
-        factIds: [],
-      });
-    if (
-      config.gates.experience &&
-      experienceValues.some((v) => v.r.importance === 'required' && v.value < 1)
-    )
-      checks.push({
-        rule: 'experience',
-        // A profile is a partial history. Its evidenced duration is a lower bound,
-        // not an explicit assertion that additional relevant employment does not exist.
-        result: 'UNKNOWN',
-        excerpt: 'Relevant verified employment does not establish the configured experience gate.',
-        factIds: work.flatMap((w) => w.evidenceIds),
-      });
-    const selectedNames =
-      config.method === 'technical-v2'
-        ? ['skills', 'experience', 'projects', 'seniority', 'role', 'depth', 'education', 'lexical']
-        : ['skills', 'role', 'experience', 'location', 'salary', 'education', 'lexical', 'company'];
-    // Normalize only applicable components. An unpublished requirement is inactive, not a fabricated failure.
-    const activeTotal = selectedNames.reduce(
-      (sum, name) =>
-        sum + (components.get(name)?.value !== null ? config.weights[name as keyof Weights] : 0),
-      0,
-    );
-    const details = selectedNames.map((name) => {
-      const c = components.get(name)!;
-      const weight = config.weights[name as keyof Weights];
-      const activeWeight = c.value !== null && activeTotal ? weight / activeTotal : 0;
-      return {
-        name,
-        ...c,
-        configuredWeight: weight,
-        activeWeight,
-        contribution: 100 * activeWeight * (c.value ?? 0),
-      };
-    });
-    const score = Math.round(details.reduce((sum, c) => sum + c.contribution, 0) * 100) / 100;
-    const confidence = rounded(details.reduce((sum, c) => sum + c.activeWeight * c.confidence, 0));
-    const prefs = ['location', 'salary']
-      .map((n) => components.get(n)!)
-      .filter((c) => c.value !== null);
-    const preferenceScore = prefs.length
-      ? Math.round(avg(prefs.map((p) => p.value!)) * 10000) / 100
-      : null;
-    const excluded = checks.some((c) => c.result === 'FAIL');
-    const ranking: RankingDetails = {
-      method: config.method,
-      configId: config.id,
-      configRevision: config.revision,
-      configHash,
-      taxonomyVersion: TAXONOMY_VERSION,
-      parserVersion: parsed.parserVersion,
-      evidenceVersion,
-      asOf,
-      technicalScore: config.method === 'technical-v2' ? score : null,
-      preferenceScore,
-      requiredCoverage: coverage,
-      assessment,
-      shortlist:
-        !excluded &&
-        assessment.complete &&
-        !checks.some((c) => c.result === 'UNKNOWN') &&
-        score >= config.thresholds.score &&
-        confidence >= config.thresholds.confidence &&
-        coverage >= config.thresholds.coverage,
-      components: details,
-      requirements: matches.map((m) => ({
-        id: m.r.id,
-        excerpt: m.r.excerpt,
-        importance: m.r.importance,
-        strength: m.strength,
-        evidenceIds: [...m.ids].sort(),
-        explanation: m.reason,
-        matchedSkillId: m.matchedSkillId,
-      })),
-    };
-    return JobMatchSchema.parse({
-      job,
-      score,
-      bm25Raw,
-      excluded,
-      review:
-        checks.some((c) => c.result === 'UNKNOWN') ||
-        !assessment.complete ||
-        confidence < config.thresholds.confidence ||
-        coverage < config.thresholds.coverage ||
-        job.duplicateGroup !== null,
-      confidence,
-      checks,
-      matchedSkills: [
-        ...new Set(matches.filter((m) => m.strength > 0).map((m) => m.matchedSkillId!)),
-      ].sort(),
-      gaps: [
-        ...new Set([
-          ...matches
-            .filter((m) => m.r.importance === 'required' && m.strength < 0.8)
-            .map((m) => m.r.skillId!),
-          ...opaque.map((r) => r.excerpt),
-        ]),
-      ].sort(),
-      reasons: details.map(
-        (c) =>
-          `${c.name}: ${c.value === null ? 'inactive' : `${c.contribution.toFixed(2)} points`}. ${c.explanation}`,
-      ),
-      features: Object.fromEntries(
-        details.filter((c) => c.value !== null).map((c) => [c.name, c.value!]),
-      ),
-      profileVersion: profile.version,
-      scorerVersion: SCORING_POLICY_VERSION,
-      ranking,
-    });
-  });
-  return results.sort(
-    (a, b) =>
-      Number(a.excluded) - Number(b.excluded) ||
-      b.score - a.score ||
-      b.confidence - a.confidence ||
-      (a.job.id < b.job.id ? -1 : a.job.id > b.job.id ? 1 : 0),
-  );
+    },
+  };
 }
