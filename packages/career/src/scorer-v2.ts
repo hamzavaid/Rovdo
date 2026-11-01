@@ -25,13 +25,14 @@ import {
   unionMonths,
   scoringRequirements,
   credentialStatus,
+  mandatoryGraduationWindow,
 } from './requirements';
 import { matchSkill, roleOf, TAXONOMY_VERSION } from './taxonomy';
 
 import { intelligenceOf, CANDIDATE_POLICY_VERSION } from './candidate';
 import { locationOutcome } from './constraints';
 export { intelligenceOf } from './candidate';
-export const SCORING_POLICY_VERSION = 'deterministic-v2.3';
+export const SCORING_POLICY_VERSION = 'deterministic-v2.4';
 type Weights = RankingProfile['weights'];
 const weights = (partial: Partial<Weights>): Weights =>
   Object.fromEntries(COMPONENTS.map((key) => [key, partial[key] ?? 0])) as Weights;
@@ -592,6 +593,7 @@ export function prepareRanking(
             confidence: result === 'UNKNOWN' ? 0 : supportConfidence * r.confidence,
           };
         });
+        const graduationWindow = mandatoryGraduationWindow(requirements);
         for (const r of requirements.filter(
           (r) => r.kind === 'graduation' && r.importance === 'required',
         )) {
@@ -600,11 +602,13 @@ export function prepareRanking(
           );
           checks.push({
             rule: 'graduation',
-            result: years.some((y) => y >= r.graduationStart! && y <= r.graduationEnd!)
-              ? 'PASS'
-              : years.length
-                ? 'FAIL'
-                : 'UNKNOWN',
+            result: graduationWindow?.ambiguous
+              ? 'UNKNOWN'
+              : years.some((y) => y >= r.graduationStart! && y <= r.graduationEnd!)
+                ? 'PASS'
+                : years.length
+                  ? 'FAIL'
+                  : 'UNKNOWN',
             excerpt: r.excerpt,
             factIds: education.flatMap((e) => e.evidenceIds),
           });

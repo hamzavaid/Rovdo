@@ -85,7 +85,7 @@ export const EmployerSchema = z.strictObject({
   policy: z.enum(['approved', 'review', 'blocked']),
   verifiedAt: z.iso.datetime(),
   refreshAfter: z.iso.datetime(),
-  responseHash: z.string().length(64),
+  responseHash: z.string().regex(/^[a-f0-9]{64}$/),
   pageUrl: z.string().url().max(2048).optional(),
 });
 export type Employer = z.infer<typeof EmployerSchema>;
@@ -152,6 +152,22 @@ export const SourceViewSchema = z.strictObject({
   state: SourceStateSchema,
 });
 export type SourceView = z.infer<typeof SourceViewSchema>;
+export const CompensationSchema = z
+  .strictObject({
+    min: z.number().finite().nonnegative().nullable(),
+    max: z.number().finite().nonnegative().nullable(),
+    currency: z.string().regex(/^[A-Z]{3}$/),
+    interval: z
+      .string()
+      .regex(
+        /^(?:hour(?:ly)?|day|daily|week(?:ly)?|month(?:ly)?|year(?:ly)?|annual(?:ly)?|per[-_ ](?:hour|day|week|month|year)(?:[-_ ]salary)?)$/i,
+      ),
+    source: z.literal('explicit'),
+  })
+  .refine((v) => v.min === null || v.max === null || v.min <= v.max, {
+    message: 'Minimum exceeds maximum',
+  });
+
 export const JobSchema = z.strictObject({
   id: z.string().min(1).max(300),
   source: z.enum([
@@ -187,8 +203,8 @@ export const JobSchema = z.strictObject({
   workMode: z.enum(['remote', 'hybrid', 'onsite', 'unknown']),
   level: z.enum(['internship', 'new-grad', 'junior', 'mid', 'senior', 'unknown']),
   descriptionText: z.string().max(100000),
-  postedAt: z.string().nullable(),
-  updatedAt: z.string().nullable(),
+  postedAt: z.union([z.iso.date(), z.iso.datetime({ offset: true })]).nullable(),
+  updatedAt: z.union([z.iso.date(), z.iso.datetime({ offset: true })]).nullable(),
   firstSeenAt: z.number(),
   lastSeenAt: z.number(),
   activeStatus: z.enum(['open', 'closed', 'unknown']),
@@ -209,17 +225,9 @@ export const JobSchema = z.strictObject({
       requirements: RequirementSetSchema,
     })
     .optional(),
-  salary: z
-    .strictObject({
-      min: z.number().finite().nonnegative().nullable(),
-      max: z.number().finite().nonnegative().nullable(),
-      currency: z.string().max(10),
-      interval: z.string().max(40),
-      source: z.literal('explicit'),
-    })
-    .nullable(),
-  contentSha256: z.string().length(64),
-  rawSha256: z.string().length(64),
+  salary: CompensationSchema.nullable(),
+  contentSha256: z.string().regex(/^[a-f0-9]{64}$/),
+  rawSha256: z.string().regex(/^[a-f0-9]{64}$/),
   parserVersion: z.literal('ats-v1'),
   duplicateGroup: z.string().nullable(),
   provenance: z.array(
@@ -228,7 +236,7 @@ export const JobSchema = z.strictObject({
       sourceKey: z.string(),
       url: z.string().url(),
       collectedAt: z.number(),
-      rawSha256: z.string().length(64),
+      rawSha256: z.string().regex(/^[a-f0-9]{64}$/),
       fields: z.record(z.string(), z.string()),
     }),
   ),
@@ -259,6 +267,7 @@ export const JobMatchSchema = z.strictObject({
     'deterministic-v2.1',
     'deterministic-v2.2',
     'deterministic-v2.3',
+    'deterministic-v2.4',
   ]),
   features: z.record(z.string(), z.number()),
   ranking: RankingDetailsSchema.optional(),
@@ -301,7 +310,7 @@ export const JobSearchSchema = z.strictObject({
 export type JobSearch = z.infer<typeof JobSearchSchema>;
 export const AiReviewSchema = z.strictObject({
   jobId: z.string(),
-  contentHash: z.string().length(64),
+  contentHash: z.string().regex(/^[a-f0-9]{64}$/),
   profileVersion: z.number().int(),
   model: z.string(),
   text: z.string().max(16000),
@@ -317,6 +326,7 @@ export const SavedSearchSchema = z.strictObject({
 export const JobMarkerSchema = z.strictObject({
   jobId: z.string().max(300),
   feedback: z.enum(['none', 'relevant', 'irrelevant']),
+  feedbackConflicts: z.array(z.enum(['relevant', 'irrelevant'])).optional(),
   applied: z.boolean(),
   seenAt: z.number().nonnegative(),
 });

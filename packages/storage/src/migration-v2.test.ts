@@ -54,7 +54,7 @@ it('migrates a real v1 schema without rewriting profiles, jobs, rankings or save
       expect(check.prepare('SELECT json FROM candidate_profile').get()!.json).toBe(
         JSON.stringify(profile),
       );
-      expect(check.prepare('SELECT MAX(version) AS v FROM career_schema').get()!.v).toBe(5);
+      expect(check.prepare('SELECT MAX(version) AS v FROM career_schema').get()!.v).toBe(6);
     } finally {
       check.close();
     }

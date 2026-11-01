@@ -5,7 +5,7 @@
 import type { Requirement, RequirementSet } from '@rovdo/shared';
 import { PartialDateSchema } from '@rovdo/shared';
 import { SKILLS, TAXONOMY_VERSION, roleOf } from './taxonomy';
-export const REQUIREMENTS_PARSER_VERSION = 'requirements-v5';
+export const REQUIREMENTS_PARSER_VERSION = 'requirements-v6';
 const escape = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 const aliases = SKILLS.flatMap((skill) =>
   skill.aliases.map((alias) => ({
@@ -196,6 +196,7 @@ export function extractRequirements(text: string, title: string): RequirementSet
       add('graduation', {
         graduationStart: Number(graduation[1]),
         graduationEnd: Number(graduation[2] ?? graduation[1]),
+        graduationAmbiguous: /graduat[^\n]*20\d{2}[^\n]*\bor\b[^\n]*20\d{2}/i.test(line),
       });
     if (
       /citizen|work authori[sz]|authorized to work|clearance|return to school|visa|sponsor|ITAR|export.control|permanent residen|U\.?S\.? person/i.test(
@@ -245,6 +246,22 @@ export function extractRequirements(text: string, title: string): RequirementSet
   };
 }
 const degrees = ['high-school', 'associate', 'bachelor', 'master', 'doctorate'];
+/** AND mandatory windows intersect; conflicting/disjunctive prose is reviewable, never a SQL exclusion. */
+export function mandatoryGraduationWindow(items: readonly Requirement[]) {
+  const values = items.filter((r) => r.kind === 'graduation' && r.importance === 'required');
+  if (!values.length) return null;
+  const start = Math.max(...values.map((r) => r.graduationStart ?? -Infinity));
+  const end = Math.min(...values.map((r) => r.graduationEnd ?? Infinity));
+  return {
+    start,
+    end,
+    ambiguous:
+      values.some((r) => r.graduationAmbiguous) ||
+      !Number.isFinite(start) ||
+      !Number.isFinite(end) ||
+      start > end,
+  };
+}
 /** Return UNKNOWN for missing completion/field/equivalence evidence rather than guessing eligibility. */
 export function degreeGate(
   candidate: { level: string; status: string; graduation: string | null; field?: string } | null,
@@ -311,6 +328,7 @@ export function scoringRequirements(items: readonly Requirement[]): Requirement[
       r.relatedFieldsAllowed,
       r.graduationStart,
       r.graduationEnd,
+      r.graduationAmbiguous ?? false,
       r.credential ?? (r.kind === 'certification' ? r.excerpt.trim().toLowerCase() : null),
       r.kind === 'certification' ? [...r.alternatives].sort() : null,
       ['unknown', 'legal'].includes(r.kind) ? r.excerpt.trim().toLowerCase() : null,

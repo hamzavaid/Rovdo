@@ -172,6 +172,7 @@ export const RequirementSchema = z.strictObject({
   alternatives: z.array(id).max(20),
   graduationStart: z.number().int().nullable(),
   graduationEnd: z.number().int().nullable(),
+  graduationAmbiguous: z.boolean().optional(),
 });
 export const RequirementSetSchema = z.strictObject({
   parserVersion: z.enum([
@@ -179,6 +180,7 @@ export const RequirementSetSchema = z.strictObject({
     'requirements-v3',
     'requirements-v4',
     'requirements-v5',
+    'requirements-v6',
   ]),
   taxonomyVersion: z.enum(['rovdo-taxonomy-1', 'rovdo-taxonomy-2', 'rovdo-taxonomy-3']),
   items: z.array(RequirementSchema).max(1000),

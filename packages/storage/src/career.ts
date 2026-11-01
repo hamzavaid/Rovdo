@@ -34,6 +34,7 @@ import {
   REQUIREMENTS_PARSER_VERSION,
   BUILTIN_RANKINGS,
   extractRequirements,
+  mandatoryGraduationWindow,
   stable,
   intelligenceOf,
   rankWithProfile,
@@ -92,7 +93,7 @@ export class CareerStore {
     const version = Number(
       this.db.prepare('SELECT COALESCE(MAX(version),0) AS n FROM career_schema').get()!.n,
     );
-    if (version > 5) throw new Error('DATABASE_TOO_NEW');
+    if (version > 6) throw new Error('DATABASE_TOO_NEW');
     if (!version)
       this.transaction(() => {
         this.db.exec(`
@@ -146,6 +147,13 @@ export class CareerStore {
         this.db.exec(
           'CREATE TABLE source_origin_block(origin TEXT PRIMARY KEY,until_at INTEGER NOT NULL); INSERT INTO career_schema VALUES(5);',
         );
+      });
+    if (version < 6)
+      this.transaction(() => {
+        this.db
+          .exec(`CREATE TABLE job_identity_alias(alias TEXT PRIMARY KEY,job_id TEXT NOT NULL REFERENCES career_job(id));
+      CREATE TABLE job_identity_history(id TEXT PRIMARY KEY,job_id TEXT NOT NULL REFERENCES career_job(id),json TEXT NOT NULL);
+      DELETE FROM rank_cache; INSERT INTO career_schema VALUES(6);`);
       });
     this.global = new DiscoveryStore(this.db);
     // An interrupted page keeps its cursor and completed rows; no disappearance
@@ -409,6 +417,116 @@ export class CareerStore {
         .run(origin, until);
     });
   }
+  private readJob(json: string): Job {
+    const raw = JSON.parse(json);
+    if (!JobSchema.shape.salary.safeParse(raw.salary).success) raw.salary = null;
+    return JobSchema.parse(raw);
+  }
+  private resolveJobId(id: string): string {
+    return String(
+      this.db.prepare('SELECT job_id FROM job_identity_alias WHERE alias=?').get(id)?.job_id ?? id,
+    );
+  }
+  /** Called only inside the ingestion transaction. Historical snapshots are retained, current caches invalidated. */
+  private mergeIdentity(ids: string[]): Job {
+    const ordered = [...new Set(ids)].sort();
+    const survivor = ordered[0]!;
+    for (const loser of ordered.slice(1)) {
+      const a = this.job(survivor),
+        b = this.job(loser);
+      const markers = this.markers().filter((m) => m.jobId === survivor || m.jobId === loser);
+      const archive = JSON.stringify({ jobs: [a, b], markers });
+      this.db
+        .prepare('INSERT OR IGNORE INTO job_identity_history VALUES(?,?,?)')
+        .run(createHash('sha256').update(archive).digest('hex'), survivor, archive);
+      for (const row of this.db
+        .prepare('SELECT json FROM job_match WHERE job_id=?')
+        .iterate(loser)) {
+        const json = String(row.json);
+        this.db
+          .prepare('INSERT OR IGNORE INTO job_identity_history VALUES(?,?,?)')
+          .run(createHash('sha256').update(json).digest('hex'), survivor, json);
+      }
+      const feedback = [
+        ...new Set(
+          markers
+            .flatMap((m) => [m.feedback, ...(m.feedbackConflicts ?? [])])
+            .filter((v) => v !== 'none'),
+        ),
+      ].sort();
+      this.db.prepare('DELETE FROM job_marker WHERE job_id IN (?,?)').run(survivor, loser);
+      if (markers.length)
+        this.db.prepare('INSERT INTO job_marker VALUES(?,?)').run(
+          survivor,
+          JSON.stringify({
+            jobId: survivor,
+            applied: markers.some((m) => m.applied),
+            seenAt: Math.max(...markers.map((m) => m.seenAt)),
+            feedback: feedback.length === 1 ? feedback[0] : 'none',
+            ...(feedback.length > 1 ? { feedbackConflicts: feedback } : {}),
+          }),
+        );
+      const saved = this.db
+        .prepare('SELECT MIN(saved_at) AS t FROM saved_opportunity WHERE job_id IN (?,?)')
+        .get(survivor, loser);
+      this.db.prepare('DELETE FROM saved_opportunity WHERE job_id IN (?,?)').run(survivor, loser);
+      if (saved?.t !== null && saved?.t !== undefined)
+        this.db.prepare('INSERT INTO saved_opportunity VALUES(?,?)').run(survivor, saved.t);
+      for (const table of [
+        'job_source_snapshot',
+        'source_record',
+        'ranking_snapshot',
+        'job_identity_history',
+        'job_identity_alias',
+      ])
+        this.db.prepare(`UPDATE ${table} SET job_id=? WHERE job_id=?`).run(survivor, loser);
+      this.db
+        .prepare(
+          'INSERT OR IGNORE INTO job_match SELECT ?,profile_version,scorer_version,json FROM job_match WHERE job_id=?',
+        )
+        .run(survivor, loser);
+      this.db
+        .prepare(
+          'INSERT OR IGNORE INTO job_requirements_v2 SELECT ?,content_hash,parser_version,json FROM job_requirements_v2 WHERE job_id=?',
+        )
+        .run(survivor, loser);
+      this.db
+        .prepare(
+          'INSERT OR IGNORE INTO discovery_job SELECT run_id,?,source_id FROM discovery_job WHERE job_id=?',
+        )
+        .run(survivor, loser);
+      for (const table of [
+        'job_match',
+        'job_requirements_v2',
+        'discovery_job',
+        'job_search_metadata',
+      ])
+        this.db.prepare(`DELETE FROM ${table} WHERE job_id=?`).run(loser);
+      this.db.prepare('DELETE FROM rank_cache WHERE job_id IN (?,?)').run(survivor, loser);
+      this.db
+        .prepare(
+          "UPDATE job_ai_review SET json=json_set(json,'$.jobId',?) WHERE json_extract(json,'$.jobId')=?",
+        )
+        .run(survivor, loser);
+      const rowid = Number(
+        this.db.prepare('SELECT rowid FROM career_job WHERE id=?').get(loser)!.rowid,
+      );
+      this.db.prepare('DELETE FROM job_fts WHERE rowid=?').run(rowid);
+      this.db.prepare('DELETE FROM career_job WHERE id=?').run(loser);
+      this.db.prepare('INSERT OR REPLACE INTO job_identity_alias VALUES(?,?)').run(loser, survivor);
+      const provenance = new Map(
+        [...a.provenance, ...b.provenance].map((p) => [p.sourceId + ':' + p.sourceKey, p]),
+      );
+      this.writeJob({
+        ...a,
+        firstSeenAt: Math.min(a.firstSeenAt, b.firstSeenAt),
+        lastSeenAt: Math.max(a.lastSeenAt, b.lastSeenAt),
+        provenance: [...provenance.values()],
+      });
+    }
+    this.preparedSearch = null;
+    return this.job(survivor);
+  }
   private writeJob(job: Job): void {
     this.searchRevision++;
     JobSchema.parse(job);
@@ -427,7 +545,7 @@ export class CareerStore {
       );
     this.indexMetadata(job);
     if (previous) {
-      const old = JobSchema.parse(JSON.parse(String(previous.json)));
+      const old = this.readJob(String(previous.json));
       if (old.title === job.title && old.descriptionText === job.descriptionText) return;
     }
     const rowid = Number(
@@ -460,14 +578,26 @@ export class CareerStore {
           .prepare('SELECT job_id FROM job_source_snapshot WHERE source_id=? AND source_key=?')
           .get(source.id, key);
         const companyKey = this.companyIdentity(raw.company);
-        const row = membership
-          ? this.db.prepare('SELECT json FROM career_job WHERE id=?').get(String(membership.job_id))
-          : this.db
-              .prepare(
-                'SELECT j.json FROM career_job j LEFT JOIN job_search_metadata m ON m.job_id=j.id WHERE j.canonical=? OR (m.company_id=? AND j.requisition IS NOT NULL AND j.requisition=?) LIMIT 1',
-              )
-              .get(raw.canonicalUrl, companyKey, raw.requisitionId);
-        const old = row ? JobSchema.parse(JSON.parse(String(row.json))) : null;
+        const identities = this.db
+          .prepare(
+            'SELECT j.id,j.json FROM career_job j LEFT JOIN job_search_metadata m ON m.job_id=j.id WHERE j.canonical=? OR (m.company_id=? AND j.requisition IS NOT NULL AND j.requisition=?) ORDER BY j.id',
+          )
+          .all(
+            raw.canonicalUrl,
+            companyKey,
+            raw.discovery && raw.discovery.availability !== 'verified' ? null : raw.requisitionId,
+          );
+        if (membership) {
+          const id = this.resolveJobId(String(membership.job_id));
+          if (!identities.some((r) => r.id === id))
+            identities.push({ id, json: JSON.stringify(this.job(id)) });
+        }
+        const old =
+          identities.length > 1
+            ? this.mergeIdentity(identities.map((r) => String(r.id)))
+            : identities.length
+              ? this.readJob(String(identities[0]!.json))
+              : null;
         const provenance = { ...raw.provenance[0]!, collectedAt: now };
         let job: Job = {
           ...raw,
@@ -510,7 +640,7 @@ export class CareerStore {
           .prepare('SELECT json FROM career_job WHERE signature=? AND id<>?')
           .all(signature(job), job.id);
         for (const r of possible) {
-          const other = JobSchema.parse(JSON.parse(String(r.json)));
+          const other = this.readJob(String(r.json));
           this.writeJob({ ...other, duplicateGroup: signature(job) });
           job.duplicateGroup = signature(job);
         }
@@ -647,12 +777,13 @@ export class CareerStore {
     return this.db
       .prepare('SELECT json FROM career_job ORDER BY id')
       .all()
-      .map((r) => JobSchema.parse(JSON.parse(String(r.json))));
+      .map((r) => this.readJob(String(r.json)));
   }
   job(id: string): Job {
+    id = this.resolveJobId(id);
     const row = this.db.prepare('SELECT json FROM career_job WHERE id=?').get(id);
     if (!row) throw new Error('JOB_NOT_FOUND');
-    return JobSchema.parse(JSON.parse(String(row.json)));
+    return this.readJob(String(row.json));
   }
   search(query: string): { job: Job; bm25Raw: number }[] {
     const words = query.match(/[\p{L}\p{N}_+#.-]+/gu)?.slice(0, 30) ?? [];
@@ -663,7 +794,7 @@ export class CareerStore {
         'SELECT j.json,bm25(job_fts,4,2,1) AS rank FROM job_fts JOIN career_job j ON j.rowid=job_fts.rowid WHERE job_fts MATCH ? ORDER BY rank,j.id',
       )
       .all(expression)
-      .map((r) => ({ job: JobSchema.parse(JSON.parse(String(r.json))), bm25Raw: Number(r.rank) }));
+      .map((r) => ({ job: this.readJob(String(r.json)), bm25Raw: Number(r.rank) }));
   }
   saveMatches(matches: JobMatch[]): void {
     this.transaction(() => {
@@ -678,6 +809,7 @@ export class CareerStore {
     });
   }
   saveJob(id: string, saved: boolean): void {
+    id = this.resolveJobId(id);
     this.searchRevision++;
     this.job(id);
     if (saved)
@@ -826,17 +958,18 @@ export class CareerStore {
         .run(sourceId, r.hash, r.code, now);
   }
   sourceRecords(jobId: string): Job[] {
+    jobId = this.resolveJobId(jobId);
     return this.db
       .prepare('SELECT json FROM source_record WHERE job_id=? ORDER BY source_id,source_key')
       .all(jobId)
-      .map((r) => JobSchema.parse(JSON.parse(String(r.json))));
+      .map((r) => this.readJob(String(r.json)));
   }
   private metadataWork: Promise<void> | null = null;
   /** Rebuild derived filters after parser/taxonomy changes, never rewriting source jobs or user data.
    * Durable keyset checkpoints and short transactions keep upgrades resumable and the UI responsive. */
   refreshSearchMetadata(): Promise<void> {
     if (this.metadataWork) return this.metadataWork;
-    const policy = `${TAXONOMY_VERSION}/${REQUIREMENTS_PARSER_VERSION}`;
+    const policy = `${TAXONOMY_VERSION}/${REQUIREMENTS_PARSER_VERSION}/graduation-v2`;
     if (this.setting('search-metadata-policy') === policy) return Promise.resolve();
     const work = (async () => {
       const key = `search-metadata-cursor:${policy}`;
@@ -847,7 +980,7 @@ export class CareerStore {
           .all(cursor);
         if (!rows.length) break;
         this.transaction(() => {
-          for (const row of rows) this.indexMetadata(JobSchema.parse(JSON.parse(String(row.json))));
+          for (const row of rows) this.indexMetadata(this.readJob(String(row.json)));
           cursor = String(rows[rows.length - 1]!.id);
           this.setting(key, cursor);
         });
@@ -869,7 +1002,10 @@ export class CareerStore {
       job.details?.requirements.parserVersion === REQUIREMENTS_PARSER_VERSION
         ? job.details.requirements
         : extractRequirements(job.descriptionText, job.title);
-    const graduation = requirements.items.filter((r) => r.kind === 'graduation');
+    const window = mandatoryGraduationWindow(requirements.items);
+    const min = window?.start ?? null,
+      max = window?.end ?? null;
+    const valid = window !== null && !window.ambiguous;
     this.db
       .prepare('INSERT OR REPLACE INTO job_search_metadata VALUES(?,?,?,?,?,?,?,?,?,?,?,?)')
       .run(
@@ -887,8 +1023,8 @@ export class CareerStore {
           : null,
         job.salary?.currency ?? null,
         job.postedAt && Number.isFinite(Date.parse(job.postedAt)) ? Date.parse(job.postedAt) : null,
-        graduation[0]?.graduationStart ?? null,
-        graduation[0]?.graduationEnd ?? null,
+        valid ? min : null,
+        valid ? max : null,
       );
   }
   private filteredQuery(input: JobSearch) {
@@ -960,7 +1096,7 @@ export class CareerStore {
   *iterateFiltered(input: JobSearch): Generator<{ job: Job; bm25Raw: number }> {
     const q = this.filteredQuery(input);
     for (const row of this.db.prepare(q.sql).iterate(...q.params))
-      yield { job: JobSchema.parse(JSON.parse(String(row.json))), bm25Raw: Number(row.rank) };
+      yield { job: this.readJob(String(row.json)), bm25Raw: Number(row.rank) };
   }
   /** Serialize the candidate/config once per search instead of once for every indexed job. */
   private rankingBinding(profile: CandidateProfile, config: RankingProfile, asOf: string): string {
@@ -1130,7 +1266,7 @@ export class CareerStore {
             for (const row of pending) {
               if (signal?.aborted) throw new Error('CANCELED');
               this.cachedRanking(
-                { job: JobSchema.parse(JSON.parse(String(row.json))), bm25Raw: Number(row.bm25) },
+                { job: this.readJob(String(row.json)), bm25Raw: Number(row.bm25) },
                 profile,
                 config,
                 asOf,
@@ -1267,6 +1403,7 @@ export class CareerStore {
       .map((r) => JobMarkerSchema.parse(JSON.parse(String(r.json))));
   }
   markJob(jobId: string, change: Partial<Omit<JobMarker, 'jobId'>>): void {
+    jobId = this.resolveJobId(jobId);
     this.searchRevision++;
     this.job(jobId);
     const old = this.markers().find((m) => m.jobId === jobId) ?? {
@@ -1275,7 +1412,11 @@ export class CareerStore {
       applied: false,
       seenAt: 0,
     };
-    const next = JobMarkerSchema.parse({ ...old, ...change });
+    const next = JobMarkerSchema.parse({
+      ...old,
+      ...change,
+      ...(change.feedback !== undefined ? { feedbackConflicts: [] } : {}),
+    });
     this.db
       .prepare(
         'INSERT INTO job_marker VALUES(?,?) ON CONFLICT(job_id) DO UPDATE SET json=excluded.json',

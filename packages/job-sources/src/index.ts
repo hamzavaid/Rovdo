@@ -342,6 +342,20 @@ export class AtsAdapter implements JobSourceAdapter {
   private normalizeRecord(raw: unknown, index: number, quarantine: Quarantine[]): Job[] {
     try {
       const s = this.source;
+      let input = raw;
+      if (raw && typeof raw === 'object') {
+        const obj = raw as Record<string, unknown>;
+        const field = s.ats === 'lever' ? 'salaryRange' : s.ats === 'ashby' ? 'compensation' : null;
+        const schema = s.ats === 'lever' ? lever.shape.salaryRange : ashby.shape.compensation;
+        if (field && field in obj && !schema.safeParse(obj[field]).success) {
+          quarantine.push({
+            hash: sha256(JSON.stringify(raw)),
+            code: 'INVALID_COMPENSATION',
+            index,
+          });
+          input = { ...obj, [field]: undefined };
+        }
+      }
       let title: string;
       let url: string;
       let sourceId: string;
@@ -376,7 +390,7 @@ export class AtsAdapter implements JobSourceAdapter {
           : null;
         commitment = typeof employment === 'string' ? employment : '';
       } else if (s.ats === 'lever') {
-        const r = lever.parse(raw);
+        const r = lever.parse(input);
         title = r.text;
         url = r.hostedUrl;
         sourceId = String(r.id);
@@ -506,7 +520,7 @@ export class AtsAdapter implements JobSourceAdapter {
             source: 'explicit',
           };
       } else {
-        const r = ashby.parse(raw);
+        const r = ashby.parse(input);
         if (r.isListed === false) return [];
         title = r.title;
         url = r.jobUrl;
@@ -551,6 +565,10 @@ export class AtsAdapter implements JobSourceAdapter {
             interval: salaryPart.interval,
             source: 'explicit',
           };
+      }
+      if (!JobSchema.shape.salary.safeParse(salary).success) {
+        quarantine.push({ hash: sha256(JSON.stringify(raw)), code: 'INVALID_COMPENSATION', index });
+        salary = null;
       }
       const canonical = canonicalUrl(url);
       const now = Date.now();
