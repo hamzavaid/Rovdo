@@ -3,9 +3,11 @@
  * Request IDs isolate late events; only completed exchanges appear in the next request preview.
  */
 import { useEffect, useRef, useState } from 'react';
-import type { SettingsView } from '@rovdo/shared';
+import { composeChatText } from '@rovdo/shared';
+import type { ChatAttachment, SettingsView } from '@rovdo/shared';
 import { useActionState } from './action-state';
-import { OperationStatus } from './OperationStatus';
+import { ProfileDialog } from './ProfileDialog';
+import { CliAccessDialog } from './CliAccessDialog';
 import { formatUsd } from './presentation';
 import { errorMessage } from './messages';
 
@@ -13,11 +15,27 @@ export function Chat({
   settings,
   refresh,
   onConfigure,
+  visible = true,
 }: {
+  visible?: boolean;
   settings: SettingsView;
   refresh(): Promise<void>;
   onConfigure: () => void;
 }) {
+  const [attachments, setAttachments] = useState<ChatAttachment[]>([]);
+  const attachmentRef = useRef(attachments);
+  attachmentRef.current = attachments;
+  const visibleRef = useRef(visible);
+  visibleRef.current = visible;
+  const [picking, setPicking] = useState(false),
+    [attachmentMenu, setAttachmentMenu] = useState(false);
+  const [manageAccess, setManageAccess] = useState(false);
+  const [voiceSupported, setVoiceSupported] = useState(false),
+    [voiceState, setVoiceState] = useState('stopped');
+  const [voiceDialog, setVoiceDialog] = useState(false),
+    [voiceConsent, setVoiceConsent] = useState(false);
+  const voice = useRef<string | null>(null);
+  const stickToBottom = useRef(true);
   const [profileId, setProfileId] = useState('');
   const [text, setText] = useState('');
   const [consent, setConsent] = useState(false);
@@ -26,7 +44,14 @@ export function Chat({
   const { pending: resetting, label: resetLabel, run } = useActionState();
   const [busy, setBusy] = useState(false);
   const [entries, setEntries] = useState<
-    { role: 'You' | 'Rovdo'; text: string; requestId: string; included: boolean }[]
+    {
+      role: 'You' | 'Rovdo';
+      text: string;
+      content?: string;
+      attachments?: ChatAttachment[];
+      requestId: string;
+      included: boolean;
+    }[]
   >([]);
   const [tools, setTools] = useState<string[]>([]);
   const [status, setStatus] = useState('Ready');
@@ -34,8 +59,7 @@ export function Chat({
   const transcript = useRef<HTMLElement | null>(null);
   useEffect(() => {
     const node = transcript.current;
-    if (node && node.scrollHeight - node.scrollTop - node.clientHeight < 180)
-      node.scrollTop = node.scrollHeight;
+    if (node && stickToBottom.current) node.scrollTop = node.scrollHeight;
   }, [entries]);
   const active = useRef<string | null>(null);
   const profile = settings.profiles.find((item) => item.config.id === profileId);
@@ -66,6 +90,9 @@ export function Chat({
       setProfileId(settings.profiles[0]?.config.id ?? connectedClis[0]?.profileId ?? '');
   }, [settings, profileId]);
   useEffect(() => {
+    if (attachmentRef.current.length)
+      void window.rovdo?.releaseChatFiles({ ids: attachmentRef.current.map((a) => a.id) });
+    setAttachments([]);
     setEntries([]);
     setTools([]);
     setConsent(false);
@@ -75,6 +102,22 @@ export function Chat({
   useEffect(() => {
     if (!window.rovdo) return;
     return window.rovdo.onChatEvent((event) => {
+      if (event.type === 'dictation') {
+        if (event.requestId !== voice.current) return;
+        if (event.state === 'text' && event.text) {
+          const value = event.text;
+          setText((previous) => (previous + (previous.trim() ? ' ' : '') + value).slice(0, 32000));
+          setConsent(false);
+        } else
+          setVoiceState((previous) =>
+            event.state === 'stopped' &&
+            ['unavailable', 'permission-denied', 'failed'].includes(previous)
+              ? previous
+              : event.state,
+          );
+        if (event.state === 'stopped') voice.current = null;
+        return;
+      }
       // Late events from an earlier/canceled request must not mutate the current transcript.
       if (event.requestId !== active.current) return;
       if (event.type === 'text')
@@ -117,8 +160,78 @@ export function Chat({
       profile.config.capabilities?.tools === 'supported' &&
       profile.config.capabilities.streaming === 'supported' &&
       !!profile.config.pricing;
+  const approved = cli ? !!cli.authorization?.chat : consent;
+  const speaking = voiceState === 'listening' || voiceState === 'starting';
+  function stopVoice() {
+    const id = voice.current;
+    voice.current = null;
+    setVoiceState('stopped');
+    if (id) void window.rovdo?.dictation({ op: 'stop', requestId: id }).catch(() => {});
+  }
+  async function startVoice() {
+    if (voice.current || busy || resetting) return;
+    setVoiceDialog(false);
+    const requestId = crypto.randomUUID();
+    voice.current = requestId;
+    setVoiceState('starting');
+    try {
+      const result = await window.rovdo!.dictation({ op: 'start', requestId, consent: true });
+      if (!result.ok || !result.supported) {
+        voice.current = null;
+        setVoiceState('unavailable');
+      }
+    } catch {
+      voice.current = null;
+      setVoiceState('failed');
+    }
+  }
+  useEffect(() => {
+    if (!visible) {
+      stopVoice();
+      return;
+    }
+    void window.rovdo
+      ?.refreshClis({ force: false })
+      .then(() => refresh())
+      .catch(() => {});
+    void window.rovdo
+      ?.dictation({ op: 'status' })
+      .then((result) => setVoiceSupported(!!result.ok && result.supported))
+      .catch(() => setVoiceSupported(false));
+    return () => stopVoice();
+  }, [visible]);
+  async function pick(kind: 'files' | 'folders') {
+    if (picking || busy) return;
+    setPicking(true);
+    stopVoice();
+    document.getElementById('chat-attachment-menu')?.hidePopover();
+    setAttachmentMenu(false);
+    try {
+      const result = await window.rovdo!.pickChatFiles({ kind });
+      if (!result.ok) {
+        setStatus(errorMessage[result.code]);
+        return;
+      }
+      if (!visibleRef.current) {
+        void window.rovdo!.releaseChatFiles({ ids: result.attachments.map((a) => a.id) });
+        return;
+      }
+      setAttachments((previous) => [...previous, ...result.attachments]);
+      setConsent(false);
+    } catch {
+      setStatus(errorMessage.ATTACHMENT_UNAVAILABLE);
+    } finally {
+      setPicking(false);
+    }
+  }
+  function removeAttachment(id: string) {
+    setAttachments((previous) => previous.filter((a) => a.id !== id));
+    setConsent(false);
+    void window.rovdo?.releaseChatFiles({ ids: [id] });
+  }
   async function clear() {
-    if (active.current) return false;
+    if (active.current || picking) return false;
+    stopVoice();
     let cleared = false;
     await run('Starting a new conversation...', async () => {
       try {
@@ -127,6 +240,7 @@ export function Chat({
           setStatus(errorMessage[result.code]);
           return;
         }
+        setAttachments([]);
         setEntries([]);
         setTools([]);
         setUsage({ input: 0, output: 0, usd: 0, reports: 0, unknown: false });
@@ -141,35 +255,49 @@ export function Chat({
     return cleared;
   }
   async function send() {
-    if (!ready || !consent || busy || resetting || active.current || !text.trim()) return;
+    if (!ready || !approved || busy || resetting || picking || active.current || !text.trim())
+      return;
+    stopVoice();
+    stickToBottom.current = true;
     const id = crypto.randomUUID();
     active.current = id;
     setBusy(true);
-    setStatus('Generating response…');
+    setStatus('Generating response...');
     setEntries((previous) => [
       ...previous,
-      { role: 'You', text: text.trim(), requestId: id, included: false },
+      {
+        role: 'You',
+        text: text.trim(),
+        content: composeChatText(text.trim(), attachments),
+        attachments,
+        requestId: id,
+        included: false,
+      },
       { role: 'Rovdo', text: '', requestId: id, included: false },
     ]);
     const outgoing = text.trim();
+    const selected = attachments;
+    setAttachments([]);
     setText('');
     try {
       const result = await window.rovdo!.startChat({
         requestId: id,
         profileId,
         text: outgoing,
+        attachmentIds: selected.map((a) => a.id),
         conversationRevision: (cli ?? profile)?.conversationRevision ?? 0,
         context: entries
           .filter((entry) => entry.included && entry.text)
           .map((entry) => ({
             role: entry.role === 'You' ? ('user' as const) : ('assistant' as const),
-            content: entry.text,
+            content: entry.content ?? entry.text,
           })),
         consent: true,
         maxUsd: Number(budget),
         ...(cli ? { cliManagedCost: true as const } : {}),
       });
       if (!result.ok) {
+        void window.rovdo!.releaseChatFiles({ ids: selected.map((a) => a.id) });
         active.current = null;
         setBusy(false);
         setStatus(errorMessage[result.code]);
@@ -182,81 +310,84 @@ export function Chat({
   }
   return (
     <div className="feature-page chat-page">
-      <div className="page-heading">
-        <div>
-          <div className="eyebrow">A CONVERSATION, ON YOUR TERMS</div>
-          <h1>Chat</h1>
-        </div>
-        <div className="button-row">
-          {busy && (
-            <button
-              type="button"
-              onClick={() => {
-                if (active.current)
-                  void window
-                    .rovdo!.cancelChat({ requestId: active.current })
-                    .catch(() => setStatus(errorMessage.INTERNAL_ERROR));
-              }}
-            >
-              Stop response
-            </button>
+      <header className="chat-heading">
+        <h1>Chat</h1>
+        <button
+          type="button"
+          className="text-action"
+          disabled={busy || resetting || picking}
+          onClick={() => void clear()}
+        >
+          + New chat
+        </button>
+      </header>
+      <div className="chat-model-row">
+        <label htmlFor="chat-model">Model</label>
+        <select
+          id="chat-model"
+          aria-label="Model profile"
+          disabled={busy || resetting || picking}
+          value={profileId}
+          onChange={(event) => {
+            const id = event.target.value;
+            void clear().then((cleared) => {
+              if (cleared) setProfileId(id);
+            });
+          }}
+        >
+          <option value="">Select a model</option>
+          {settings.profiles.map(({ config }) => (
+            <option key={config.id} value={config.id}>
+              {config.label} · {config.model}
+            </option>
+          ))}
+          {connectedClis.length > 0 && (
+            <optgroup label="Connected CLIs">
+              {connectedClis.map((item) => (
+                <option key={item.profileId} value={item.profileId}>
+                  CLI · {item.name} · {item.model || 'Default'}
+                </option>
+              ))}
+            </optgroup>
           )}
+        </select>
+        {cli && (
           <button
             className="text-action"
-            type="button"
-            disabled={busy || resetting}
             onClick={() => {
-              void clear();
+              stopVoice();
+              setManageAccess(true);
             }}
           >
-            New conversation
+            Manage access
           </button>
-        </div>
-      </div>
-      <div className="chat-controls">
-        <label>
-          Model profile
-          <select
-            aria-label="Model profile"
-            disabled={busy || resetting}
-            value={profileId}
-            onChange={(event) => {
-              const id = event.target.value;
-              setConsent(false);
-              void clear().then((cleared) => {
-                if (cleared) setProfileId(id);
-              });
-            }}
+        )}
+        {!cli && (
+          <button
+            className="text-action chat-budget-toggle"
+            aria-expanded={budgetOpen}
+            aria-controls="chat-budget"
+            onClick={() => setBudgetOpen(!budgetOpen)}
           >
-            <option value="">Select a profile</option>
-            {settings.profiles.map(({ config }) => (
-              <option key={config.id} value={config.id}>
-                {config.label} · {config.model}
-              </option>
-            ))}
-            {connectedClis.length > 0 && (
-              <optgroup label="Connected CLIs">
-                {connectedClis.map((item) => (
-                  <option key={item.profileId} value={item.profileId}>
-                    CLI · {item.name} · {item.model || 'Default'}
-                  </option>
-                ))}
-              </optgroup>
-            )}
-          </select>
-        </label>
-        <button
-          className="text-action chat-budget-toggle"
-          type="button"
-          aria-expanded={budgetOpen}
-          aria-controls="chat-budget"
-          onClick={() => setBudgetOpen(!budgetOpen)}
-        >
-          {cli ? 'CLI connection details' : 'Budget & destination'}
-        </button>
+            Budget &amp; destination
+          </button>
+        )}
       </div>
-      <div id="chat-budget" className="chat-budget-panel" hidden={!budgetOpen}>
-        <label hidden={!!cli}>
+      <div className="chat-connection help-text">
+        {cli ? (
+          <>
+            <span className={approved ? 'status-dot' : ''} />
+            {approved ? 'Chat approved' : 'Approval required'} · {cli.name} ·{' '}
+            {cli.model || 'Default'}
+          </>
+        ) : profile ? (
+          `${profile.config.model} - ${profile.config.baseUrl}`
+        ) : (
+          'Connect a model in Models & Privacy.'
+        )}
+      </div>
+      <div id="chat-budget" className="chat-budget-panel" hidden={!budgetOpen || !!cli}>
+        <label>
           Estimated spend limit (USD)
           <input
             type="number"
@@ -271,25 +402,19 @@ export function Chat({
             }}
           />
         </label>
-        <p className="destination">
-          {cli
-            ? `${cli.name} · ${cli.model || 'CLI default'} · Cost unknown / managed by CLI. API spending limits do not apply.`
-            : (profile?.config.baseUrl ?? 'Choose a model profile')}
-        </p>
+        <p className="destination">{profile?.config.baseUrl ?? 'Choose a model profile'}</p>
       </div>
-      <p hidden={(!profile && !cli) || budgetOpen} className="destination">
-        {cli
-          ? `CLI · ${cli.name} · ${cli.model || 'Default'} · Cost unknown / managed by CLI`
-          : profile
-            ? `${profile.config.kind} · ${profile.config.model} → ${profile.config.baseUrl}`
-            : 'Create a model profile in Models & Privacy first.'}
-      </p>
       <section
         ref={transcript}
         className="transcript"
         aria-label="Conversation"
         tabIndex={0}
         aria-live="polite"
+        onScroll={() => {
+          const node = transcript.current;
+          if (node)
+            stickToBottom.current = node.scrollHeight - node.scrollTop - node.clientHeight < 80;
+        }}
       >
         {entries.length === 0 && (
           <div className="empty-state">
@@ -298,14 +423,20 @@ export function Chat({
                 ? 'What would you like to work on?'
                 : 'Connect a model to start a conversation'}
             </h2>
-            <p>
-              Your chat stays in memory until you clear it or close Rovdo.
-              {!ready &&
-                ' Connect and test a CLI, or configure an API model with streaming, tools and rates.'}
-            </p>
+            <p>Your chat stays in memory until you clear it or close Rovdo.</p>
             {!ready && (
               <button className="text-action" onClick={onConfigure}>
                 Set up chat in Models &amp; Privacy
+              </button>
+            )}
+            {ready && cli && !approved && (
+              <button
+                onClick={() => {
+                  stopVoice();
+                  setManageAccess(true);
+                }}
+              >
+                Review CLI permissions
               </button>
             )}
           </div>
@@ -313,99 +444,265 @@ export function Chat({
         {entries.map((entry, index) => (
           <article
             className={`chat-message ${entry.role === 'You' ? 'user-message' : ''}`}
-            key={index}
+            key={`${entry.requestId}-${index}`}
           >
             <strong>{entry.role}</strong>
-            <div>{entry.text || (busy ? 'Waiting for response…' : 'No complete response.')}</div>
+            <div>{entry.text || (busy ? 'Waiting for response...' : 'No complete response.')}</div>
+            {!!entry.attachments?.length && (
+              <details className="chat-reference">
+                <summary>{entry.attachments.length} attachment(s)</summary>
+                {entry.attachments
+                  .flatMap((a) => a.files)
+                  .map((f, i) => (
+                    <details key={i}>
+                      <summary>{f.name}</summary>
+                      <pre>{f.text}</pre>
+                    </details>
+                  ))}
+              </details>
+            )}
           </article>
         ))}
       </section>
-      {tools.map((tool, index) => (
-        <p className="tool-note" key={index}>
-          {tool}
-        </p>
-      ))}
-      <OperationStatus label={resetLabel ?? (busy ? 'Generating response...' : null)} />
-      <div hidden={!usage.reports && !usage.unknown && !cli} className="usage-meter">
-        {cli
-          ? 'Cost unknown / managed by CLI. Subscription limits or charges may apply.'
-          : usage.reports
-            ? `${usage.input} input / ${usage.output} output tokens · ${usage.unknown ? 'Cost estimate unavailable for some calls' : `Estimated ${formatUsd(usage.usd)}`}`
-            : 'Token usage and costs appear when reported by the provider.'}
-      </div>
+      {tools.length > 0 && (
+        <details className="chat-tool-summary">
+          <summary>{tools.length} read-only tool result(s)</summary>
+          {tools.map((tool, index) => (
+            <p key={index}>{tool}</p>
+          ))}
+        </details>
+      )}
       <form
         className="composer"
-        aria-busy={busy || resetting}
+        aria-busy={busy || resetting || picking}
         onSubmit={(event) => {
           event.preventDefault();
           void send();
         }}
       >
-        <label>
-          Message
+        {attachments.length > 0 && (
+          <div className="chat-attachments" aria-label="Selected attachments">
+            {attachments.map((a) => (
+              <span className="attachment-chip" key={a.id}>
+                <span>
+                  {a.name}
+                  {a.kind === 'folder' ? ` (${a.files.length} files)` : ''}
+                </span>
+                <button
+                  type="button"
+                  aria-label={`Remove ${a.name}`}
+                  onClick={() => removeAttachment(a.id)}
+                >
+                  &times;
+                </button>
+              </span>
+            ))}
+          </div>
+        )}
+        <label className="chat-message-label">
+          <span className="sr-only">Message</span>
           <textarea
             aria-label="Message"
             value={text}
-            disabled={busy || resetting}
+            disabled={busy || resetting || picking}
             maxLength={32000}
             required
             rows={3}
-            placeholder="What would you like to work through?"
+            placeholder="Message Rovdo..."
             onChange={(event) => {
               setText(event.target.value);
               setConsent(false);
             }}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) {
+                event.preventDefault();
+                event.currentTarget.form?.requestSubmit();
+              }
+            }}
           />
         </label>
-        <details>
+        <div className="chat-composer-actions">
+          <button
+            type="button"
+            className="chat-icon-button"
+            aria-label="Attach files or folders"
+            aria-expanded={attachmentMenu}
+            popoverTarget="chat-attachment-menu"
+            disabled={busy || resetting || picking || (!!cli && !cli.authorization?.selectedFiles)}
+          >
+            +
+          </button>
+          <span className="help-text chat-attach-hint">
+            {picking ? 'Reading selected files...' : 'Attach files or folder'}
+          </span>
+          <div
+            id="chat-attachment-menu"
+            popover="auto"
+            onToggle={(event) => setAttachmentMenu(event.newState === 'open')}
+            className="attachment-options"
+            role="group"
+            aria-label="Attachment options"
+          >
+            <button type="button" onClick={() => void pick('files')}>
+              Choose files
+            </button>
+            <button type="button" onClick={() => void pick('folders')}>
+              Choose folders
+            </button>
+            <p className="help-text">
+              Text/code, PDF, DOCX · up to 20 files and 64 KB extracted text. Hidden folders,
+              dependencies and links are skipped.
+            </p>
+          </div>
+          <div className="chat-send-actions">
+            <button
+              type="button"
+              className="chat-icon-button"
+              aria-label={speaking ? 'Stop dictation' : 'Start dictation'}
+              aria-pressed={speaking}
+              disabled={!voiceSupported || busy || resetting || picking}
+              title={
+                voiceSupported
+                  ? 'Dictation is processed locally by Windows'
+                  : 'Local dictation requires Windows and an installed speech recognizer'
+              }
+              onClick={() => {
+                if (speaking) stopVoice();
+                else if (voiceConsent) void startVoice();
+                else setVoiceDialog(true);
+              }}
+            >
+              <svg
+                width="18"
+                height="18"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="1.7"
+                aria-hidden="true"
+              >
+                <rect x="9" y="2" width="6" height="12" rx="3" />
+                <path d="M5 10v2a7 7 0 0 0 14 0v-2M12 19v3M8 22h8" />
+              </svg>
+            </button>
+            {busy ? (
+              <button
+                type="button"
+                onClick={() => {
+                  if (active.current) void window.rovdo!.cancelChat({ requestId: active.current });
+                }}
+              >
+                Stop response
+              </button>
+            ) : (
+              <button
+                className="primary-button"
+                type="submit"
+                aria-label="Send message"
+                disabled={!ready || !approved || resetting || picking || !text.trim()}
+              >
+                Send
+              </button>
+            )}
+          </div>
+        </div>
+        {speaking && (
+          <p className="chat-listening" role="status">
+            {voiceState === 'starting'
+              ? 'Starting local microphone...'
+              : 'Listening locally... Click the microphone to stop.'}
+          </p>
+        )}
+        {['unavailable', 'permission-denied', 'failed'].includes(voiceState) && (
+          <p role="status" className="help-text">
+            {voiceState === 'permission-denied'
+              ? 'Microphone access denied. Allow desktop microphone access in Windows Settings.'
+              : 'Local recognition is unavailable. Install a Windows speech language and check your microphone; typing remains available.'}
+          </p>
+        )}
+        <details className="chat-review">
           <summary>Review outbound conversation</summary>
           <p>
             {cli
-              ? 'Completed exchanges listed here and your new message are passed to the CLI. Its configured provider may receive them remotely. Tools are disabled. '
-              : 'Completed exchanges listed here, your new message, and the read-only workspace_info definition/results are sent to the selected endpoint. '}
-            Failed or stopped exchanges are excluded. No credentials, screenshots or files are
-            included in the prompt.
+              ? 'The CLI may send this visible conversation to its configured provider. Agent tools remain disabled.'
+              : 'The selected endpoint receives this conversation and read-only workspace_info definition/results.'}{' '}
+            Selected attachments are included as text only. Check content for secrets.
+            Failed/stopped exchanges are excluded.
           </p>
           {entries
             .filter((entry) => entry.included && entry.text)
             .map((entry, index) => (
               <p className="payload-preview" key={index}>
-                <strong>{entry.role}:</strong> {entry.text}
+                <strong>{entry.role}:</strong> {entry.content ?? entry.text}
               </p>
             ))}
           <p className="payload-preview">
-            <strong>New message:</strong> {text || '(empty)'}
+            <strong>New message:</strong> {composeChatText(text, attachments) || '(empty)'}
           </p>
         </details>
-        <label className="check-label">
-          <input
-            type="checkbox"
-            disabled={busy || resetting}
-            checked={consent}
-            onChange={(event) => setConsent(event.target.checked)}
-          />
-          {cli
-            ? 'Allow sending this conversation through the selected CLI; cost is managed by the CLI'
-            : 'Allow sending this conversation to the selected endpoint'}
-        </label>
-        <div className="button-row">
+        {!cli && (
+          <label className="check-label">
+            <input
+              type="checkbox"
+              disabled={busy || resetting}
+              checked={consent}
+              onChange={(event) => setConsent(event.target.checked)}
+            />
+            Allow sending this conversation to the selected endpoint
+          </label>
+        )}
+        {cli && !approved && (
           <button
-            className="primary-button"
-            type="submit"
-            disabled={!ready || !consent || busy || resetting || !text.trim()}
+            type="button"
+            className="text-action"
+            onClick={() => {
+              stopVoice();
+              setManageAccess(true);
+            }}
           >
-            Send message
+            Approve CLI chat access
           </button>
-          <span className="help-text">
-            {cli
-              ? 'Text-only CLI chat · no file access or agent tools granted.'
-              : 'Tools can only read Rovdo workspace metadata.'}
-          </span>
-        </div>
+        )}
       </form>
-      <p role="status" className="operation-status">
-        {status === 'Ready' ? '' : status}
-      </p>
+      <div className="chat-footer help-text">
+        <span className="usage-meter">
+          {cli
+            ? 'Approval is remembered · Selected files only · Cost unknown / managed by CLI'
+            : usage.reports
+              ? `${usage.input} input / ${usage.output} output tokens · ${usage.unknown ? 'Cost estimate unavailable' : `Estimated ${formatUsd(usage.usd)}`}`
+              : 'Read-only workspace tools · Shift+Enter for a new line'}
+        </span>
+        <span role="status" className="operation-status">
+          {resetLabel ?? (status === 'Ready' ? '' : status)}
+        </span>
+      </div>
+      {manageAccess && cli && (
+        <CliAccessDialog view={cli} refresh={refresh} onClose={() => setManageAccess(false)} />
+      )}
+      {voiceDialog && (
+        <ProfileDialog
+          title="Local voice dictation"
+          onClose={() => setVoiceDialog(false)}
+          closeLabel="Close voice dictation"
+        >
+          <p>
+            Windows processes microphone audio locally using an installed speech recognizer. Rovdo
+            does not upload or record audio. Transcription is inserted into your draft and is never
+            sent automatically. Windows desktop microphone permission is also required.
+          </p>
+          <label className="check-label">
+            <input
+              type="checkbox"
+              checked={voiceConsent}
+              onChange={(e) => setVoiceConsent(e.target.checked)}
+            />
+            Allow microphone access for local dictation
+          </label>
+          <button disabled={!voiceConsent} onClick={() => void startVoice()}>
+            Start listening
+          </button>
+        </ProfileDialog>
+      )}
     </div>
   );
 }

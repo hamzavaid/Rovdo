@@ -110,11 +110,14 @@ test('persists settings, uses the real OS vault, probes and chats with a local f
     expect(budget!.y).toBeGreaterThan(modelAfter!.y + modelAfter!.height);
     await page.screenshot({ path: test.info().outputPath('chat-budget.png'), fullPage: true });
     await page.getByRole('button', { name: 'Budget & destination', exact: true }).click();
-    await page.getByLabel('Message').fill('Tell me about this workspace.');
+    await page
+      .getByRole('textbox', { name: 'Message', exact: true })
+      .fill('Tell me about this workspace.');
     await page.getByLabel('Allow sending this conversation to the selected endpoint').check();
     await page.getByRole('button', { name: 'Send message' }).click();
     await expect(page.getByText('Hello from the local fixture.', { exact: true })).toBeVisible();
-    await expect(page.getByText('workspace_info completed')).toBeVisible();
+    await page.getByText(/read-only tool result/).click();
+    await expect(page.getByText('workspace_info completed').first()).toBeVisible();
     await expect(page.getByText('Completed', { exact: true })).toBeVisible();
     expect(await page.locator('body').innerText()).not.toContain(secret);
     const accounting = await page.evaluate(() => window.rovdo!.getSettings());

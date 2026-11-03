@@ -49,6 +49,18 @@ test('imports PDF and DOCX through the native file capability and bounded worker
       await desktop.evaluate(({ dialog }, file) => {
         dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [file] });
       }, path);
+      const attachment = await page.evaluate(() => window.rovdo!.pickChatFiles({ kind: 'files' }));
+      expect(attachment.ok).toBe(true);
+      if (attachment.ok) {
+        expect(attachment.attachments[0]!.files[0]!.text).toContain(
+          extension === 'pdf' ? 'TypeScript' : 'Python',
+        );
+        expect(JSON.stringify(attachment.attachments)).not.toContain(test.info().outputDir);
+        await page.evaluate(
+          (ids) => window.rovdo!.releaseChatFiles({ ids }),
+          attachment.attachments.map((a) => a.id),
+        );
+      }
       const result = await page.evaluate(() =>
         window.rovdo!.intelligenceCommand({ op: 'importFile' }),
       );

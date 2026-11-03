@@ -39,12 +39,14 @@ setTimeout(()=>console.log(JSON.stringify({type:'result',is_error:false,result:t
       env.HOME = home;
       env.USERPROFILE = home;
     }
-    const desktop = await electron.launch({
-      args: [resolve('apps/desktop'), `--rovdo-data-dir=${test.info().outputPath('user-data')}`],
-      env,
-    });
+    const launch = () =>
+      electron.launch({
+        args: [resolve('apps/desktop'), `--rovdo-data-dir=${test.info().outputPath('user-data')}`],
+        env,
+      });
+    let desktop = await launch();
     try {
-      const page = await desktop.firstWindow();
+      let page = await desktop.firstWindow();
       page.setDefaultTimeout(5000);
       await page.getByRole('button', { name: 'Models & Privacy', exact: true }).click();
       await expect(page.getByRole('heading', { name: 'Connect your CLI' })).toBeVisible();
@@ -70,28 +72,35 @@ setTimeout(()=>console.log(JSON.stringify({type:'result',is_error:false,result:t
       await dialog.getByLabel('Allow this test request and CLI-managed usage charges').check();
       await dialog.getByRole('button', { name: 'Run connection test' }).click();
       await expect(card.getByText('Connected', { exact: true })).toBeVisible();
+      const permissions = page.getByRole('dialog', { name: 'CLI access permissions' });
+      await permissions.getByLabel('Chat messages', { exact: true }).check();
+      await permissions.getByLabel('Selected files and folders', { exact: true }).check();
+      await permissions.getByRole('button', { name: 'Save permissions' }).click();
+      await expect(permissions).toHaveCount(0);
       await page.getByRole('button', { name: 'Chat', exact: true }).click();
       await page
         .getByLabel('Model profile', { exact: true })
         .selectOption({ label: `CLI · ${name} · fixture-model` });
       await page.getByLabel('Message', { exact: true }).fill('Explain this fixture');
+      const attached = join(bin, 'notes.txt');
+      await writeFile(attached, 'Explicitly selected fixture content');
+      await desktop.evaluate(({ dialog }, file) => {
+        dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [file] });
+      }, attached);
+      await page.getByRole('button', { name: 'Attach files or folders' }).click();
+      await page.getByRole('button', { name: 'Choose files', exact: true }).click();
+      await expect(page.getByRole('button', { name: 'Remove notes.txt' })).toBeVisible();
+      await page.getByRole('button', { name: 'Remove notes.txt' }).click();
+      await expect(page.getByRole('button', { name: 'Remove notes.txt' })).toHaveCount(0);
+      await page.getByRole('button', { name: 'Attach files or folders' }).click();
+      await page.getByRole('button', { name: 'Choose files', exact: true }).click();
       await expect(page.locator('.usage-meter')).toBeVisible();
-      await page
-        .getByLabel(
-          'Allow sending this conversation through the selected CLI; cost is managed by the CLI',
-        )
-        .check();
       await page.getByRole('button', { name: 'Send message', exact: true }).click();
       await expect(
         page.locator('.chat-message').filter({ hasText: 'Fixture CLI response' }),
       ).toBeVisible();
       await expect(page.getByText('Completed', { exact: true })).toBeVisible();
       await page.getByLabel('Message', { exact: true }).fill('Second turn');
-      await page
-        .getByLabel(
-          'Allow sending this conversation through the selected CLI; cost is managed by the CLI',
-        )
-        .check();
       await page.getByRole('button', { name: 'Send message', exact: true }).click();
       await expect(
         page.locator('.chat-message').filter({ hasText: 'Fixture CLI response' }),
@@ -103,6 +112,8 @@ setTimeout(()=>console.log(JSON.stringify({type:'result',is_error:false,result:t
       expect(logs).toHaveLength(3);
       expect(logs[2]!.input).toContain('Explain this fixture');
       expect(logs[2]!.input).toContain('Second turn');
+      expect(logs[1]!.input).toContain('Explicitly selected fixture content');
+      expect(logs[2]!.input).toContain('Explicitly selected fixture content');
       expect(logs[2]!.args).not.toContain('Second turn');
       const settings = await page.evaluate(() => window.rovdo!.getSettings());
       expect(settings.ok && settings.settings.profiles).toEqual([]);
@@ -118,6 +129,43 @@ setTimeout(()=>console.log(JSON.stringify({type:'result',is_error:false,result:t
       await page
         .locator('.cli-section')
         .screenshot({ path: test.info().outputPath('cli-dark.png') });
+      await desktop.close();
+      desktop = await launch();
+      page = await desktop.firstWindow();
+      await page.getByRole('button', { name: 'Chat', exact: true }).click();
+      await expect(
+        page.locator('.chat-connection').filter({ hasText: 'Chat approved' }),
+      ).toBeVisible({
+        timeout: 20000,
+      });
+      await page.getByRole('textbox', { name: 'Message', exact: true }).fill('After restart');
+      await page.getByRole('button', { name: 'Send message', exact: true }).click();
+      await expect(
+        page.locator('.chat-message').filter({ hasText: 'Fixture CLI response' }),
+      ).toHaveCount(1);
+      await page.screenshot({ path: test.info().outputPath('chat-dark.png') });
+      await page.setViewportSize({ width: 900, height: 680 });
+      const send = page.getByRole('button', { name: 'Send message', exact: true });
+      await expect(send).toBeInViewport();
+      expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(
+        true,
+      );
+      await page.getByRole('button', { name: 'Models & Privacy', exact: true }).click();
+      const restored = page.getByRole('article', { name, exact: true });
+      await expect(restored.getByText('Connected', { exact: true })).toBeVisible();
+      await restored.getByRole('button', { name: 'Revoke access', exact: true }).click();
+      await page.getByRole('button', { name: 'Chat', exact: true }).click();
+      await expect(
+        page.locator('.chat-connection').filter({ hasText: 'Approval required' }),
+      ).toBeVisible();
+      await expect(send).toBeDisabled();
+      await expect(page.locator('.chat-message')).toHaveCount(0);
+      const restartedCalls = (await readFile(calls, 'utf8'))
+        .trim()
+        .split('\n')
+        .map((line) => JSON.parse(line) as { input: string });
+      expect(restartedCalls).toHaveLength(4); // No connection test or inference during restart/detection.
+      expect(restartedCalls.at(-1)!.input).not.toContain('Explicitly selected fixture content');
     } finally {
       await desktop.close();
     }

@@ -142,7 +142,12 @@ export function App() {
             />
           </section>
           <section hidden={view !== 'chat'}>
-            <Chat settings={settings} refresh={refresh} onConfigure={() => setView('models')} />
+            <Chat
+              visible={view === 'chat'}
+              settings={settings}
+              refresh={refresh}
+              onConfigure={() => setView('models')}
+            />
           </section>
           <section hidden={view !== 'models'}>
             <Models settings={settings} refresh={refresh} active={view === 'models'} />

@@ -5,6 +5,13 @@
 import type { FailureCode } from '@rovdo/shared';
 
 export const errorMessage: Record<FailureCode, string> = {
+  CLI_AUTHORIZATION_REQUIRED: 'Review access permissions for this tested CLI in Models & Privacy.',
+  ATTACHMENT_TYPE:
+    'Choose readable UTF-8 text/code, PDF or DOCX. Hidden files, links and unsupported files are not attached.',
+  ATTACHMENT_LIMIT:
+    'Selection is too large. Use up to 20 files, 5 MB of source documents and 64 KB of extracted text. Choose a smaller folder.',
+  ATTACHMENT_UNAVAILABLE:
+    'The attachment expired, changed, could not be read, or document extraction failed. Select it again.',
   CLI_ISOLATION_REQUIRED:
     'Codex isolation failed. Global ~/.codex/AGENTS.md and AGENTS.override.md must be absent or empty; unexpected tools are blocked. Rovdo will not modify your CLI files.',
   CLI_NOT_INSTALLED: 'CLI not found. Install and authenticate it separately, then refresh.',

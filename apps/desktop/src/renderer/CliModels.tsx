@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from 'react';
 import { CliPreferenceSchema } from '@rovdo/shared';
 import type { CliId, CliView, Result } from '@rovdo/shared';
 import { ProfileDialog } from './ProfileDialog';
+import { CliAccessDialog } from './CliAccessDialog';
 import { OperationStatus } from './OperationStatus';
 import { useActionState } from './action-state';
 import { errorMessage } from './messages';
@@ -26,11 +27,15 @@ function CliCard({
   busy,
   save,
   test,
+  access,
+  revoke,
 }: {
   view: CliView;
   busy: boolean;
   save: (value: unknown) => void;
   test: () => void;
+  access: () => void;
+  revoke: () => void;
 }) {
   const [expanded, setExpanded] = useState(false);
   const [model, setModel] = useState(view.model);
@@ -96,6 +101,22 @@ function CliCard({
           </button>
         )}
       </div>
+      {view.status === 'connected' && (
+        <div className="cli-access-row">
+          <span className="help-text">
+            {view.authorization?.chat ? 'Chat approved' : 'Chat approval required'}
+            {view.authorization?.selectedFiles ? ' · Selected snapshots allowed' : ''}
+          </span>
+          <button type="button" className="text-action" disabled={busy} onClick={access}>
+            Manage permissions
+          </button>
+          {view.authorization?.chat && (
+            <button type="button" className="text-action" disabled={busy} onClick={revoke}>
+              Revoke access
+            </button>
+          )}
+        </div>
+      )}
       {installed && expanded && (
         <div id={`cli-config-${view.id}`} className="cli-config">
           {safety[view.id] && <p className="help-text">{safety[view.id]}</p>}
@@ -210,6 +231,7 @@ export function CliModels({
   const { pending: busy, label, run } = useActionState();
   const [message, setMessage] = useState('');
   const [testing, setTesting] = useState<CliView | null>(null);
+  const [accessId, setAccessId] = useState<CliId | null>(null);
   const [consent, setConsent] = useState(false);
   const request = useRef<string | null>(null);
   async function action(text: string, work: () => Promise<Result>) {
@@ -232,12 +254,16 @@ export function CliModels({
     const id = crypto.randomUUID();
     request.current = id;
     const target = testing;
-    await action(`Testing ${target.name}…`, () =>
-      window.rovdo!.testCli({ id: target.id, requestId: id, consent: true }),
-    );
+    let tested = false;
+    await action(`Testing ${target.name}…`, async () => {
+      const result = await window.rovdo!.testCli({ id: target.id, requestId: id, consent: true });
+      tested = result.ok;
+      return result;
+    });
     request.current = null;
     setTesting(null);
     setConsent(false);
+    if (tested && !target.authorization?.chat) setAccessId(target.id);
   }
   function close() {
     if (request.current) void window.rovdo!.cancelChat({ requestId: request.current });
@@ -276,6 +302,18 @@ export function CliModels({
             view={view}
             key={view.id}
             busy={busy}
+            access={() => setAccessId(view.id)}
+            revoke={() => {
+              if (view.accessIdentity)
+                void action('Revoking CLI access...', () =>
+                  window.rovdo!.setCliAccess({
+                    id: view.id,
+                    identity: view.accessIdentity!,
+                    chat: false,
+                    selectedFiles: false,
+                  }),
+                );
+            }}
             save={(value) =>
               void action('Saving CLI preferences…', () =>
                 window.rovdo!.saveCli(CliPreferenceSchema.parse(value)),
@@ -291,6 +329,13 @@ export function CliModels({
       <p role="status" className="help-text">
         {message}
       </p>
+      {accessId && views.find((v) => v.id === accessId)?.status === 'connected' && (
+        <CliAccessDialog
+          view={views.find((v) => v.id === accessId)!}
+          refresh={refresh}
+          onClose={() => setAccessId(null)}
+        />
+      )}
       {testing && (
         <ProfileDialog
           title={`Test ${testing.name}`}

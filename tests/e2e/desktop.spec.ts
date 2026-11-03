@@ -58,6 +58,10 @@ test('boots the built shell with isolated preload and blocked egress', async () 
       node: 'undefined',
       process: 'undefined',
       bridgeKeys: [
+        'setCliAccess',
+        'pickChatFiles',
+        'releaseChatFiles',
+        'dictation',
         'refreshClis',
         'saveCli',
         'testCli',
