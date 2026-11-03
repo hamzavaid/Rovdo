@@ -14,6 +14,13 @@ import {
   SettingsViewSchema,
   CliPreferenceSchema,
   CliTestSchema,
+  CliAccessSchema,
+  CliRefreshSchema,
+  ChatPickSchema,
+  ChatReleaseSchema,
+  ChatFilesResultSchema,
+  DictationCommandSchema,
+  DictationResultSchema,
 } from '@rovdo/shared';
 import type { ChatEvent, Result } from '@rovdo/shared';
 import { ByokService, failureCode } from './byok-service';
@@ -25,7 +32,12 @@ export async function handleByok(
   payload: unknown,
   sender: { url: string; isMainFrame: boolean; ownsWindow: boolean },
   send: (event: ChatEvent) => void,
-): Promise<Result | { ok: true; settings: ReturnType<typeof SettingsViewSchema.parse> }> {
+): Promise<
+  | Result
+  | { ok: true; settings: ReturnType<typeof SettingsViewSchema.parse> }
+  | ReturnType<typeof ChatFilesResultSchema.parse>
+  | ReturnType<typeof DictationResultSchema.parse>
+> {
   if (!sender.ownsWindow || !isTrustedFrame(sender.url, sender.isMainFrame))
     return { ok: false, code: 'IPC_FORBIDDEN' };
   const checked = <T>(schema: {
@@ -37,9 +49,18 @@ export async function handleByok(
   };
   try {
     switch (channel) {
+      case BYOK_CHANNELS.cliAccess:
+        await service.setCliAccess(checked(CliAccessSchema));
+        break;
+      case BYOK_CHANNELS.filesPick:
+        return { ok: true, attachments: await service.pickFiles(checked(ChatPickSchema).kind) };
+      case BYOK_CHANNELS.filesRelease:
+        service.releaseFiles(checked(ChatReleaseSchema).ids);
+        break;
+      case BYOK_CHANNELS.dictation:
+        return { ok: true, supported: service.dictation(checked(DictationCommandSchema), send) };
       case BYOK_CHANNELS.cliRefresh:
-        checked(EmptyRequestSchema);
-        await service.refreshClis();
+        await service.refreshClis(checked(CliRefreshSchema).force ?? true);
         break;
       case BYOK_CHANNELS.cliSave:
         await service.saveCli(checked(CliPreferenceSchema));

@@ -8,6 +8,52 @@ import { basename, extname, join } from 'node:path';
 import { ImportPreviewSchema, ImportFailure, ImportFailureCodeSchema } from '@rovdo/shared';
 import type { ImportPreview } from '@rovdo/shared';
 
+/** Reuse the isolated decoder for selected chat PDF/DOCX snapshots; no qualification inference. */
+export async function readChatDocument(
+  bytes: Buffer,
+  format: 'pdf' | 'docx',
+  signal: AbortSignal,
+): Promise<string> {
+  if (bytes.length > 5000000 || signal.aborted) throw new Error('ATTACHMENT_LIMIT');
+  return new Promise((resolve, reject) => {
+    const worker = new Worker(join(__dirname, 'profile-worker.cjs'), {
+      workerData: {
+        format,
+        bytes,
+        purpose: 'chat',
+        name: 'attachment',
+        at: new Date().toISOString(),
+      },
+      env: { SYSTEMROOT: process.env.SYSTEMROOT ?? '', PDF2JSON_DISABLE_LOGS: '1' },
+      execArgv: [],
+      resourceLimits: { maxOldGenerationSizeMb: 192, stackSizeMb: 4 },
+      stdout: true,
+      stderr: true,
+    });
+    worker.stdout.resume();
+    worker.stderr.resume();
+    let finished = false;
+    const end = (text?: string) => {
+      if (finished) return;
+      finished = true;
+      clearTimeout(timer);
+      signal.removeEventListener('abort', abort);
+      void worker.terminate();
+      if (text?.trim() && Buffer.byteLength(text) <= 64000) resolve(text);
+      else reject(new Error('ATTACHMENT_UNAVAILABLE'));
+    };
+    const abort = () => end();
+    const timer = setTimeout(abort, 15000);
+    signal.addEventListener('abort', abort, { once: true });
+    if (signal.aborted) abort();
+    worker.once('message', (m: { ok?: boolean; text?: unknown }) =>
+      end(m.ok && typeof m.text === 'string' ? m.text : undefined),
+    );
+    worker.once('error', abort);
+    worker.once('exit', abort);
+  });
+}
+
 export async function readProfileFile(
   path: string,
   signal: AbortSignal,

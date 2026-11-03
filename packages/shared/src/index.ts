@@ -9,6 +9,7 @@ import type { CareerApi } from './career';
 import type { IntelligenceApi } from './imports';
 export * from './byok';
 export * from './cli';
+export * from './chat';
 export * from './browser';
 export * from './career';
 export * from './intelligence';

@@ -5,6 +5,8 @@
 import { z } from 'zod';
 import { CliViewSchema } from './cli';
 import type { CliPreference, CliId } from './cli';
+import type { CliAccess } from './cli';
+import { ChatAttachmentSchema, DictationCommandSchema, DictationEventSchema } from './chat';
 
 export const FailureCodeSchema = z.enum([
   'VALIDATION_ERROR',
@@ -29,6 +31,10 @@ export const FailureCodeSchema = z.enum([
   'CLI_MODEL_INVALID',
   'CLI_EXECUTION_FAILED',
   'CLI_ISOLATION_REQUIRED',
+  'CLI_AUTHORIZATION_REQUIRED',
+  'ATTACHMENT_TYPE',
+  'ATTACHMENT_LIMIT',
+  'ATTACHMENT_UNAVAILABLE',
 ]);
 export type FailureCode = z.infer<typeof FailureCodeSchema>;
 const flag = z.enum(['supported', 'unsupported', 'unknown']);
@@ -114,6 +120,7 @@ export const ChatRequestSchema = z.strictObject({
   consent: z.literal(true),
   maxUsd: z.number().finite().positive().max(100),
   cliManagedCost: z.literal(true).optional(),
+  attachmentIds: z.array(z.uuid()).max(20).optional(),
   conversationRevision: z.number().int().nonnegative().optional(),
   context: z
     .array(z.strictObject({ role: z.enum(['user', 'assistant']), content: z.string().max(128000) }))
@@ -163,6 +170,7 @@ export const SettingsViewSchema = z.strictObject({
 export type SettingsView = z.infer<typeof SettingsViewSchema>;
 
 export const ChatEventSchema = z.discriminatedUnion('type', [
+  DictationEventSchema,
   z.strictObject({ type: z.literal('text'), requestId: z.uuid(), text: z.string().max(1_000_000) }),
   z.strictObject({
     type: z.literal('tool'),
@@ -193,6 +201,14 @@ export const ResultSchema = z.discriminatedUnion('ok', [
   }),
 ]);
 export type Result = z.infer<typeof ResultSchema>;
+export const ChatFilesResultSchema = z.discriminatedUnion('ok', [
+  z.strictObject({ ok: z.literal(true), attachments: z.array(ChatAttachmentSchema).max(20) }),
+  ResultSchema.options[1],
+]);
+export const DictationResultSchema = z.discriminatedUnion('ok', [
+  z.strictObject({ ok: z.literal(true), supported: z.boolean() }),
+  ResultSchema.options[1],
+]);
 export const SettingsResultSchema = z.discriminatedUnion('ok', [
   z.strictObject({ ok: z.literal(true), settings: SettingsViewSchema }),
   z.strictObject({ ok: z.literal(false), code: FailureCodeSchema }),
@@ -212,9 +228,21 @@ export const BYOK_CHANNELS = Object.freeze({
   cliRefresh: 'models:cli-refresh',
   cliSave: 'models:cli-save',
   cliTest: 'models:cli-test',
+  cliAccess: 'models:cli-access',
+  filesPick: 'chat:files-pick',
+  filesRelease: 'chat:files-release',
+  dictation: 'chat:dictation',
 });
 export interface ByokApi {
-  refreshClis(): Promise<Result>;
+  setCliAccess(input: CliAccess): Promise<Result>;
+  pickChatFiles(input: {
+    kind: 'files' | 'folders';
+  }): Promise<z.infer<typeof ChatFilesResultSchema>>;
+  releaseChatFiles(input: { ids: string[] }): Promise<Result>;
+  dictation(
+    input: z.infer<typeof DictationCommandSchema>,
+  ): Promise<z.infer<typeof DictationResultSchema>>;
+  refreshClis(input?: { force?: boolean }): Promise<Result>;
   saveCli(input: CliPreference): Promise<Result>;
   testCli(input: { id: CliId; requestId: string; consent: true }): Promise<Result>;
   getSettings(): Promise<z.infer<typeof SettingsResultSchema>>;

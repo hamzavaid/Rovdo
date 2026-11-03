@@ -8,6 +8,7 @@ import {
   EmptyRequestSchema,
   FailureCodeSchema,
   ProviderConfigSchema,
+  composeChatText,
 } from '@rovdo/shared';
 import type {
   ChatEvent,
@@ -23,6 +24,9 @@ import type { CredentialVault } from './vault';
 import type { CliService } from './cli-service';
 import { CliPreferenceSchema } from '@rovdo/shared';
 import type { CliId } from '@rovdo/shared';
+import type { CliAccess, DictationEvent } from '@rovdo/shared';
+import { ChatFiles } from './chat-files';
+import { DictationService } from './dictation';
 
 type Vault = Pick<CredentialVault, 'get' | 'has' | 'enter' | 'remove'>;
 export function failureCode(error: unknown) {
@@ -78,6 +82,8 @@ export class ByokService {
     ) => ModelAdapter = createAdapter,
     private readonly version = '0.1.0',
     private readonly cli?: CliService,
+    private readonly files?: ChatFiles,
+    private readonly speech = new DictationService(),
   ) {}
   private assertIdle(): void {
     if (this.active || this.changing) throw new Error('BUSY');
@@ -120,10 +126,49 @@ export class ByokService {
         : {}),
     };
   }
-  async refreshClis(): Promise<void> {
+  async refreshClis(force = true): Promise<void> {
     this.assertIdle();
     // Detection owns only CLI status; do not hold the API configuration lock during filesystem/version IO.
-    await this.cli?.scan(true);
+    await this.cli?.scan(force);
+  }
+  async setCliAccess(input: CliAccess): Promise<void> {
+    const current = this.cli?.views().find((v) => v.id === input.id);
+    if (
+      current?.accessIdentity === input.identity &&
+      current.authorization?.chat === input.chat &&
+      current.authorization?.selectedFiles === input.selectedFiles
+    ) {
+      await this.cli!.setAccess(input);
+      return;
+    }
+    this.cancel();
+    await this.pendingRun?.catch(() => {});
+    await this.change(async () => {
+      if (!this.cli) throw new Error('CLI_UNSUPPORTED');
+      await this.cli.setAccess(input);
+      const id = this.cli.views().find((v) => v.id === input.id)!.profileId;
+      this.forgetHistory(id);
+      this.files?.clear();
+    });
+  }
+  async pickFiles(kind: 'files' | 'folders') {
+    this.assertIdle();
+    if (!this.files) throw new Error('ATTACHMENT_UNAVAILABLE');
+    return this.files.pick(kind);
+  }
+  releaseFiles(ids: string[]) {
+    this.files?.release(ids);
+  }
+  dictation(
+    input:
+      | { op: 'status' }
+      | { op: 'start'; requestId: string; consent: true }
+      | { op: 'stop'; requestId: string },
+    send: (event: DictationEvent) => void,
+  ) {
+    if (input.op === 'start') this.speech.start(input.requestId, send);
+    if (input.op === 'stop') this.speech.stop(input.requestId);
+    return this.speech.supported;
   }
   async saveCli(input: unknown): Promise<void> {
     await this.change(async () => {
@@ -253,12 +298,16 @@ export class ByokService {
   }
   clear(): void {
     this.assertIdle();
+    this.files?.clear();
+    this.speech.stop();
     for (const p of this.store.list()) this.forgetHistory(p.id);
     for (const p of this.cli?.views() ?? []) this.forgetHistory(p.profileId);
     this.history.clear();
   }
   reset(): void {
     this.cancel();
+    this.files?.clear();
+    this.speech.stop();
     for (const p of this.store.list()) this.forgetHistory(p.id);
     for (const p of this.cli?.views() ?? []) this.forgetHistory(p.profileId);
     this.history.clear();
@@ -270,6 +319,7 @@ export class ByokService {
     this.reset();
     await this.cli?.shutdown();
     await this.pendingRun?.catch(() => {});
+    await this.speech.shutdown();
   }
   run(input: unknown, emit: (event: ChatEvent) => void): Promise<void> {
     if (this.pendingRun) return Promise.reject(new Error('BUSY'));
@@ -285,7 +335,7 @@ export class ByokService {
   private async execute(input: unknown, emit: (event: ChatEvent) => void): Promise<void> {
     const request = ChatRequestSchema.safeParse(input);
     if (!request.success) throw new Error('VALIDATION_ERROR');
-    const { requestId, profileId, text, maxUsd } = request.data;
+    const { requestId, profileId, maxUsd } = request.data;
     this.assertIdle();
     // Reject request replay independently of the UI busy state.
     if (this.seen.has(requestId)) throw new Error('VALIDATION_ERROR');
@@ -304,10 +354,21 @@ export class ByokService {
       if (JSON.stringify(request.data.context ?? []) !== JSON.stringify(prior))
         throw new Error('VALIDATION_ERROR');
       const cliId = this.cli?.idForProfile(profileId);
+      const ids = request.data.attachmentIds ?? [];
+      if (ids.length && !this.files) throw new Error('ATTACHMENT_UNAVAILABLE');
+      const text = composeChatText(request.data.text, this.files?.resolve(ids) ?? []);
       if (cliId) {
         if (request.data.cliManagedCost !== true) throw new Error('VALIDATION_ERROR');
         if (this.cli!.views().find((v) => v.id === cliId)?.status !== 'connected')
           throw new Error('CAPABILITY_REQUIRED');
+        try {
+          await this.cli!.assertAccess(cliId, 'chat');
+          if (ids.length) await this.cli!.assertAccess(cliId, 'selectedFiles');
+        } catch (error) {
+          this.forgetHistory(profileId);
+          throw error;
+        }
+        this.files?.release(ids);
         const messages = [
           ...(this.history.get(profileId) ?? []),
           { role: 'user' as const, content: text },
@@ -359,6 +420,7 @@ export class ByokService {
         }
       }
       const profile = this.store.get(profileId);
+      this.files?.release(ids);
       this.checkCooldown(profileId);
       if (
         profile.capabilities?.streaming !== 'supported' ||
@@ -475,6 +537,7 @@ export class ByokService {
       const code = controller.signal.aborted ? 'CANCELED' : failureCode(error);
       emit({ type: 'done', requestId, status: code === 'CANCELED' ? 'canceled' : 'failed', code });
     } finally {
+      this.files?.release(request.data.attachmentIds ?? []);
       if (this.active?.id === requestId) this.active = null;
     }
   }

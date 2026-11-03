@@ -1,7 +1,10 @@
 /** CLI-specific contracts. Safety is a prerequisite, not an inferred capability from successful version output. */
 import { createAdapter } from '@rovdo/providers';
 import type { ModelAdapter } from '@rovdo/providers';
-import { CliPreferenceSchema, CliModelSchema } from '@rovdo/shared';
+import { CliPreferenceSchema, CliModelSchema, CliAccessSchema } from '@rovdo/shared';
+import type { CliAccess } from '@rovdo/shared';
+import { createHash } from 'node:crypto';
+import { stat } from 'node:fs/promises';
 import type {
   AgentTurn,
   CliId,
@@ -279,6 +282,7 @@ class ClaudeCliAdapter implements ModelAdapter {
     signal: AbortSignal,
     onText?: (text: string) => void,
   ): Promise<AgentTurn> {
+    if (request.tools.length) throw new Error('CLI_ISOLATION_REQUIRED');
     let pending = '',
       text = '',
       final: string | undefined,
@@ -413,6 +417,7 @@ export class CliService {
     return ids.map((id) => {
       const pref = this.store.cliPreferences().find((p) => p.id === id);
       const prior = this.states.get(id);
+      const trust = this.store.cliTrust(id);
       return {
         id,
         profileId: CLI_PROVIDERS[id].profileId,
@@ -426,7 +431,87 @@ export class CliService {
         text: 'unknown',
         streaming: 'unknown',
         ...prior,
+        authorization:
+          trust &&
+          trust.ready &&
+          trust.identity === prior?.accessIdentity &&
+          prior?.status === 'connected'
+            ? trust.permissions
+            : { chat: false, selectedFiles: false },
       };
+    });
+  }
+  /** Identity binds executable metadata, effective model and the reviewed tool-isolation contract.
+   * CLI-managed accounts remain opaque; no credential files are inspected. */
+  private async identity(id: CliId, version?: string | null): Promise<string> {
+    const launcher = this.launchers.get(id);
+    if (!launcher) throw new Error('CLI_NOT_INSTALLED');
+    const view = this.views().find((v) => v.id === id)!;
+    const model =
+      view.model ||
+      (id === 'claude'
+        ? await claudeConfiguredModel()
+        : id === 'ollama'
+          ? (view.models[0] ?? '')
+          : 'builtin-default');
+    const files = await Promise.all(
+      [launcher.executable, ...launcher.prefix].map(async (file) => {
+        const s = await stat(file);
+        return { file, size: s.size, modified: s.mtimeMs };
+      }),
+    );
+    return createHash('sha256')
+      .update(
+        JSON.stringify({
+          policy: 'cli-chat-v1-tools-disabled',
+          id,
+          version: version ?? view.version,
+          model,
+          files,
+        }),
+      )
+      .digest('hex');
+  }
+  async assertAccess(id: CliId, permission: 'chat' | 'selectedFiles'): Promise<void> {
+    const identity = await this.identity(id);
+    const view = this.views().find((v) => v.id === id)!;
+    const trust = this.store.cliTrust(id);
+    if (identity !== view.accessIdentity) {
+      this.store.clearCliTrust(id);
+      this.states.set(id, {
+        ...view,
+        accessIdentity: identity,
+        status: 'installed',
+        text: 'unknown',
+        streaming: 'unknown',
+      });
+    }
+    if (
+      view.status !== 'connected' ||
+      identity !== view.accessIdentity ||
+      trust?.identity !== identity ||
+      !trust.ready ||
+      !trust.permissions.chat ||
+      !trust.permissions[permission]
+    )
+      throw new Error('CLI_AUTHORIZATION_REQUIRED');
+  }
+  async setAccess(input: CliAccess): Promise<void> {
+    const value = CliAccessSchema.parse(input);
+    const view = this.views().find((v) => v.id === value.id)!;
+    const identity = await this.identity(value.id);
+    const trust = this.store.cliTrust(value.id);
+    if (
+      view.status !== 'connected' ||
+      value.identity !== identity ||
+      trust?.identity !== identity ||
+      !trust.ready ||
+      (value.selectedFiles && !value.chat)
+    )
+      throw new Error('CLI_AUTHORIZATION_REQUIRED');
+    this.store.saveCliTrust({
+      ...trust,
+      permissions: { chat: value.chat, selectedFiles: value.selectedFiles },
     });
   }
   idForProfile(profileId: string): CliId | undefined {
@@ -504,6 +589,19 @@ export class CliService {
           streaming: unchanged ? base.streaming : 'unknown',
         });
         if (base.id === 'ollama' && status === 'installed') await this.ollamaModels(launcher);
+        if (status === 'installed') {
+          const identity = await this.identity(base.id, version);
+          const trust = this.store.cliTrust(base.id);
+          if (trust && trust.identity !== identity) this.store.clearCliTrust(base.id);
+          const current = this.states.get(base.id)!;
+          this.states.set(base.id, {
+            ...current,
+            accessIdentity: identity,
+            status: trust?.identity === identity && trust.ready ? 'connected' : 'installed',
+            text: trust?.identity === identity && trust.ready ? 'supported' : 'unknown',
+            streaming: trust?.identity === identity && trust.ready ? trust.streaming : 'unknown',
+          });
+        }
       } catch {
         this.states.set(base.id, {
           ...base,
@@ -536,8 +634,13 @@ export class CliService {
   }
   save(input: unknown): void {
     const pref = CliPreferenceSchema.parse(input);
-    this.store.saveCli(pref);
     const base = this.views().find((v) => v.id === pref.id)!;
+    this.store.saveCli(pref);
+    if (pref.model === base.model) {
+      this.states.set(pref.id, { ...base, timeoutMs: pref.timeoutMs });
+      return;
+    }
+    this.store.clearCliTrust(pref.id);
     this.states.set(pref.id, {
       ...base,
       ...pref,
@@ -575,16 +678,33 @@ export class CliService {
   }
   async test(id: CliId, signal: AbortSignal): Promise<void> {
     try {
+      const identity = await this.identity(id);
       const adapter = await this.adapter(id, 20000);
       const caps = await adapter.probe(signal);
+      if (identity !== (await this.identity(id))) throw new Error('CLI_AUTHORIZATION_REQUIRED');
+      const priorTrust = this.store.cliTrust(id);
+      this.store.saveCliTrust({
+        id,
+        identity,
+        testedAt: new Date().toISOString(),
+        ready: true,
+        streaming: caps.streaming === 'supported' ? 'supported' : 'unknown',
+        permissions:
+          priorTrust?.identity === identity
+            ? priorTrust.permissions
+            : { chat: false, selectedFiles: false },
+      });
       this.states.set(id, {
         ...this.views().find((v) => v.id === id)!,
         status: 'connected',
         revision: this.views().find((v) => v.id === id)!.revision + 1,
         text: 'supported',
+        accessIdentity: identity,
         streaming: caps.streaming === 'supported' ? 'supported' : 'unknown',
       });
     } catch (error) {
+      const trust = this.store.cliTrust(id);
+      if (trust) this.store.saveCliTrust({ ...trust, ready: false });
       const base = this.views().find((v) => v.id === id)!;
       this.states.set(id, {
         ...base,

@@ -32,6 +32,8 @@ import { ByokService } from './byok-service';
 import { CliService } from './cli-service';
 import { createNativeVault } from './native-vault';
 import { handleByok } from './byok-ipc';
+import { ChatFiles } from './chat-files';
+import { readChatDocument } from './profile-file';
 import { getAppInfo } from './ipc';
 import { APP_URL, CONTENT_SECURITY_POLICY, getAssetPath, WINDOW_WEB_PREFERENCES } from './security';
 
@@ -114,6 +116,15 @@ async function initialize(): Promise<void> {
     (config, key) => registry.create(config, key),
     app.getVersion(),
     new CliService(store),
+    new ChatFiles(async (kind) => {
+      if (!mainWindow) throw new Error('ATTACHMENT_UNAVAILABLE');
+      const result = await dialog.showOpenDialog(mainWindow, {
+        title: kind === 'files' ? 'Attach files to chat' : 'Attach folders to chat',
+        properties:
+          kind === 'files' ? ['openFile', 'multiSelections'] : ['openDirectory', 'multiSelections'],
+      });
+      return result.canceled ? [] : result.filePaths;
+    }, readChatDocument),
   );
   runStore = new RuntimeStore(join(app.getPath('userData'), 'rovdo.sqlite'));
   browserService = createBrowserService(runStore, store, vault);

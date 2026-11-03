@@ -16,6 +16,25 @@ export const CliPreferenceSchema = z.strictObject({
   timeoutMs: z.number().int().min(5000).max(300000),
 });
 export type CliPreference = z.infer<typeof CliPreferenceSchema>;
+export const CliPermissionsSchema = z.strictObject({
+  chat: z.boolean(),
+  selectedFiles: z.boolean(),
+});
+export const CliAccessSchema = z.strictObject({
+  id: CliIdSchema,
+  identity: z.string().regex(/^[a-f0-9]{64}$/),
+  ...CliPermissionsSchema.shape,
+});
+export type CliAccess = z.infer<typeof CliAccessSchema>;
+export const CliRefreshSchema = z.strictObject({ force: z.boolean().optional() });
+export const CliTrustSchema = z.strictObject({
+  ready: z.boolean().default(true),
+  id: CliIdSchema,
+  identity: z.string().regex(/^[a-f0-9]{64}$/),
+  testedAt: z.iso.datetime(),
+  streaming: z.enum(['supported', 'unknown']),
+  permissions: CliPermissionsSchema,
+});
 export const CliViewSchema = z.strictObject({
   id: CliIdSchema,
   profileId: z.uuid(),
@@ -37,6 +56,11 @@ export const CliViewSchema = z.strictObject({
   text: z.enum(['supported', 'unknown']),
   revision: z.number().int().nonnegative(),
   conversationRevision: z.number().int().nonnegative().optional(),
+  accessIdentity: z
+    .string()
+    .regex(/^[a-f0-9]{64}$/)
+    .optional(),
+  authorization: CliPermissionsSchema.optional(),
 });
 export type CliView = z.infer<typeof CliViewSchema>;
 export const CliTestSchema = z.strictObject({

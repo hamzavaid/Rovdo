@@ -18,6 +18,13 @@ import {
   SettingsResultSchema,
   CliPreferenceSchema,
   CliTestSchema,
+  CliAccessSchema,
+  CliRefreshSchema,
+  ChatPickSchema,
+  ChatReleaseSchema,
+  ChatFilesResultSchema,
+  DictationCommandSchema,
+  DictationResultSchema,
 } from '@rovdo/shared';
 import type { DesktopApi } from '@rovdo/shared';
 import { BROWSER_CHANNEL, BrowserCommandSchema, BrowserResultSchema } from '@rovdo/shared';
@@ -50,7 +57,20 @@ async function invoke<T>(
 }
 
 const api: DesktopApi = Object.freeze<DesktopApi>({
-  refreshClis: () => invoke(BYOK_CHANNELS.cliRefresh, {}, ResultSchema),
+  setCliAccess: (input) =>
+    invoke(BYOK_CHANNELS.cliAccess, validated(CliAccessSchema, input), ResultSchema),
+  pickChatFiles: (input) =>
+    invoke(BYOK_CHANNELS.filesPick, validated(ChatPickSchema, input), ChatFilesResultSchema),
+  releaseChatFiles: (input) =>
+    invoke(BYOK_CHANNELS.filesRelease, validated(ChatReleaseSchema, input), ResultSchema),
+  dictation: (input) =>
+    invoke(
+      BYOK_CHANNELS.dictation,
+      validated(DictationCommandSchema, input),
+      DictationResultSchema,
+    ),
+  refreshClis: (input) =>
+    invoke(BYOK_CHANNELS.cliRefresh, validated(CliRefreshSchema, input ?? {}), ResultSchema),
   saveCli: (input) =>
     invoke(BYOK_CHANNELS.cliSave, validated(CliPreferenceSchema, input), ResultSchema),
   testCli: (input) => invoke(BYOK_CHANNELS.cliTest, validated(CliTestSchema, input), ResultSchema),

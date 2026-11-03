@@ -7,7 +7,7 @@ export { RuntimeStore } from './runtime';
 export { CareerStore } from './career';
 import { ProviderConfigSchema, UsageRecordSchema, UsageSummarySchema } from '@rovdo/shared';
 import type { ProviderConfig } from '@rovdo/shared';
-import { CliPreferenceSchema } from '@rovdo/shared';
+import { CliPreferenceSchema, CliTrustSchema } from '@rovdo/shared';
 import type { CliPreference } from '@rovdo/shared';
 
 const migrations = [
@@ -27,6 +27,7 @@ const migrations = [
     version: 2,
     sql: 'CREATE TABLE cli_preference (id TEXT PRIMARY KEY, config_json TEXT NOT NULL);',
   },
+  { version: 3, sql: 'CREATE TABLE cli_trust (id TEXT PRIMARY KEY, json TEXT NOT NULL);' },
 ];
 
 export class SettingsStore {
@@ -56,6 +57,19 @@ export class SettingsStore {
   }
   journalMode(): string {
     return String(this.db.prepare('PRAGMA journal_mode').get()!.journal_mode);
+  }
+  cliTrust(id: string) {
+    const row = this.db.prepare('SELECT json FROM cli_trust WHERE id=?').get(id);
+    return row ? CliTrustSchema.parse(JSON.parse(String(row.json))) : null;
+  }
+  saveCliTrust(input: unknown) {
+    const value = CliTrustSchema.parse(input);
+    this.db
+      .prepare('INSERT INTO cli_trust VALUES(?,?) ON CONFLICT(id) DO UPDATE SET json=excluded.json')
+      .run(value.id, JSON.stringify(value));
+  }
+  clearCliTrust(id: string) {
+    this.db.prepare('DELETE FROM cli_trust WHERE id=?').run(id);
   }
   cliPreferences(): CliPreference[] {
     return this.db

@@ -25,7 +25,7 @@ void (async () => {
       bytes: Uint8Array;
       name: string;
       at: string;
-      purpose?: 'transcript';
+      purpose?: 'transcript' | 'chat';
     };
     const buffer = Buffer.from(bytes);
     Object.defineProperty(globalThis, 'Function', {
@@ -48,6 +48,15 @@ void (async () => {
     // Restore it only after untrusted binary parsing is complete.
     Object.defineProperty(globalThis, 'Function', { value: originalFunction, configurable: true });
     Object.defineProperty(globalThis, 'eval', { value: originalEval, configurable: true });
+    if (purpose === 'chat') {
+      const text = [
+        ...document.blocks.map((b) => b.text),
+        ...document.tables.flatMap((t) => t.rows.map((row) => JSON.stringify(row))),
+      ].join('\n');
+      if (Buffer.byteLength(text) > 64000) throw new Error('DOCUMENT_LIMIT');
+      parentPort?.postMessage({ ok: true, text });
+      return;
+    }
     const draft =
       purpose === 'transcript'
         ? previewTranscript(document, name, at)

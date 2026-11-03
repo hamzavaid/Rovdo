@@ -73,6 +73,7 @@ it('uses text-only CLI chat with committed context, unknown cost, no vault or wo
   const cli = {
     idForProfile: (id: string) => (id === profileId ? 'claude' : undefined),
     views: () => [{ id: 'claude', status: 'connected' }],
+    assertAccess: async () => {},
     adapter: async () => adapter,
     shutdown: async () => {},
   } as unknown as CliService;
@@ -152,6 +153,71 @@ it('validates CLI IPC, rejects paths/commands and prevents untrusted refresh', a
   });
   expect(refreshClis).toHaveBeenCalledTimes(1);
   expect(saveCli).not.toHaveBeenCalled();
+  for (const [channel, payload] of [
+    [BYOK_CHANNELS.filesPick, { kind: 'files', path: 'C:/private' }],
+    [BYOK_CHANNELS.filesRelease, { ids: ['C:/private'] }],
+    [
+      BYOK_CHANNELS.cliAccess,
+      { id: 'claude', identity: 'a'.repeat(64), chat: true, selectedFiles: true, browser: true },
+    ],
+    [BYOK_CHANNELS.dictation, { op: 'start', requestId: crypto.randomUUID() }],
+    [
+      BYOK_CHANNELS.dictation,
+      { op: 'start', requestId: crypto.randomUUID(), consent: true, command: 'whoami' },
+    ],
+  ] as const) {
+    expect(await handleByok(service, channel, payload, trusted, () => {})).toEqual({
+      ok: false,
+      code: 'VALIDATION_ERROR',
+    });
+    expect(
+      await handleByok(service, channel, payload, { ...trusted, isMainFrame: false }, () => {}),
+    ).toEqual({ ok: false, code: 'IPC_FORBIDDEN' });
+  }
+});
+
+it('rejects CLI chat before launching a process when persistent permission is absent', async () => {
+  const store = new SettingsStore(':memory:');
+  const adapter = vi.fn();
+  const cli = {
+    idForProfile: () => 'claude',
+    views: () => [{ id: 'claude', status: 'connected' }],
+    assertAccess: async () => {
+      throw new Error('CLI_AUTHORIZATION_REQUIRED');
+    },
+    adapter,
+    shutdown: async () => {},
+  } as unknown as CliService;
+  const service = new ByokService(
+    store,
+    { get: vi.fn(), has: vi.fn(), enter: vi.fn(), remove: vi.fn() },
+    undefined,
+    'test',
+    cli,
+  );
+  const events: ChatEvent[] = [];
+  try {
+    await service.run(
+      {
+        profileId,
+        requestId: crypto.randomUUID(),
+        text: 'private draft',
+        consent: true,
+        maxUsd: 1,
+        cliManagedCost: true,
+      },
+      (e) => events.push(e),
+    );
+    expect(events.at(-1)).toMatchObject({
+      type: 'done',
+      status: 'failed',
+      code: 'CLI_AUTHORIZATION_REQUIRED',
+    });
+    expect(adapter).not.toHaveBeenCalled();
+  } finally {
+    await service.shutdown();
+    store.close();
+  }
 });
 
 it('reserves CLI identity IDs so an API profile cannot masquerade as a CLI destination', async () => {
