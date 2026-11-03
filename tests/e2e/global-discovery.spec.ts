@@ -29,7 +29,7 @@ test('globally discovers an unsaved employer, separates scopes, exports and pers
         let data: unknown;
         let statusCode = 200;
         if (url.hostname === 'web.archive.org' && url.pathname !== '/robots.txt') {
-          if (url.searchParams.get('url') !== 'job-boards.greenhouse.io/a*') {
+          if (url.searchParams.get('url') !== 'job-boards.greenhouse.io/a') {
             data = {};
             statusCode = 429;
           } else data = [['original'], ['https://jobs.lever.co/unsaved-fixture/123']];
@@ -198,9 +198,12 @@ test('recovers an archive-only search through independent recommended feeds', as
     await page.getByRole('button', { name: 'Search', exact: true }).click();
     await page.getByText('Collection health (1)', { exact: true }).click();
     await expect(
-      page.getByText('Source temporarily unavailable (HTTP 503). Other sources continue.', {
-        exact: true,
-      }),
+      page.getByText(
+        'A Wayback query or index page was unavailable. Continuing with bounded pages or other ATS hosts; coverage is partial.',
+        {
+          exact: true,
+        },
+      ),
     ).toBeVisible({ timeout: 15000 });
     await page
       .getByRole('button', { name: 'Search with recommended sources', exact: true })

@@ -34,6 +34,9 @@ export type DiscoveryPage = {
   next: Record<string, unknown> | null;
   rejected: number;
   rawPageHash?: string;
+  /** Failed archive scope is retained as a blocked checkpoint before continuing. */
+  warning?: 'ARCHIVE_INDEX_UNAVAILABLE' | 'ARCHIVE_HOST_UNAVAILABLE';
+  retryAfterMs?: number;
 };
 export type DiscoveryRead = (
   url: string,

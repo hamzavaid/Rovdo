@@ -20,6 +20,7 @@ import {
   fetchDiscoveryPage,
   feedFromUrl,
   inspectCareerPage,
+  publicBoardName,
   normalizeDiscoveryJob,
   permittedPage,
   robotsAllow,
@@ -217,6 +218,7 @@ export class GlobalDiscoveryEngine {
     kind: DiscoveryTask['kind'],
     payload: Record<string, unknown>,
     priority = 0,
+    nextAt = 0,
   ) {
     const key =
       kind === 'resolve'
@@ -231,7 +233,7 @@ export class GlobalDiscoveryEngine {
       kind,
       payload,
       status: 'pending',
-      nextAt: 0,
+      nextAt,
       attempts: 0,
       error: null,
       priority,
@@ -276,7 +278,10 @@ export class GlobalDiscoveryEngine {
     return async (url, headers) => {
       if (signal.aborted || this.stopping) throw new Error('CANCELED');
       if (!permittedPage(url)) throw new Error('POLICY_BLOCKED');
-      const cached = this.store.global.cache(url, Date.now());
+      // Immutable Common Crawl objects use multiple independent byte ranges.
+      // URL-only cache keys would replay the first window for every later range.
+      const cacheKey = headers?.range ? `${url}#rovdo-range=${headers.range}` : url;
+      const cached = this.store.global.cache(cacheKey, Date.now());
       if (cached)
         return {
           status: cached.status,
@@ -288,7 +293,7 @@ export class GlobalDiscoveryEngine {
       const work = previous
         .catch(() => {})
         .then(async () => {
-          const cachedAgain = this.store.global.cache(url, Date.now());
+          const cachedAgain = this.store.global.cache(cacheKey, Date.now());
           if (cachedAgain)
             return {
               status: cachedAgain.status,
@@ -316,7 +321,11 @@ export class GlobalDiscoveryEngine {
           this.store.global.note(run.id, task.sourceId, 'collecting', 0, 0, null, 1);
           let response: PublicResponse;
           try {
-            response = await this.transport(url, { signal, ...(headers ? { headers } : {}) });
+            response = await this.transport(url, {
+              signal,
+              ...(headers ? { headers } : {}),
+              ...(task.sourceId === 'wayback' ? { timeoutMs: 30000 } : {}),
+            });
           } catch (error) {
             const code =
               typeof error === 'object' && error && 'code' in error ? String(error.code) : '';
@@ -345,10 +354,21 @@ export class GlobalDiscoveryEngine {
           }
           if (response.status >= 300 && response.status < 400)
             this.store.global.fail(url, `HTTP_${response.status}`, Date.now() + 3600000);
-          if (response.status >= 300 && response.status !== 404 && response.status !== 410)
-            throw new DiscoveryHttpError(response.status);
+          if (response.status >= 300 && response.status !== 404 && response.status !== 410) {
+            const retry = response.headers['retry-after'];
+            const wait =
+              retry && Number.isFinite(Number(retry))
+                ? Number(retry) * 1000
+                : retry
+                  ? Date.parse(retry) - Date.now()
+                  : 0;
+            throw new DiscoveryHttpError(
+              response.status,
+              Number.isFinite(wait) ? Math.max(0, wait) : 0,
+            );
+          }
           const capturedAt = Date.now();
-          if (response.status === 200) {
+          if (response.status === 200 || (response.status === 206 && headers?.range)) {
             const ttl =
               origin === 'https://remotive.com'
                 ? 21600000
@@ -356,7 +376,7 @@ export class GlobalDiscoveryEngine {
                   ? 86400000
                   : 3600000;
             this.store.global.putCache(
-              url,
+              cacheKey,
               { ...response, body: response.body.toString('base64'), capturedAt },
               Date.now() + ttl,
             );
@@ -432,6 +452,19 @@ export class GlobalDiscoveryEngine {
       } else if (task.kind === 'provider') {
         const page = await fetchDiscoveryPage(task.sourceId, task.payload, read);
         this.assertActive(run, signal);
+        if (page.warning && page.next) {
+          this.store.global.saveTask({ ...task, status: 'blocked', error: page.warning });
+          this.enqueue(
+            run,
+            task.sourceId,
+            'provider',
+            page.next,
+            task.priority - 0.001,
+            Date.now() + (page.retryAfterMs ?? 60000),
+          );
+          this.store.global.note(run.id, task.sourceId, 'partial', 0, 0, page.warning);
+          return;
+        }
         const source = DISCOVERY_SOURCES.find((s) => s.id === task.sourceId)!;
         const config = this.store.globalSource(source.id, source.name, source.url);
         const jobs: Job[] = [];
@@ -466,7 +499,12 @@ export class GlobalDiscoveryEngine {
               run,
               task.sourceId,
               'resolve',
-              { url, company: record.company, title: record.title },
+              {
+                url,
+                company: record.company,
+                title: record.title,
+                archive: ['wayback', 'common-crawl'].includes(task.sourceId),
+              },
               this.priority(run, record),
             );
         }
@@ -477,6 +515,7 @@ export class GlobalDiscoveryEngine {
           this.store.global.visitCursor(task.id, task.payload, page.next);
           if (
             typeof page.next.page === 'number' &&
+            !['wayback', 'common-crawl'].includes(task.sourceId) &&
             task.payload.lastPageHash === hash &&
             page.records.length
           )
@@ -592,33 +631,60 @@ export class GlobalDiscoveryEngine {
     const url = canonicalUrl(String(task.payload.url));
     if (!permittedPage(url)) throw new Error('POLICY_BLOCKED');
     const direct = feedFromUrl(url);
-    const company = typeof task.payload.company === 'string' ? task.payload.company : '';
-    if (direct) this.store.global.rememberCompany(direct, company, url, Date.now());
+    const pageUrl =
+      direct && task.payload.archive === true ? `${new URL(url).origin}/${direct.tenant}` : url;
+    let company = typeof task.payload.company === 'string' ? task.payload.company : '';
+    if (direct && !company && task.payload.archive === true && direct.ats === 'greenhouse') {
+      const response = await read(`https://boards-api.greenhouse.io/v1/boards/${direct.tenant}`);
+      if (response.status !== 200) throw new DiscoveryHttpError(response.status);
+      const metadata = z
+        .object({ name: z.string().trim().min(1).max(200) })
+        .parse(JSON.parse(response.body.toString('utf8')));
+      company = metadata.name;
+    }
+    if (direct) this.store.global.rememberCompany(direct, company, pageUrl, Date.now());
     if (direct && company) {
       this.enqueue(
         run,
         task.sourceId,
         'ats',
-        { feed: direct, company: company || direct.tenant, pageUrl: url },
+        { feed: direct, company, pageUrl, listingUrl: url },
         2000,
       );
       this.store.global.saveTask({ ...task, status: 'done' });
       return;
     }
-    const robotsUrl = new URL('/robots.txt', url).href;
+    const robotsUrl = new URL('/robots.txt', pageUrl).href;
     const robots = await read(robotsUrl);
     if (
       robots.status !== 404 &&
       (robots.status !== 200 ||
-        !robotsAllow(robots.body.toString('utf8'), new URL(url).pathname + new URL(url).search))
+        !robotsAllow(
+          robots.body.toString('utf8'),
+          new URL(pageUrl).pathname + new URL(pageUrl).search,
+        ))
     )
       throw new Error('ROBOTS_BLOCKED');
-    const response = await read(url);
+    const response = await read(pageUrl);
     if (response.status !== 200) throw new DiscoveryHttpError(response.status);
     const html = response.body.toString('utf8');
     if (/captcha|verify (?:you are|your identity)|access denied|cf-chl-/i.test(html))
       throw new Error('CHALLENGE_BLOCKED');
-    const inspection = inspectCareerPage(html, url, company, true);
+    if (direct && !company && task.payload.archive === true) {
+      const name = publicBoardName(html, pageUrl);
+      if (name) {
+        this.enqueue(
+          run,
+          task.sourceId,
+          'ats',
+          { feed: direct, company: name, pageUrl, listingUrl: url },
+          2000,
+        );
+        this.store.global.saveTask({ ...task, status: 'done' });
+        return;
+      }
+    }
+    const inspection = inspectCareerPage(html, pageUrl, company, true);
     this.assertActive(run, signal);
     let resolved = false;
     for (const raw of inspection.postings) {
@@ -751,7 +817,11 @@ export class GlobalDiscoveryEngine {
       jobs.length,
       page.quarantine?.length ?? 0,
     );
-    this.store.global.updateListing(run.id, String(task.payload.pageUrl), 'resolved');
+    this.store.global.updateListing(
+      run.id,
+      String(task.payload.listingUrl ?? task.payload.pageUrl),
+      'resolved',
+    );
     if (page.nextCursor === state.cursor && page.nextCursor !== null)
       throw new Error('NON_ADVANCING_PAGE');
     this.store.global.saveTask({

@@ -12,6 +12,7 @@ import type { Job, SourceConfig, SourceState } from '@rovdo/shared';
 import { extractRequirements, roleOf } from '@rovdo/career';
 import { inspectCareerPage, permittedPage, robotsAllow } from './directory';
 export * from './directory';
+export { publicBoardName } from './board-name';
 import { readPublic } from '@rovdo/shared/network';
 import type { PublicResponse, ReadOptions } from '@rovdo/shared/network';
 

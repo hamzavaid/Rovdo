@@ -28,14 +28,19 @@ export type ReadOptions = {
   headers?: Record<string, string>;
   signal?: AbortSignal;
   fixtureOrigin?: string;
+  /** Privileged callers may bound slow archive reads; no renderer-controlled deadlines. */
+  timeoutMs?: number;
 };
 
 // The browser never connects to origin servers itself: resolve, validate and pin
 // each request here. Redirects are returned to Chromium and checked again.
 export async function readPublic(url: string, options: ReadOptions = {}): Promise<PublicResponse> {
+  const timeoutMs = options.timeoutMs ?? 15000;
+  if (!Number.isSafeInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > 60000)
+    throw new Error('INVALID_TIMEOUT');
   const signal = AbortSignal.any([
     options.signal ?? new AbortController().signal,
-    AbortSignal.timeout(15000),
+    AbortSignal.timeout(timeoutMs),
   ]);
   signal.throwIfAborted();
   const target = new URL(url);

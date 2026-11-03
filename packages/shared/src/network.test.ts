@@ -1,6 +1,14 @@
 import { describe, expect, it } from 'vitest';
 import { publicAddress, readPublic } from './network';
 describe('public read transport', () => {
+  it.each([0, 60001, NaN])(
+    'rejects an invalid request deadline %s before network I/O',
+    async (timeoutMs) => {
+      await expect(readPublic('http://127.0.0.1', { timeoutMs })).rejects.toThrow(
+        'INVALID_TIMEOUT',
+      );
+    },
+  );
   it.each([
     '127.0.0.1',
     '10.1.2.3',

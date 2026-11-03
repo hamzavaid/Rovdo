@@ -20,6 +20,9 @@ it('bounds unavailable archive retries, keeps independent feeds running and repo
       sourceIds: ['wayback', 'common-crawl', 'remotive', 'lever'],
       overrides: {},
     });
+    // Final host has no further scope; verify its terminal retries remain bounded.
+    const archive = store.global.ready(id, Date.now(), 10).find((t) => t.sourceId === 'wayback')!;
+    store.global.saveTask({ ...archive, payload: { target: 6 } });
     await engine.tick();
     await engine.tick();
     expect(store.global.coverage(id).find((s) => s.sourceId === 'wayback')?.error).toBe(

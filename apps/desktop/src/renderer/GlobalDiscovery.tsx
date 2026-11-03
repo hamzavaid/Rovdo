@@ -25,6 +25,10 @@ function sourceReason(code: string | null): string {
         NO_EMPLOYERS_DISCOVERED:
           'No company boards were found for this ATS. Enable public job lists or feeds to discover employers.',
         SOURCE_RESPONSE_ERROR: 'Source request failed. Other sources continue; try again later.',
+        ARCHIVE_INDEX_UNAVAILABLE:
+          'The Common Crawl query service was unavailable. Continuing through public index files or older published collections; coverage is partial.',
+        ARCHIVE_HOST_UNAVAILABLE:
+          'A Wayback query or index page was unavailable. Continuing with bounded pages or other ATS hosts; coverage is partial.',
         HTTP_429: 'Source rate limit reached. Waiting for its retry window.',
       } as Record<string, string>
     )[code] ?? code
