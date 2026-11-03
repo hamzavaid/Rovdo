@@ -35,9 +35,12 @@ export function Chat({
   const [voiceDialog, setVoiceDialog] = useState(false),
     [voiceConsent, setVoiceConsent] = useState(false);
   const voice = useRef<string | null>(null);
+  const lastSegment = useRef(-1);
+  const [interim, setInterim] = useState('');
   const stickToBottom = useRef(true);
   const [profileId, setProfileId] = useState('');
   const [text, setText] = useState('');
+  const draft = text + (interim ? (text.trim() ? ' ' : '') + interim : '');
   const [consent, setConsent] = useState(false);
   const [budget, setBudget] = useState('1');
   const [budgetOpen, setBudgetOpen] = useState(false);
@@ -104,7 +107,16 @@ export function Chat({
     return window.rovdo.onChatEvent((event) => {
       if (event.type === 'dictation') {
         if (event.requestId !== voice.current) return;
+        if (event.state === 'interim') {
+          setInterim(event.text ?? '');
+          setVoiceState('processing');
+          return;
+        }
         if (event.state === 'text' && event.text) {
+          if (event.segment !== undefined && event.segment <= lastSegment.current) return;
+          if (event.segment !== undefined) lastSegment.current = event.segment;
+          setInterim('');
+          setVoiceState('listening');
           const value = event.text;
           setText((previous) => (previous + (previous.trim() ? ' ' : '') + value).slice(0, 32000));
           setConsent(false);
@@ -115,6 +127,7 @@ export function Chat({
               ? previous
               : event.state,
           );
+        if (event.state === 'listening' || event.state === 'stopped') setInterim('');
         if (event.state === 'stopped') voice.current = null;
         return;
       }
@@ -161,10 +174,13 @@ export function Chat({
       profile.config.capabilities.streaming === 'supported' &&
       !!profile.config.pricing;
   const approved = cli ? !!cli.authorization?.chat : consent;
-  const speaking = voiceState === 'listening' || voiceState === 'starting';
-  function stopVoice() {
+  const speaking = ['listening', 'starting', 'processing'].includes(voiceState);
+  function stopVoice(keepInterim = false) {
+    if (keepInterim && interim)
+      setText((previous) => previous + (previous.trim() ? ' ' : '') + interim);
     const id = voice.current;
     voice.current = null;
+    setInterim('');
     setVoiceState('stopped');
     if (id) void window.rovdo?.dictation({ op: 'stop', requestId: id }).catch(() => {});
   }
@@ -173,6 +189,8 @@ export function Chat({
     setVoiceDialog(false);
     const requestId = crypto.randomUUID();
     voice.current = requestId;
+    lastSegment.current = -1;
+    setInterim('');
     setVoiceState('starting');
     try {
       const result = await window.rovdo!.dictation({ op: 'start', requestId, consent: true });
@@ -255,7 +273,7 @@ export function Chat({
     return cleared;
   }
   async function send() {
-    if (!ready || !approved || busy || resetting || picking || active.current || !text.trim())
+    if (!ready || !approved || busy || resetting || picking || active.current || !draft.trim())
       return;
     stopVoice();
     stickToBottom.current = true;
@@ -267,15 +285,15 @@ export function Chat({
       ...previous,
       {
         role: 'You',
-        text: text.trim(),
-        content: composeChatText(text.trim(), attachments),
+        text: draft.trim(),
+        content: composeChatText(draft.trim(), attachments),
         attachments,
         requestId: id,
         included: false,
       },
       { role: 'Rovdo', text: '', requestId: id, included: false },
     ]);
-    const outgoing = text.trim();
+    const outgoing = draft.trim();
     const selected = attachments;
     setAttachments([]);
     setText('');
@@ -503,13 +521,14 @@ export function Chat({
           <span className="sr-only">Message</span>
           <textarea
             aria-label="Message"
-            value={text}
+            value={draft}
             disabled={busy || resetting || picking}
             maxLength={32000}
             required
             rows={3}
             placeholder="Message Rovdo..."
             onChange={(event) => {
+              if (speaking) stopVoice();
               setText(event.target.value);
               setConsent(false);
             }}
@@ -567,7 +586,7 @@ export function Chat({
                   : 'Local dictation requires Windows and an installed speech recognizer'
               }
               onClick={() => {
-                if (speaking) stopVoice();
+                if (speaking) stopVoice(true);
                 else if (voiceConsent) void startVoice();
                 else setVoiceDialog(true);
               }}
@@ -599,7 +618,7 @@ export function Chat({
                 className="primary-button"
                 type="submit"
                 aria-label="Send message"
-                disabled={!ready || !approved || resetting || picking || !text.trim()}
+                disabled={!ready || !approved || resetting || picking || !draft.trim()}
               >
                 Send
               </button>
@@ -610,7 +629,14 @@ export function Chat({
           <p className="chat-listening" role="status">
             {voiceState === 'starting'
               ? 'Starting local microphone...'
-              : 'Listening locally... Click the microphone to stop.'}
+              : voiceState === 'processing'
+                ? 'Processing speech locally...'
+                : 'Listening locally... Click the microphone to stop.'}
+          </p>
+        )}
+        {voiceConsent && voiceState === 'stopped' && (
+          <p className="help-text" role="status">
+            Dictation stopped
           </p>
         )}
         {['unavailable', 'permission-denied', 'failed'].includes(voiceState) && (
@@ -637,7 +663,7 @@ export function Chat({
               </p>
             ))}
           <p className="payload-preview">
-            <strong>New message:</strong> {composeChatText(text, attachments) || '(empty)'}
+            <strong>New message:</strong> {composeChatText(draft.trim(), attachments) || '(empty)'}
           </p>
         </details>
         {!cli && (

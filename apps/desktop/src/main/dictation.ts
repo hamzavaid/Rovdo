@@ -4,31 +4,51 @@ import { DictationEventSchema } from '@rovdo/shared';
 import type { DictationEvent } from '@rovdo/shared';
 import { CliRuntime } from './cli-runtime';
 // Static application code only: user text, paths and arguments are never interpolated.
-const script = String.raw`
+export const WINDOWS_DICTATION_SCRIPT = String.raw`
 $ErrorActionPreference='Stop'
 [Console]::OutputEncoding=[System.Text.UTF8Encoding]::new($false)
-try {
- Add-Type -AssemblyName System.Speech
- $engines=[System.Speech.Recognition.SpeechRecognitionEngine]::InstalledRecognizers()
- if($engines.Count -eq 0){[Console]::WriteLine('{"state":"unavailable"}');exit 0}
- $engine=[System.Speech.Recognition.SpeechRecognitionEngine]::new($engines[0])
- $engine.LoadGrammar([System.Speech.Recognition.DictationGrammar]::new())
- $engine.SetInputToDefaultAudioDevice()
- $null=Register-ObjectEvent $engine SpeechRecognized -SourceIdentifier RovdoSpeech
- $engine.RecognizeAsync([System.Speech.Recognition.RecognizeMode]::Multiple)
- [Console]::WriteLine('{"state":"listening"}')
- while($true){
-  $event=Wait-Event -SourceIdentifier RovdoSpeech -Timeout 1
-  if($null -ne $event){
-   $text=$event.SourceEventArgs.Result.Text
-   if($text.Length -le 4000){[Console]::WriteLine((@{state='text';text=$text}|ConvertTo-Json -Compress))}
-   Remove-Event -EventIdentifier $event.EventIdentifier
+Add-Type -AssemblyName System.Speech
+Add-Type -ReferencedAssemblies System.Speech -TypeDefinition @'
+using System;
+using System.Speech.Recognition;
+using System.Threading;
+public static class RovdoSpeech {
+ static readonly object Gate = new object();
+ static int segment;
+ static void Emit(string state, string text = null) {
+  lock(Gate) {
+   string escaped = text == null ? "" : text.Replace("\\", "\\\\").Replace("\"", "\\\"").Replace("\r", " ").Replace("\n", " ").Replace("\t", " ");
+   if(escaped.Length > 4000) return;
+   Console.WriteLine("{\"state\":\""+state+"\",\"segment\":"+segment+(text==null ? "" : ",\"text\":\""+escaped+"\"")+"}");
+   Console.Out.Flush();
   }
  }
-} catch {
- if($_.Exception.HResult -eq -2147024891){[Console]::WriteLine('{"state":"permission-denied"}')}
- else{[Console]::WriteLine('{"state":"unavailable"}')}
-} finally {if($null -ne $engine){$engine.Dispose()}}
+ public static void Run(string wave) {
+  try {
+   var installed=SpeechRecognitionEngine.InstalledRecognizers();
+   if(installed.Count==0) { Emit("unavailable"); return; }
+   using(var engine=new SpeechRecognitionEngine(installed[0]))
+   using(var done=new ManualResetEvent(false)) {
+    engine.LoadGrammar(new DictationGrammar());
+    engine.SpeechDetected += (sender,e) => Emit("processing");
+    engine.SpeechHypothesized += (sender,e) => Emit("interim",e.Result.Text);
+    engine.SpeechRecognized += (sender,e) => { lock(Gate) { Emit("text",e.Result.Text); segment++; } Emit("listening"); };
+    engine.SpeechRecognitionRejected += (sender,e) => { lock(Gate) { segment++; } Emit("listening"); };
+    engine.RecognizeCompleted += (sender,e) => { if(e.Error!=null) Emit("failed"); done.Set(); };
+    if(wave==null) engine.SetInputToDefaultAudioDevice(); else engine.SetInputToWaveFile(wave);
+    Emit("listening");
+    engine.RecognizeAsync(RecognizeMode.Multiple);
+    done.WaitOne(295000);
+    engine.RecognizeAsyncCancel();
+   }
+  } catch(Exception error) {
+   while(error.InnerException!=null) error=error.InnerException;
+   Emit(error.HResult == -2147024891 ? "permission-denied" : "unavailable");
+  }
+ }
+}
+'@
+[RovdoSpeech]::Run($null)
 `;
 export class DictationService {
   private active: {
@@ -72,7 +92,7 @@ export class DictationService {
           '-NoProfile',
           '-NonInteractive',
           '-EncodedCommand',
-          Buffer.from(script, 'utf16le').toString('base64'),
+          Buffer.from(WINDOWS_DICTATION_SCRIPT, 'utf16le').toString('base64'),
         ],
         '',
         controller.signal,
@@ -95,7 +115,10 @@ export class DictationService {
         },
       )
       .then(
-        () => {},
+        (result) => {
+          if (result.exitCode !== 0 && this.active?.id === id && !controller.signal.aborted)
+            send({ type: 'dictation', requestId: id, state: 'failed' });
+        },
         () => {
           if (this.active?.id === id && !controller.signal.aborted)
             send({ type: 'dictation', requestId: id, state: 'failed' });

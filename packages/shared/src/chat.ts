@@ -33,11 +33,14 @@ export const DictationEventSchema = z.strictObject({
     'starting',
     'listening',
     'text',
+    'interim',
+    'processing',
     'stopped',
     'unavailable',
     'permission-denied',
     'failed',
   ]),
   text: z.string().max(4000).optional(),
+  segment: z.number().int().nonnegative().optional(),
 });
 export type DictationEvent = z.infer<typeof DictationEventSchema>;

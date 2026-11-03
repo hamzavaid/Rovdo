@@ -23,12 +23,14 @@ test('dictates into a draft only, stops on navigation, and keeps the composer re
             requestId: command.requestId,
             state: 'listening',
           });
-          event.sender.send('chat:event', {
-            type: 'dictation',
-            requestId: command.requestId,
-            state: 'text',
-            text: 'A dictated draft',
-          });
+          for (const state of ['processing', 'interim', 'text', 'text'])
+            event.sender.send('chat:event', {
+              type: 'dictation',
+              requestId: command.requestId,
+              state,
+              segment: 0,
+              text: 'A dictated draft',
+            });
         }
         if (command.op === 'stop') {
           event.sender.send('chat:event', {

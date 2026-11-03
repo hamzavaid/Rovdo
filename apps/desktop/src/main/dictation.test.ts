@@ -2,6 +2,19 @@ import { expect, it } from 'vitest';
 import { DictationService } from './dictation';
 import type { DictationEvent } from '@rovdo/shared';
 import type { CliRuntime } from './cli-runtime';
+it('reports native initialization exit failures instead of silently stopping', async () => {
+  const events: DictationEvent[] = [];
+  const runtime = {
+    run: async () => ({ stdout: '', stderr: 'private diagnostic', exitCode: 1 }),
+    shutdown: async () => {},
+  } as unknown as CliRuntime;
+  const service = new DictationService(runtime, 'win32');
+  service.start(crypto.randomUUID(), (event) => events.push(event));
+  await new Promise<void>((resolve) => setImmediate(resolve));
+  expect(events.some((event) => event.state === 'failed')).toBe(true);
+  expect(JSON.stringify(events)).not.toContain('private diagnostic');
+  await service.shutdown();
+});
 it('runs only the fixed local recognizer, gates unsupported systems, and cancels late events', async () => {
   const events: DictationEvent[] = [];
   let output!: (value: string) => void;

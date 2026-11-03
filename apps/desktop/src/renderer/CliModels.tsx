@@ -297,7 +297,7 @@ export function CliModels({
       </p>
       <OperationStatus label={label} />
       <div className="cli-list">
-        {views.map((view) => (
+        {[...new Map(views.map((view) => [view.id, view])).values()].map((view) => (
           <CliCard
             view={view}
             key={view.id}
