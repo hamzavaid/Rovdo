@@ -219,7 +219,7 @@ h1 {
   }
 }
 
-/* Global collection keeps the 126-source catalog secondary and its live progress visible. */
+/* Global collection keeps the supported-source catalog secondary and its live progress visible. */
 .global-discovery {
   margin-block: var(--space-4, 16px);
 }

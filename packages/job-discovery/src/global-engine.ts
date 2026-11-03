@@ -28,7 +28,7 @@ import {
   DiscoveryHttpError,
   DiscoveryPolicyError,
 } from '@rovdo/job-sources';
-import type { DiscoveryRead, DiscoveryRecord, DiscoveryPage } from '@rovdo/job-sources';
+import type { DiscoveryRead, DiscoveryRecord } from '@rovdo/job-sources';
 import { stable } from '@rovdo/career';
 import { discoveryQueries } from './queries';
 const initialState = () =>
@@ -60,32 +60,14 @@ export class GlobalDiscoveryEngine {
   private origins = new Map<string, Promise<unknown>>();
   private readonly transport: (url: string, options?: ReadOptions) => Promise<PublicResponse>;
   private readonly sleep: (ms: number, signal?: AbortSignal) => Promise<void>;
-  private readonly jobspy:
-    | ((
-        sourceId: string,
-        payload: Record<string, unknown>,
-        read: DiscoveryRead,
-        signal: AbortSignal,
-      ) => Promise<DiscoveryPage>)
-    | undefined;
-  private readonly jobspyUrl: ((sourceId: string, url: string) => boolean) | undefined;
   constructor(
     private readonly store: CareerStore,
     options: {
       transport?: (url: string, options?: ReadOptions) => Promise<PublicResponse>;
       sleep?: (ms: number, signal?: AbortSignal) => Promise<void>;
-      jobspy?: (
-        sourceId: string,
-        payload: Record<string, unknown>,
-        read: DiscoveryRead,
-        signal: AbortSignal,
-      ) => Promise<DiscoveryPage>;
-      jobspyUrl?: (sourceId: string, url: string) => boolean;
     } = {},
   ) {
     this.transport = options.transport ?? readPublic;
-    this.jobspy = options.jobspy;
-    this.jobspyUrl = options.jobspyUrl;
     this.sleep =
       options.sleep ??
       (async (ms, signal) => {
@@ -96,10 +78,6 @@ export class GlobalDiscoveryEngine {
   start(input: DiscoveryOptions): string {
     const options = DiscoveryOptionsSchema.parse(input);
     if (!options.sourceIds.length) throw new Error('SELECT_SOURCES');
-    if (options.indexUrl) {
-      const u = new URL(options.indexUrl);
-      if (!permittedPage(u.href) || u.search || u.hash) throw new Error('INDEX_CONFIGURATION');
-    }
     for (const id of options.sourceIds)
       if (!DISCOVERY_SOURCES.some((s) => s.id === id)) throw new Error('UNKNOWN_SOURCE');
     const profile = this.store.profile();
@@ -137,44 +115,36 @@ export class GlobalDiscoveryEngine {
       reason: null,
     };
     this.store.global.saveRun(run);
+    if (
+      options.sourceIds.some((id) =>
+        ['greenhouse', 'lever', 'ashby', 'smartrecruiters'].includes(id),
+      )
+    ) {
+      // Prime the queue synchronously: cached employers must not wait behind slow archive reads.
+      const known = this.store.global.companyBatch('', 50, true);
+      for (const row of known)
+        if (row.company)
+          this.enqueue(
+            run,
+            'company-inventory',
+            'ats',
+            {
+              feed: { ats: row.ats, tenant: row.tenant, region: row.region },
+              company: row.company,
+              pageUrl: row.pageUrl,
+            },
+            2000,
+          );
+      this.enqueue(
+        run,
+        'company-inventory',
+        'provider',
+        { after: known.at(-1)?.identity ?? '', validated: known.length > 0 },
+        10,
+      );
+    }
     for (const id of [...new Set(options.sourceIds)]) {
       const source = DISCOVERY_SOURCES.find((s) => s.id === id)!;
-      if (source.adapter === 'jobspy') {
-        if (!this.jobspy || !this.store.jobSpySettings().enabled) {
-          this.store.global.note(
-            run.id,
-            id,
-            'disabled',
-            0,
-            0,
-            'Enable optional JobSpy in Discovery settings after reviewing risks and source policies.',
-          );
-          continue;
-        }
-        const shared = options.filters;
-        const locations = shared?.location
-          ? [shared.location]
-          : profile?.preferences.locations.length
-            ? profile.preferences.locations
-            : [''];
-        for (const query of queries)
-          for (const location of locations)
-            this.enqueue(run, id, 'provider', {
-              query: shared
-                ? query
-                : [query, options.overrides[id]?.keywords].filter(Boolean).join(' ').slice(0, 500),
-              location: shared ? location : (options.overrides[id]?.location ?? location),
-              workMode:
-                shared?.workMode ??
-                (profile?.preferences.workModes.length === 1
-                  ? profile.preferences.workModes[0]
-                  : 'all'),
-              employmentType: shared?.employmentType ?? 'all',
-              ...(shared?.freshnessDays ? { freshnessDays: shared.freshnessDays } : {}),
-              offset: 0,
-            });
-        continue;
-      }
       if (['blocked', 'unsupported'].includes(source.status)) {
         this.store.global.note(run.id, id, source.status, 0, 0, source.limitation);
         continue;
@@ -183,28 +153,7 @@ export class GlobalDiscoveryEngine {
         this.store.global.note(run.id, id, 'waiting-for-discovered-employers');
         continue;
       }
-      if (source.adapter === 'index' && !options.indexUrl) {
-        this.store.global.note(
-          run.id,
-          id,
-          'needs-configuration',
-          0,
-          0,
-          'Configure a permitted SearXNG JSON endpoint.',
-        );
-        continue;
-      }
-      if (source.adapter === 'index')
-        for (const query of queries)
-          this.enqueue(run, id, 'provider', {
-            query: [query, options.overrides[id]?.keywords, options.overrides[id]?.location]
-              .filter(Boolean)
-              .join(' ')
-              .slice(0, 500),
-            indexUrl: options.indexUrl,
-            page: 1,
-          });
-      else {
+      {
         this.enqueue(run, id, 'provider', {});
         if (source.adapter === 'himalayas')
           for (const query of queries)
@@ -239,7 +188,7 @@ export class GlobalDiscoveryEngine {
           ? JSON.stringify(payload.feed)
           : stable(payload);
     this.store.global.enqueue({
-      id: sha256(run.id + sourceId + kind + key),
+      id: sha256(run.id + (kind === 'ats' ? '' : sourceId) + kind + key),
       runId: run.id,
       sourceId,
       kind,
@@ -267,20 +216,9 @@ export class GlobalDiscoveryEngine {
       if (this.stopping) break;
       const controller = this.controllers.get(run.id) ?? new AbortController();
       this.controllers.set(run.id, controller);
-      let jobspyScheduled = false;
       await Promise.all(
         this.store.global
           .ready(run.id, Date.now(), 3)
-          .filter((t) => {
-            if (
-              t.kind !== 'provider' ||
-              DISCOVERY_SOURCES.find((s) => s.id === t.sourceId)?.adapter !== 'jobspy'
-            )
-              return true;
-            if (jobspyScheduled) return false;
-            jobspyScheduled = true;
-            return true;
-          })
           .map((t) => this.process(run, t, controller.signal)),
       );
       if (
@@ -300,20 +238,7 @@ export class GlobalDiscoveryEngine {
   private reader(run: DiscoveryRun, task: DiscoveryTask, signal: AbortSignal): DiscoveryRead {
     return async (url, headers) => {
       if (signal.aborted || this.stopping) throw new Error('CANCELED');
-      const jobspySource =
-        task.kind === 'provider' &&
-        DISCOVERY_SOURCES.find((s) => s.id === task.sourceId)?.adapter === 'jobspy';
-      if (jobspySource && !this.store.jobSpySettings().enabled)
-        throw new DiscoveryPolicyError('JOBSPY_DISABLED');
-      if (
-        !(
-          jobspySource &&
-          this.store.jobSpySettings().enabled &&
-          this.jobspyUrl?.(task.sourceId, url)
-        ) &&
-        !permittedPage(url)
-      )
-        throw new Error('POLICY_BLOCKED');
+      if (!permittedPage(url)) throw new Error('POLICY_BLOCKED');
       const cached = this.store.global.cache(url, Date.now());
       if (cached)
         return {
@@ -429,14 +354,37 @@ export class GlobalDiscoveryEngine {
     };
     try {
       this.assertActive(run, signal);
-      if (task.kind === 'provider') {
-        const optional =
-          DISCOVERY_SOURCES.find((s) => s.id === task.sourceId)?.adapter === 'jobspy';
-        if (optional && (!this.jobspy || !this.store.jobSpySettings().enabled))
-          throw new DiscoveryPolicyError('JOBSPY_DISABLED');
-        const page = optional
-          ? await this.jobspy!(task.sourceId, task.payload, read, signal)
-          : await fetchDiscoveryPage(task.sourceId, task.payload, read);
+      if (task.kind === 'provider' && task.sourceId === 'company-inventory') {
+        const rows = this.store.global.companyBatch(
+          String(task.payload.after ?? ''),
+          50,
+          task.payload.validated === true,
+        );
+        for (const row of rows)
+          if (row.company)
+            this.enqueue(
+              run,
+              'company-inventory',
+              'ats',
+              {
+                feed: { ats: row.ats, tenant: row.tenant, region: row.region },
+                company: row.company || row.tenant,
+                pageUrl: row.pageUrl,
+              },
+              2000,
+            );
+        const next = rows.length
+          ? { ...task.payload, after: rows.at(-1)!.identity }
+          : task.payload.validated
+            ? { after: '', validated: false }
+            : null;
+        this.store.global.saveTask({
+          ...task,
+          payload: next ?? task.payload,
+          status: next ? 'pending' : 'done',
+        });
+      } else if (task.kind === 'provider') {
+        const page = await fetchDiscoveryPage(task.sourceId, task.payload, read);
         this.assertActive(run, signal);
         const source = DISCOVERY_SOURCES.find((s) => s.id === task.sourceId)!;
         const config = this.store.globalSource(source.id, source.name, source.url);
@@ -551,12 +499,6 @@ export class GlobalDiscoveryEngine {
         nextAt: Date.now() + backoff,
         error: safe,
       });
-      if (
-        blocked &&
-        task.kind === 'provider' &&
-        DISCOVERY_SOURCES.find((s) => s.id === task.sourceId)?.adapter === 'jobspy'
-      )
-        this.store.global.blockProviders(run.id, task.sourceId, safe);
       this.store.global.note(run.id, task.sourceId, blocked ? 'blocked' : 'retrying', 0, 0, safe);
       if (task.kind === 'resolve')
         this.store.global.updateListing(
@@ -593,8 +535,15 @@ export class GlobalDiscoveryEngine {
     if (!permittedPage(url)) throw new Error('POLICY_BLOCKED');
     const direct = feedFromUrl(url);
     const company = typeof task.payload.company === 'string' ? task.payload.company : '';
+    if (direct) this.store.global.rememberCompany(direct, company, url, Date.now());
     if (direct && company) {
-      this.enqueue(run, task.sourceId, 'ats', { feed: direct, company, pageUrl: url }, 2000);
+      this.enqueue(
+        run,
+        task.sourceId,
+        'ats',
+        { feed: direct, company: company || direct.tenant, pageUrl: url },
+        2000,
+      );
       this.store.global.saveTask({ ...task, status: 'done' });
       return;
     }
@@ -702,8 +651,9 @@ export class GlobalDiscoveryEngine {
       return;
     }
     const company = z.string().min(1).max(200).parse(task.payload.company);
+    this.store.global.rememberCompany(feed, company, String(task.payload.pageUrl), Date.now());
     const virtual = this.store.globalSource(
-      `${feed.ats}-${feed.tenant}`,
+      `${feed.ats}-${feed.tenant}-${feed.region}`,
       company,
       String(task.payload.pageUrl),
     );
@@ -715,6 +665,7 @@ export class GlobalDiscoveryEngine {
     });
     const state = task.payload.state ? SourceStateSchema.parse(task.payload.state) : initialState();
     const page = await adapter.fetchPage(state, signal);
+    this.store.global.validateCompany(feed, observedAt);
     this.assertActive(run, signal);
     const jobs = page.jobs.map((job) => ({
       ...job,
@@ -760,6 +711,11 @@ export class GlobalDiscoveryEngine {
       if (run.status !== 'paused') throw new Error('RUN_NOT_PAUSED');
       await this.work;
       this.controllers.delete(id);
+      // New keyless providers replace retired endpoint tasks without replaying completed pages.
+      for (const sourceId of run.options.sourceIds) {
+        const source = DISCOVERY_SOURCES.find((s) => s.id === sourceId);
+        if (source && source.adapter !== 'ats') this.enqueue(run, sourceId, 'provider', {});
+      }
       this.store.global.saveRun({ ...run, status: 'running', updatedAt: Date.now(), reason: null });
       return;
     }
@@ -784,16 +740,7 @@ export class GlobalDiscoveryEngine {
         this.store.rankings().find((p) => p.id === this.store.defaultRanking())?.minimumEvidence ??
           0.5,
       ),
-      registry: DISCOVERY_SOURCES.map((s) =>
-        s.adapter === 'jobspy' && this.jobspy && this.store.jobSpySettings().enabled
-          ? {
-              ...s,
-              status: 'configuration',
-              limitation:
-                'Opt-in JobSpy worker. Requires local python-jobspy; robots, GET-only transport and source policies can block collection. Jobs remain unverified.',
-            }
-          : s,
-      ),
+      registry: DISCOVERY_SOURCES,
       coverage: run ? this.store.global.coverage(run.id) : [],
       listings: run ? this.store.global.listings(run.id) : [],
       ...(run

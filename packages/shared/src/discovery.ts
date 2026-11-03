@@ -1,11 +1,5 @@
 /** Durable, provider-independent global discovery contracts. No AI or candidate contacts cross this API. */
 import { z } from 'zod';
-/** Opt-in acknowledgment is persistent; enabling never grants access to restricted pages. */
-export const JobSpySettingsSchema = z
-  .strictObject({ enabled: z.boolean(), riskAccepted: z.boolean() })
-  .refine((v) => !v.enabled || v.riskAccepted, {
-    message: 'Explicit risk acknowledgment is required',
-  });
 export const DiscoveryFiltersSchema = z.strictObject({
   keywords: z.string().max(500).optional(),
   location: z.string().max(200).optional(),
@@ -16,7 +10,6 @@ export const DiscoveryFiltersSchema = z.strictObject({
 export const DiscoveryOptionsSchema = z.strictObject({
   sourceIds: z.array(z.string().max(200)).max(1000),
   overrides: z.record(z.string().max(200), DiscoveryFiltersSchema).default({}),
-  indexUrl: z.string().url().max(2048).optional(),
   filters: DiscoveryFiltersSchema.optional(),
 });
 export type DiscoveryOptions = z.infer<typeof DiscoveryOptionsSchema>;
@@ -91,3 +84,38 @@ export const DiscoveryViewSchema = z.strictObject({
   done: z.number(),
   filtered: z.number().default(0),
 });
+
+/** Storage-only migration. IPC remains strict and rejects retired endpoint configuration. */
+export function migrateDiscoveryOptions(input: Record<string, unknown>) {
+  const allowed = new Set([
+    'greenhouse',
+    'lever',
+    'ashby',
+    'smartrecruiters',
+    'remotive',
+    'himalayas',
+    'we-work-remotely',
+    'simplify-new-grad-positions',
+    'simplify-pitt-csc-summer-2027-internships',
+    'vansh-new-grad-2027',
+    'vansh-summer-2027-internships',
+    'wayback',
+    'common-crawl',
+  ]);
+  const { indexUrl: retired, ...rest } = input;
+  void retired;
+  const ids = Array.isArray(input.sourceIds)
+    ? input.sourceIds.filter((id): id is string => typeof id === 'string')
+    : [];
+  const sourceIds = ids.filter((id) => allowed.has(id));
+  if (ids.some((id) => !allowed.has(id))) sourceIds.push('wayback', 'common-crawl');
+  return DiscoveryOptionsSchema.parse({
+    ...rest,
+    sourceIds: [...new Set(sourceIds)],
+    overrides: Object.fromEntries(
+      Object.entries((input.overrides ?? {}) as Record<string, unknown>).filter(([id]) =>
+        allowed.has(id),
+      ),
+    ),
+  });
+}

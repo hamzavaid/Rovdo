@@ -1,5 +1,4 @@
 import { GlobalDiscoveryEngine } from '@rovdo/job-discovery';
-import { runJobSpy, jobSpyUrl } from './jobspy';
 /**
  * Electron composition root: constructs stores, privileged services and the main window.
  * Registers owned-frame IPC handlers, serves local assets, and drains active work before closing SQLite.
@@ -173,11 +172,7 @@ async function initialize(): Promise<void> {
     careerStore,
     discovery,
     (request) => reviewShortlist(request, careerStore!, store!, vault, reviewController.signal),
-    new GlobalDiscoveryEngine(careerStore, {
-      jobspy: (id, payload, read, signal) =>
-        runJobSpy(careerStore!.jobSpySettings().enabled, id, payload, read, signal),
-      jobspyUrl: jobSpyUrl,
-    }),
+    new GlobalDiscoveryEngine(careerStore),
     async (format, data) => {
       if (!mainWindow) return false;
       const result = await dialog.showSaveDialog(mainWindow, {

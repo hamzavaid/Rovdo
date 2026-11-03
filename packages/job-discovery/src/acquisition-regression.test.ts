@@ -5,7 +5,6 @@ import { GlobalDiscoveryEngine } from './global-engine';
 import { AtsAdapter, fetchDiscoveryPage, parseGithubListings } from '@rovdo/job-sources';
 import { extractRequirements, unionMonths } from '@rovdo/career';
 import { SourceStateSchema } from '@rovdo/shared';
-import { jobSpyPage } from '../../../apps/desktop/src/main/jobspy';
 it('separates versions from durations and uses minimum experience range bounds without inventing year-only months', () => {
   const p = extractRequirements(
     'Python 3 years of experience required\n3–5 years of experience required\nat least 3 years of experience required',
@@ -40,21 +39,7 @@ it('honors explicit JSON-LD expiration while preserving the record', () => {
     store.close();
   }
 });
-it('does not manufacture JobSpy dates and treats Himalayas pubDate as an update', async () => {
-  const page = jobSpyPage(
-    'linkedin-jobs',
-    [
-      {
-        job_url: 'https://www.linkedin.com/jobs/view/1',
-        title: 'Engineer',
-        company: 'Fixture',
-        description: 'TypeScript',
-        date_posted: '2026-02-30',
-      },
-    ],
-    { query: 'Engineer', location: '', offset: 0 },
-  );
-  expect(page.records[0]!.postedAt).toBe(null);
+it('treats Himalayas pubDate as an update', async () => {
   const feed = await fetchDiscoveryPage('himalayas', {}, async () => ({
     status: 200,
     headers: { 'x-rovdo-observed-at': '1' },

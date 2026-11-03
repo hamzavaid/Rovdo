@@ -2,109 +2,18 @@ import { expect, it } from 'vitest';
 import { CareerStore } from '@rovdo/storage';
 import { GlobalDiscoveryEngine } from './global-engine';
 import type { PublicResponse } from '@rovdo/shared/network';
-import { DiscoveryPolicyError } from '@rovdo/job-sources';
-import { sampleCandidate } from '../../../tests/fixtures/ranking-v2';
-it('reuses shared search criteria and stops all queued source queries when JobSpy is unavailable', async () => {
-  const store = new CareerStore(':memory:');
-  store.saveProfile(sampleCandidate());
-  store.setJobSpySettings({ enabled: true, riskAccepted: true });
-  const received: Record<string, unknown>[] = [];
-  const engine = new GlobalDiscoveryEngine(store, {
-    jobspy: async (_id, payload) => {
-      received.push(payload);
-      throw new DiscoveryPolicyError('JOBSPY_UNAVAILABLE');
-    },
-  });
-  try {
-    const id = engine.start({
-      sourceIds: ['linkedin-jobs'],
-      overrides: { 'linkedin-jobs': { keywords: 'Stale keywords', location: 'Stale location' } },
-      filters: {
-        keywords: 'Firmware engineer',
-        location: 'Los Angeles',
-        workMode: 'remote',
-        employmentType: 'internship',
-        freshnessDays: 7,
-      },
-    });
-    await engine.tick();
-    await engine.tick();
-    expect(received).toHaveLength(1);
-    expect(received[0]).toMatchObject({
-      query: expect.stringContaining('Firmware engineer'),
-      location: 'Los Angeles',
-      workMode: 'remote',
-      employmentType: 'internship',
-      freshnessDays: 7,
-    });
-    expect(String(received[0]!.query)).not.toContain('Stale keywords');
-    expect(store.global.stats(id).pending).toBe(0);
-    expect(store.global.run(id).status).toBe('completed');
-    expect(store.global.coverage(id)[0]!.error).toBe('JOBSPY_UNAVAILABLE');
-  } finally {
-    await engine.shutdown();
-    store.close();
-  }
-});
 const response = (raw: unknown, status = 200): PublicResponse => ({
   status,
   headers: {},
-  body: Buffer.from(typeof raw === 'string' ? raw : JSON.stringify(raw)),
-});
-it('only runs selected JobSpy sources after opt-in, retains checkpoints and preserves scoring', async () => {
-  const store = new CareerStore(':memory:');
-  let calls = 0;
-  const engine = new GlobalDiscoveryEngine(store, {
-    sleep: async () => {},
-    jobspy: async (id, payload) => {
-      calls++;
-      expect(payload.query).toBeTruthy();
-      expect(id).toBe('linkedin-jobs');
-      return {
-        records: [
-          {
-            url: 'https://jobs.example.com/engineering',
-            title: 'Engineer',
-            company: 'Example',
-            description: 'TypeScript required',
-            location: 'Remote',
-            postedAt: null,
-            employmentType: 'full-time',
-            workMode: 'remote',
-            requisitionId: null,
-            salary: null,
-            sourceId: id,
-            sourceName: 'LinkedIn jobs',
-            sourceUrl: 'https://www.linkedin.com/jobs/view/1',
-            kind: 'aggregate',
-            exportAllowed: true,
-          },
-        ],
-        next: null,
-        rejected: 0,
-      };
-    },
-    transport: async () => response('User-agent: *\nDisallow: /'),
-  });
-  try {
-    const disabled = engine.start({ sourceIds: ['linkedin-jobs'], overrides: {} });
-    await engine.tick();
-    expect(calls).toBe(0);
-    expect(store.global.coverage(disabled)[0]!.status).toBe('disabled');
-    store.setJobSpySettings({ enabled: true, riskAccepted: true });
-    const id = engine.start({ sourceIds: ['linkedin-jobs'], overrides: {} });
-    await engine.tick();
-    expect(calls).toBe(1);
-    expect(store.global.stats(id).jobs).toBe(1);
-    expect(store.jobs()[0]!.source).toBe('jobspy');
-    expect(store.jobs()[0]!.discovery?.availability).toBe('unverified');
-    expect(engine.view().registry.find((s) => s.id === 'linkedin-jobs')!.status).toBe(
-      'configuration',
-    );
-  } finally {
-    await engine.shutdown();
-    store.close();
-  }
+  body: Buffer.from(
+    typeof raw === 'string'
+      ? raw
+      : JSON.stringify(
+          typeof raw === 'object' && raw && 'results' in raw
+            ? [['original'], ...(raw as { results: { url: string }[] }).results.map((r) => [r.url])]
+            : raw,
+        ),
+  ),
 });
 it('discovers an unsaved employer via an index, follows a supported ATS and scores without AI', async () => {
   const store = new CareerStore(':memory:');
@@ -113,7 +22,7 @@ it('discovers an unsaved employer via an index, follows a supported ATS and scor
     sleep: async () => {},
     transport: async (url) => {
       urls.push(url);
-      if (url.startsWith('https://index.example/search'))
+      if (url.startsWith('https://web.archive.org/cdx/search/cdx'))
         return response({
           results: url.includes('pageno=2')
             ? []
@@ -139,9 +48,8 @@ it('discovers an unsaved employer via an index, follows a supported ATS and scor
   });
   try {
     const id = engine.start({
-      sourceIds: ['web-index', 'lever'],
+      sourceIds: ['wayback', 'lever'],
       overrides: {},
-      indexUrl: 'https://index.example/search',
     });
     for (let n = 0; n < 8; n++) await engine.tick();
     expect(store.jobCount()).toBe(1);
@@ -192,12 +100,11 @@ it('never fetches blocked platform pages and reports schema drift rather than lo
   });
   try {
     const id = engine.start({
-      sourceIds: ['web-index'],
+      sourceIds: ['wayback'],
       overrides: {},
-      indexUrl: 'https://index.example/search',
     });
     for (let i = 0; i < 4; i++) await engine.tick();
-    expect(seen.every((s) => new URL(s).hostname === 'index.example')).toBe(true);
+    expect(seen.every((s) => new URL(s).hostname === 'web.archive.org')).toBe(true);
     expect(store.global.listings(id)[0]?.status).toBe('blocked');
     expect(store.jobCount()).toBe(0);
   } finally {
@@ -214,7 +121,7 @@ it('obeys robots exclusions and isolates a malformed provider from healthy feeds
     transport: async (url) => {
       seen.push(url);
       if (url.includes('himalayas')) return response({ unexpected: true });
-      if (url.includes('index.example'))
+      if (url.includes('web.archive.org'))
         return response({
           results: url.includes('pageno=2')
             ? []
@@ -226,9 +133,8 @@ it('obeys robots exclusions and isolates a malformed provider from healthy feeds
   });
   try {
     const id = engine.start({
-      sourceIds: ['web-index', 'himalayas'],
+      sourceIds: ['wayback', 'himalayas'],
       overrides: {},
-      indexUrl: 'https://index.example/search',
     });
     for (let i = 0; i < 5; i++) await engine.tick();
     expect(seen).not.toContain('https://careers.example/private/job');
@@ -307,7 +213,7 @@ it('quarantines a malformed JSON-LD posting without losing valid siblings', asyn
   const engine = new GlobalDiscoveryEngine(store, {
     sleep: async () => {},
     transport: async (url) => {
-      if (url.includes('index.example'))
+      if (url.includes('web.archive.org'))
         return response({
           results: url.includes('pageno=2')
             ? []
@@ -336,9 +242,8 @@ it('quarantines a malformed JSON-LD posting without losing valid siblings', asyn
   });
   try {
     engine.start({
-      sourceIds: ['web-index'],
+      sourceIds: ['wayback'],
       overrides: {},
-      indexUrl: 'https://index.example/search',
     });
     for (let i = 0; i < 4; i++) await engine.tick();
     expect(store.jobs().map((j) => j.title)).toEqual(['Engineer']);
@@ -355,7 +260,7 @@ it('does not retry redirects and shares terminal certificate failures across pag
     sleep: async () => {},
     transport: async (url) => {
       seen.push(url);
-      if (url.includes('index.example'))
+      if (url.includes('web.archive.org'))
         return response({
           results: url.includes('pageno=2')
             ? []
@@ -372,11 +277,10 @@ it('does not retry redirects and shares terminal certificate failures across pag
   });
   try {
     const id = engine.start({
-      sourceIds: ['web-index'],
+      sourceIds: ['wayback'],
       overrides: {},
-      indexUrl: 'https://index.example/search',
     });
-    for (let i = 0; i < 7; i++) await engine.tick();
+    for (let i = 0; i < 20 && store.global.run(id).status === 'running'; i++) await engine.tick();
     expect(seen.filter((u) => u.includes('broken.example'))).toHaveLength(1);
     expect(seen.filter((u) => u.includes('redirect.example'))).toHaveLength(1);
     expect(store.global.stats(id).pending).toBe(0);

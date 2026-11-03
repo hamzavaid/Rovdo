@@ -4,7 +4,6 @@
  */
 import { fileURLToPath } from 'node:url';
 import { resolve } from 'node:path';
-import { copyFile } from 'node:fs/promises';
 import { build } from 'vite';
 
 const desktopRoot = fileURLToPath(new URL('../apps/desktop/', import.meta.url));
@@ -55,8 +54,3 @@ await build({
     rollupOptions: { external: ['pdf2json', /^node:/] },
   },
 });
-
-await copyFile(
-  resolve(desktopRoot, 'src/main/jobspy-worker.py'),
-  resolve(desktopRoot, 'dist/main/jobspy-worker.py'),
-);

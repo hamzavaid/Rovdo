@@ -4,7 +4,7 @@ import { DiscoveryEngine } from '@rovdo/job-discovery';
 import { emptyProfile, reviewPayload, reviewRequestHash } from '@rovdo/career';
 import { createCareerService } from './career-service';
 import { reviewShortlist } from './career-reviewer';
-import { AtsAdapter } from '@rovdo/job-sources';
+import { AtsAdapter, normalizeDiscoveryJob, DiscoveryRecordSchema } from '@rovdo/job-sources';
 import { createAdapter } from '@rovdo/providers';
 import { completion } from '../../../../packages/providers/src/fixtures';
 import type { ProviderConfig, SourceConfig } from '@rovdo/shared';
@@ -12,67 +12,19 @@ import { sampleCandidate } from '../../../../tests/fixtures/ranking-v2';
 import { EMPLOYERS } from '@rovdo/job-sources';
 
 const sender = { url: 'rovdo://app/index.html', isMainFrame: true, ownsWindow: true };
-it('stores scraping consent atomically and treats corrupt local settings as disabled', () => {
+it('rejects retired scraping commands even for the trusted renderer', async () => {
   const store = new CareerStore(':memory:');
-  try {
-    expect(store.jobSpySettings()).toEqual({ enabled: false, riskAccepted: false });
-    store.setJobSpySettings({ enabled: true, riskAccepted: true });
-    expect(store.jobSpySettings().enabled).toBe(true);
-    expect(() => store.setJobSpySettings({ enabled: true, riskAccepted: false })).toThrow();
-    expect(store.jobSpySettings().enabled).toBe(true);
-    store.setting('jobspy-settings', '{"enabled":true,"riskAccepted":false}');
-    expect(store.jobSpySettings()).toEqual({ enabled: false, riskAccepted: false });
-  } finally {
-    store.close();
-  }
-});
-it('keeps JobSpy off by default and requires explicit risk acknowledgment before persisting opt-in', async () => {
-  const store = new CareerStore(':memory:'),
-    engine = new DiscoveryEngine(store);
+  const engine = new DiscoveryEngine(store);
   const service = createCareerService(store, engine, async () => {});
   try {
-    const before = await service.command(
-      {
-        op: 'view',
-        summary: true,
-        search: {
-          query: '',
-          company: '',
-          workMode: 'all',
-          savedOnly: false,
-          includeExcluded: false,
-        },
-      },
-      sender,
-    );
-    expect(before.ok && before.view.jobspy).toEqual({ enabled: false, riskAccepted: false });
-    expect(
-      (
-        await service.command(
-          { op: 'jobspySettings', settings: { enabled: true, riskAccepted: false } },
-          sender,
-        )
-      ).ok,
-    ).toBe(false);
     expect(
       (
         await service.command(
           { op: 'jobspySettings', settings: { enabled: true, riskAccepted: true } },
-          { ...sender, ownsWindow: false },
+          sender,
         )
       ).ok,
     ).toBe(false);
-    const saved = await service.command(
-      { op: 'jobspySettings', settings: { enabled: true, riskAccepted: true } },
-      sender,
-    );
-    expect(saved.ok && saved.view.jobspy?.enabled).toBe(true);
-    expect(store.jobSpySettings().enabled).toBe(true);
-    await service.command(
-      { op: 'jobspySettings', settings: { enabled: false, riskAccepted: true } },
-      sender,
-    );
-    expect(store.jobSpySettings().enabled).toBe(false);
   } finally {
     await service.shutdown();
     await engine.shutdown();
@@ -478,25 +430,29 @@ it('exports only stored result-page jobs through the native save capability, nev
     },
   );
   try {
-    expect(
-      (
-        await service.command(
-          {
-            op: 'importDiscovery',
-            rows: [
-              {
-                job_url: 'https://careers.example/jobs/1',
-                title: 'Engineer',
-                company: 'Example',
-                description: 'TypeScript required',
-              },
-            ],
-            permitted: true,
-          },
-          sender,
-        )
-      ).ok,
-    ).toBe(true);
+    const source = store.globalSource('fixture', 'Example', 'https://careers.example/jobs/1');
+    const job = normalizeDiscoveryJob(
+      DiscoveryRecordSchema.parse({
+        url: 'https://careers.example/jobs/1',
+        title: 'Engineer',
+        company: 'Example',
+        description: 'TypeScript required',
+        sourceId: 'fixture',
+        sourceName: 'Example',
+        sourceUrl: 'https://careers.example/jobs/1',
+      }),
+      source,
+      '00000000-0000-4000-8000-000000000000',
+      Date.now(),
+    )!;
+    store.batch(
+      source,
+      [job],
+      store.sources().find((s) => s.config.id === source.id)!.state,
+      'fixture',
+      false,
+      Date.now(),
+    );
     const search = {
       query: '',
       company: '',
@@ -627,20 +583,28 @@ it('opens only a stored job application URL through the native capability', asyn
     },
   );
   try {
-    await service.command(
-      {
-        op: 'importDiscovery',
-        rows: [
-          {
-            title: 'Engineer',
-            company: 'Example',
-            description: 'TypeScript required',
-            job_url: 'https://careers.example/jobs/1',
-          },
-        ],
-        permitted: true,
-      },
-      sender,
+    const source = store.globalSource('fixture', 'Example', 'https://careers.example/jobs/1');
+    const job = normalizeDiscoveryJob(
+      DiscoveryRecordSchema.parse({
+        url: 'https://careers.example/jobs/1',
+        title: 'Engineer',
+        company: 'Example',
+        description: 'TypeScript required',
+        sourceId: 'fixture',
+        sourceName: 'Example',
+        sourceUrl: 'https://careers.example/jobs/1',
+      }),
+      source,
+      '00000000-0000-4000-8000-000000000000',
+      Date.now(),
+    )!;
+    store.batch(
+      source,
+      [job],
+      store.sources().find((s) => s.config.id === source.id)!.state,
+      'fixture',
+      false,
+      Date.now(),
     );
     const id = store.jobs()[0]!.id;
     expect((await service.command({ op: 'openJob', jobId: id }, sender)).ok).toBe(true);

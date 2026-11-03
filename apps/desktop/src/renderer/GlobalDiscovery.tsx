@@ -21,13 +21,13 @@ export const defaultDiscovery: DiscoveryOptions = {
     'simplify-pitt-csc-summer-2027-internships',
     'vansh-new-grad-2027',
     'vansh-summer-2027-internships',
-    'web-index',
+    'wayback',
+    'common-crawl',
   ],
   overrides: {},
 };
 export function GlobalDiscovery({
   view,
-  criteria,
   options,
   onOptions,
   command,
@@ -56,25 +56,6 @@ export function GlobalDiscovery({
       </p>
       <details className="surface-disclosure">
         <summary>Sources, queries and collection settings</summary>
-        <label>
-          Permitted SearXNG JSON endpoint (optional)
-          <input
-            type="url"
-            placeholder="https://search.example/search"
-            value={options.indexUrl ?? ''}
-            onChange={(e) => {
-              const next = { ...options };
-              if (e.target.value) next.indexUrl = e.target.value;
-              else delete next.indexUrl;
-              update(next);
-            }}
-          />
-        </label>
-        <p className="help-text">
-          Use an instance whose operator permits automated JSON search. No search-engine HTML
-          scraping, CAPTCHA handling or authentication bypass. Without an index, public APIs and
-          repository lists still discover employers beyond the saved directory.
-        </p>
         <details>
           <summary>Profile-guided queries ({view?.plan.length ?? 0})</summary>
           <p>
@@ -103,8 +84,8 @@ export function GlobalDiscovery({
           <input value={filter} onChange={(e) => setFilter(e.target.value)} />
         </label>
         <p>
-          {selected.length} selected / 126 catalog websites plus the open web index. Indexed and
-          unsupported entries are not working direct scrapers.
+          {selected.length} selected / {view?.registry.length ?? 0} supported sources. Archive
+          indexes discover board identities; live employer feeds verify jobs.
         </p>
         <div className="source-list-tools">
           <button
@@ -158,29 +139,8 @@ export function GlobalDiscovery({
                 <div className="discovery-source-body">
                   <p className="help-text">{s.limitation}</p>
                   <p className="job-url source-policy">Policy: {s.policyUrl}</p>
-                  {s.adapter === 'jobspy' && (
-                    <div className="source-inherited">
-                      <small>Uses your search criteria automatically</small>
-                      <div className="source-criteria">
-                        {[
-                          criteria?.query || 'Verified profile queries',
-                          criteria?.location || 'Profile location preferences',
-                          criteria?.workMode && criteria.workMode !== 'all'
-                            ? criteria.workMode
-                            : null,
-                          criteria?.employmentType && criteria.employmentType !== 'all'
-                            ? criteria.employmentType
-                            : null,
-                        ]
-                          .filter(Boolean)
-                          .map((value, i) => (
-                            <span key={i}>{value}</span>
-                          ))}
-                      </div>
-                    </div>
-                  )}
                   {options.sourceIds.includes(s.id) &&
-                    !['ats', 'remotive', 'jobspy'].includes(s.adapter) && (
+                    !['ats', 'remotive', 'wayback', 'common-crawl'].includes(s.adapter) && (
                       <div className="career-fields">
                         <label>
                           {s.name} query / priority keywords
@@ -321,19 +281,7 @@ export function GlobalDiscovery({
                       <td>{s.requests}</td>
                       <td>{s.records}</td>
                       <td>{s.rejected}</td>
-                      <td>
-                        {s.error === 'JOBSPY_UNAVAILABLE' ? (
-                          <>
-                            <span>
-                              Python or python-jobspy is unavailable. See Python setup in Discovery
-                              & imports.
-                            </span>
-                            <small>Remaining queries for this source were stopped.</small>
-                          </>
-                        ) : (
-                          (s.error ?? 'None')
-                        )}
-                      </td>
+                      <td>{s.error ?? 'None'}</td>
                     </tr>
                   ))}
                 </tbody>

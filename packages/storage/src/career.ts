@@ -1,3 +1,4 @@
+import { migrateDiscoveryOptions } from '@rovdo/shared';
 import { setImmediate as yieldTurn } from 'node:timers/promises';
 import { DiscoveryStore } from './discovery';
 /**
@@ -13,7 +14,6 @@ import {
   JobSchema,
   SourceConfigSchema,
   SourceStateSchema,
-  JobSpySettingsSchema,
 } from '@rovdo/shared';
 import type {
   AiReview,
@@ -744,10 +744,12 @@ export class CareerStore {
       key.replace(/[^a-zA-Z0-9_-]/g, '-').slice(0, 64) +
       '-' +
       createHash('sha256').update(key).digest('hex').slice(0, 32);
-    const existing = this.sources().find(
-      (s) => s.config.collection === 'global' && s.config.tenant === tenant,
-    );
-    if (existing) return existing.config;
+    const existing = this.db
+      .prepare(
+        "SELECT config FROM job_source WHERE json_extract(config,'$.collection')='global' AND json_extract(config,'$.tenant')=? LIMIT 1",
+      )
+      .get(tenant);
+    if (existing) return SourceConfigSchema.parse(JSON.parse(String(existing.config)));
     const source: SourceConfig = {
       id: randomUUID(),
       ats: 'jsonld',
@@ -872,17 +874,6 @@ export class CareerStore {
       (this.db.prepare('SELECT value FROM career_setting WHERE key=?').get(key)?.value as string) ??
       null
     );
-  }
-  /** One SQLite value binds enablement to consent; invalid/corrupt state always fails closed. */
-  jobSpySettings(): { enabled: boolean; riskAccepted: boolean } {
-    try {
-      return JobSpySettingsSchema.parse(JSON.parse(this.setting('jobspy-settings') ?? '{}'));
-    } catch {
-      return { enabled: false, riskAccepted: false };
-    }
-  }
-  setJobSpySettings(input: { enabled: boolean; riskAccepted: boolean }) {
-    this.setting('jobspy-settings', JSON.stringify(JobSpySettingsSchema.parse(input)));
   }
   seedDirectory(entries: readonly Employer[]): void {
     this.transaction(() => {
@@ -1469,7 +1460,13 @@ export class CareerStore {
             const raw = JSON.parse(String(r.json)) as SavedSearch;
             return {
               ...raw,
-              search: { ...raw.search, scope: raw.search.scope ?? 'saved-companies' },
+              search: {
+                ...raw.search,
+                scope: raw.search.scope ?? 'saved-companies',
+                ...(raw.search.discovery
+                  ? { discovery: migrateDiscoveryOptions(raw.search.discovery) }
+                  : {}),
+              },
             };
           })(),
         ),

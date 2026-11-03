@@ -28,19 +28,11 @@ test('globally discovers an unsaved employer, separates scopes, exports and pers
       ) => {
         let data: unknown;
         let statusCode = 200;
-        if (url.hostname === 'index.example') {
-          if (url.searchParams.get('pageno') === '2') {
+        if (url.hostname === 'web.archive.org' && url.pathname !== '/robots.txt') {
+          if (url.searchParams.get('url') !== 'job-boards.greenhouse.io/*') {
             data = {};
             statusCode = 429;
-          } else
-            data = {
-              results: [
-                {
-                  title: 'Outside Directory Engineer',
-                  url: 'https://jobs.lever.co/unsaved-fixture/123',
-                },
-              ],
-            };
+          } else data = [['original'], ['https://jobs.lever.co/unsaved-fixture/123']];
         } else if (url.pathname === '/robots.txt') data = 'User-agent: *\nAllow: /';
         else if (url.hostname === 'jobs.lever.co')
           data =
@@ -79,12 +71,12 @@ test('globally discovers an unsaved employer, separates scopes, exports and pers
       page.getByRole('option', { name: 'Search All Saved Companies', exact: true }),
     ).toHaveCount(1);
     await page.getByText('Sources, queries and collection settings', { exact: true }).click();
-    await page.getByRole('button', { name: 'Selected sources (12)', exact: true }).click();
-    await expect(page.locator('.discovery-source')).toHaveCount(12);
+    await page.getByRole('button', { name: 'Selected sources (13)', exact: true }).click();
+    await expect(page.locator('.discovery-source')).toHaveCount(13);
     await page.getByRole('button', { name: 'Show full source list', exact: true }).click();
     await expect(page.locator('.discovery-source-list')).toHaveClass(/expanded/);
     await page.getByRole('button', { name: 'All sources', exact: true }).click();
-    await expect(page.locator('.discovery-source')).toHaveCount(127);
+    await expect(page.locator('.discovery-source')).toHaveCount(13);
     expect(
       await page
         .locator('.discovery-source')
@@ -92,13 +84,12 @@ test('globally discovers an unsaved employer, separates scopes, exports and pers
         .evaluate((e) => e.getBoundingClientRect().height),
     ).toBeLessThan(65);
     await page.getByRole('button', { name: 'Clear source selection', exact: true }).click();
-    await page.getByLabel('Find discovery sources', { exact: true }).fill('Open web index');
-    await page.getByRole('checkbox', { name: 'Open web index', exact: true }).check();
+    await page
+      .getByLabel('Find discovery sources', { exact: true })
+      .fill('Wayback company discovery');
+    await page.getByRole('checkbox', { name: 'Wayback company discovery', exact: true }).check();
     await page.getByLabel('Find discovery sources', { exact: true }).fill('Lever');
     await page.getByRole('checkbox', { name: 'Lever', exact: true }).check();
-    await page
-      .getByLabel('Permitted SearXNG JSON endpoint (optional)', { exact: true })
-      .fill('https://index.example/search');
     await page.getByRole('button', { name: 'Search', exact: true }).click();
     await expect(
       page.getByRole('heading', { name: 'Outside Directory Engineer', exact: true }),

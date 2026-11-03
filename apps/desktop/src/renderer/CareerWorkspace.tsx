@@ -707,7 +707,7 @@ export function CareerWorkspace({
                             {s.name}
                           </option>
                         ))}
-                        {['jsonld', 'jobspy-import'].map((s) => (
+                        {['jsonld'].map((s) => (
                           <option key={'native-' + s} value={s}>
                             {s}
                           </option>

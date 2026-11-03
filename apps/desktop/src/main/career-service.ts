@@ -1,12 +1,5 @@
-import { randomUUID } from 'node:crypto';
 import { GlobalDiscoveryEngine } from '@rovdo/job-discovery';
-import {
-  DiscoveryRecordSchema,
-  normalizeDiscoveryJob,
-  plain,
-  sha256,
-  canonicalUrl,
-} from '@rovdo/job-sources';
+import { canonicalUrl } from '@rovdo/job-sources';
 /**
  * Validates career IPC commands and coordinates local profile, job and source operations.
  * Returns a consistent view after mutations while keeping optional AI review separate from discovery.
@@ -75,7 +68,6 @@ export function createCareerService(
     const discovery = global.view();
     return {
       profile,
-      jobspy: store.jobSpySettings(),
       sources,
       matches: visible,
       matchedCount: page.total,
@@ -142,9 +134,6 @@ export function createCareerService(
       if (!parsed.success) return CareerResultSchema.parse({ ok: false, code: 'VALIDATION_ERROR' });
       const cmd = parsed.data;
       try {
-        if (cmd.op === 'jobspySettings') {
-          store.setJobSpySettings(cmd.settings);
-        }
         if (cmd.op === 'openJob') {
           const job = store.job(cmd.jobId);
           const url = job.canonicalUrl;
@@ -202,96 +191,6 @@ export function createCareerService(
           } finally {
             discovering = null;
           }
-        }
-        if (cmd.op === 'importDiscovery') {
-          const id = cmd.runId ?? randomUUID();
-          let run;
-          try {
-            run = store.global.run(id);
-            if (!run.options.sourceIds.includes('jobspy-import'))
-              throw new Error('INVALID_IMPORT_RUN');
-          } catch (error) {
-            if (error instanceof Error && error.message === 'INVALID_IMPORT_RUN') throw error;
-            run = {
-              id,
-              status: 'completed' as const,
-              createdAt: Date.now(),
-              updatedAt: Date.now(),
-              profileVersion: store.profile()?.version ?? null,
-              queries: [],
-              options: { sourceIds: ['jobspy-import'], overrides: {} },
-              reason: 'Imported rows remain unverified; no source websites were scraped.',
-            };
-            store.global.saveRun(run);
-          }
-          const source = store.globalSource(
-            'jobspy-import',
-            'Imported JobSpy results',
-            'https://github.com/speedyapply/JobSpy',
-          );
-          const jobs = [];
-          let rejected = 0;
-          for (const raw of cmd.rows) {
-            try {
-              const str = (key: string) => (typeof raw[key] === 'string' ? String(raw[key]) : '');
-              const numeric = (value: unknown) =>
-                typeof value === 'number' && Number.isFinite(value)
-                  ? value
-                  : typeof value === 'string' && value.trim() && Number.isFinite(Number(value))
-                    ? Number(value)
-                    : null;
-              const min = numeric(raw.min_amount),
-                max = numeric(raw.max_amount);
-              const record = DiscoveryRecordSchema.parse({
-                url: str('job_url_direct') || str('job_url'),
-                title: str('title'),
-                company: str('company') || null,
-                location: str('location'),
-                description: plain(str('description')),
-                postedAt: Number.isFinite(Date.parse(str('date_posted')))
-                  ? new Date(str('date_posted')).toISOString()
-                  : null,
-                employmentType: str('job_type') || 'unknown',
-                workMode:
-                  raw.is_remote === true || str('is_remote').toLowerCase() === 'true'
-                    ? 'remote'
-                    : 'unknown',
-                salary:
-                  (min !== null || max !== null) && str('currency')
-                    ? {
-                        min,
-                        max,
-                        currency: str('currency'),
-                        interval: str('interval'),
-                        source: 'explicit',
-                      }
-                    : null,
-                sourceId: 'jobspy-import',
-                sourceName: 'Imported JobSpy results',
-                sourceUrl: 'https://github.com/speedyapply/JobSpy',
-                kind: 'import',
-              });
-              const job = normalizeDiscoveryJob(record, source, id, Date.now());
-              if (job) jobs.push(job);
-              else
-                store.global.saveListing({
-                  id: sha256(id + record.url),
-                  runId: id,
-                  sourceId: 'jobspy-import',
-                  url: record.url,
-                  title: record.title,
-                  company: record.company,
-                  location: record.location,
-                  description: record.description,
-                  status: 'incomplete',
-                  reason: 'Missing company or full description; not scored.',
-                });
-            } catch {
-              rejected++;
-            }
-          }
-          await store.ingestDiscoveredAsync(id, source, jobs, controller.signal);
-          store.global.note(id, 'jobspy-import', 'imported', jobs.length, rejected);
         }
         if (cmd.op === 'saveSearch') store.saveSearch(cmd.name, cmd.search);
         if (cmd.op === 'deleteSearch') store.deleteSearch(cmd.id);

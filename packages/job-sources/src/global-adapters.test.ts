@@ -80,34 +80,30 @@ it('decodes RSS descriptions and posting dates without executing XML or visiting
   expect(page.records[0]?.postedAt).toContain('2026-10-20');
 });
 
-it('constrains board-specific indexes but leaves the open web index unrestricted', async () => {
-  const read = async () => ({
-    status: 200,
-    headers: {},
-    body: Buffer.from(
-      JSON.stringify({ results: [{ url: 'https://unrelated.example/job', title: 'Engineer' }] }),
-    ),
+it('discovers boards through keyless CDX with bounded cursor continuation and rejects unrelated URLs', async () => {
+  const seen: string[] = [];
+  const result = await fetchDiscoveryPage('wayback', {}, async (url) => {
+    seen.push(url);
+    return {
+      status: 200,
+      headers: {},
+      body: Buffer.from(
+        JSON.stringify([
+          ['original'],
+          ['https://jobs.lever.co/example/one'],
+          ['https://jobs.lever.co/example/two'],
+          ['javascript:invalid'],
+          [],
+          ['resume-key'],
+        ]),
+      ),
+    };
   });
-  expect(
-    (
-      await fetchDiscoveryPage(
-        'built-in',
-        { indexUrl: 'https://index.example/search', query: 'TypeScript' },
-        read,
-      )
-    ).records,
-  ).toHaveLength(0);
-  expect(
-    (
-      await fetchDiscoveryPage(
-        'web-index',
-        { indexUrl: 'https://index.example/search', query: 'TypeScript' },
-        read,
-      )
-    ).records,
-  ).toHaveLength(1);
+  expect(result.records).toHaveLength(1);
+  expect(result.next).toEqual({ target: 0, resumeKey: 'resume-key' });
+  expect(result.rejected).toBe(1);
+  expect(seen[0]).toContain('limit=500');
 });
-
 it('retains continuation-row application leads without inventing a company from arrow markers', () => {
   const rows = parseGithubListings(
     '| \u21b3 | Firmware Intern | Remote | [Apply](https://jobs.lever.co/example/2) |',

@@ -1,11 +1,18 @@
 /** Additive SQLite queue/cache for incremental global discovery, independent of saved employer grants. */
 import type { DatabaseSync } from 'node:sqlite';
 import { createHash } from 'node:crypto';
-import { DiscoveryRunSchema, DiscoveryTaskSchema, DiscoveryListingSchema } from '@rovdo/shared';
+import {
+  DiscoveryRunSchema,
+  DiscoveryTaskSchema,
+  DiscoveryListingSchema,
+  migrateDiscoveryOptions,
+} from '@rovdo/shared';
 import type { DiscoveryRun, DiscoveryTask, DiscoveryListing } from '@rovdo/shared';
 export class DiscoveryStore {
   constructor(private readonly db: DatabaseSync) {
     db.exec(`
+ CREATE TABLE IF NOT EXISTS company_inventory(identity TEXT PRIMARY KEY,ats TEXT NOT NULL,tenant TEXT NOT NULL,region TEXT NOT NULL,company TEXT NOT NULL,page_url TEXT NOT NULL,discovered_at INTEGER NOT NULL,observed_at INTEGER NOT NULL,validated_at INTEGER,UNIQUE(ats,tenant,region));
+ CREATE INDEX IF NOT EXISTS inventory_validated ON company_inventory(validated_at,identity);
  CREATE TABLE IF NOT EXISTS discovery_run(id TEXT PRIMARY KEY,json TEXT NOT NULL);
  CREATE TABLE IF NOT EXISTS discovery_task(id TEXT PRIMARY KEY,run_id TEXT NOT NULL REFERENCES discovery_run(id),status TEXT NOT NULL,next_at INTEGER NOT NULL,priority REAL NOT NULL,json TEXT NOT NULL);
  CREATE INDEX IF NOT EXISTS discovery_ready ON discovery_task(run_id,status,next_at,priority);
@@ -19,6 +26,111 @@ export class DiscoveryStore {
  CREATE INDEX IF NOT EXISTS discovery_failure_expiry ON discovery_failure(expires);
  CREATE INDEX IF NOT EXISTS discovery_response_expiry ON discovery_response(expires);
  `);
+    if (db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='job_source'").get())
+      db.exec(
+        "CREATE INDEX IF NOT EXISTS global_source_tenant ON job_source(json_extract(config,'$.tenant')) WHERE json_extract(config,'$.collection')='global'",
+      );
+    if (
+      db
+        .prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='career_setting'")
+        .get() &&
+      db.prepare("SELECT value FROM career_setting WHERE key='discovery-source-version'").get()
+        ?.value !== '2'
+    ) {
+      db.exec('BEGIN IMMEDIATE');
+      try {
+        // Migrate disposable source configuration, retaining every run, task, job and user marker.
+        for (const row of db.prepare('SELECT id,json FROM discovery_run').all()) {
+          const raw = JSON.parse(String(row.json));
+          raw.options = migrateDiscoveryOptions(raw.options);
+          db.prepare('UPDATE discovery_run SET json=? WHERE id=?').run(
+            JSON.stringify(raw),
+            String(row.id),
+          );
+        }
+        for (const row of db.prepare('SELECT id,json FROM saved_search').all()) {
+          const raw = JSON.parse(String(row.json));
+          if (raw.search?.discovery) {
+            raw.search.discovery = migrateDiscoveryOptions(raw.search.discovery);
+            db.prepare('UPDATE saved_search SET json=? WHERE id=?').run(
+              JSON.stringify(raw),
+              String(row.id),
+            );
+          }
+        }
+        db.prepare("DELETE FROM career_setting WHERE key='jobspy-settings'").run();
+        const supported = new Set([
+          'company-inventory',
+          'greenhouse',
+          'lever',
+          'ashby',
+          'smartrecruiters',
+          'remotive',
+          'himalayas',
+          'we-work-remotely',
+          'simplify-new-grad-positions',
+          'simplify-pitt-csc-summer-2027-internships',
+          'vansh-new-grad-2027',
+          'vansh-summer-2027-internships',
+          'wayback',
+          'common-crawl',
+        ]);
+        for (const row of db
+          .prepare("SELECT id,json FROM discovery_task WHERE status IN ('pending','running')")
+          .all()) {
+          const raw = JSON.parse(String(row.json));
+          if (!supported.has(raw.sourceId)) {
+            raw.status = 'blocked';
+            raw.error = 'SOURCE_RETIRED';
+            db.prepare("UPDATE discovery_task SET status='blocked',json=? WHERE id=?").run(
+              JSON.stringify(raw),
+              String(row.id),
+            );
+          }
+        }
+        db.prepare(
+          "INSERT OR REPLACE INTO career_setting(key,value) VALUES('discovery-source-version','2')",
+        ).run();
+        db.exec('COMMIT');
+      } catch (error) {
+        db.exec('ROLLBACK');
+        throw error;
+      }
+    }
+  }
+  rememberCompany(
+    feed: { ats: string; tenant: string; region: string },
+    company: string,
+    pageUrl: string,
+    at: number,
+  ) {
+    const key = [feed.ats, feed.tenant, feed.region].join(':');
+    this.db
+      .prepare(
+        `INSERT INTO company_inventory VALUES(?,?,?,?,?,?,?,?,NULL) ON CONFLICT(identity) DO UPDATE SET observed_at=MAX(observed_at,excluded.observed_at), company=CASE WHEN company_inventory.company='' THEN excluded.company ELSE company_inventory.company END`,
+      )
+      .run(key, feed.ats, feed.tenant, feed.region, company, pageUrl, at, at);
+  }
+  validateCompany(feed: { ats: string; tenant: string; region: string }, at: number) {
+    this.db
+      .prepare('UPDATE company_inventory SET validated_at=? WHERE identity=?')
+      .run(at, [feed.ats, feed.tenant, feed.region].join(':'));
+  }
+  companyBatch(after = '', limit = 50, validated = false) {
+    return this.db
+      .prepare(
+        `SELECT identity,ats,tenant,region,company,page_url pageUrl,validated_at validatedAt FROM company_inventory WHERE identity>? ${validated ? 'AND validated_at IS NOT NULL' : ''} ORDER BY identity LIMIT ?`,
+      )
+      .all(after, Math.max(1, Math.min(100, limit)))
+      .map((r) => ({
+        identity: String(r.identity),
+        ats: String(r.ats),
+        tenant: String(r.tenant),
+        region: String(r.region),
+        company: String(r.company),
+        pageUrl: String(r.pageUrl),
+        validatedAt: r.validatedAt === null ? null : Number(r.validatedAt),
+      }));
   }
   /** Disposable payloads only. Durable runs, jobs, memberships and user history are never pruned here. */
   cleanupExpired(now: number, limit = 100) {

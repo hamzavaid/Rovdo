@@ -3,14 +3,10 @@ import { BOARD_REGISTRY } from '@rovdo/job-sources';
 import { discoveryQueries } from './queries';
 import { sampleCandidate } from '../../../tests/fixtures/ranking-v2';
 import { JobSearchSchema } from '@rovdo/shared';
-it('catalogs all 126 boards without pretending indexed/blocked entries have scrapers', () => {
-  expect(BOARD_REGISTRY).toHaveLength(126);
-  expect(new Set(BOARD_REGISTRY.map((s) => s.id)).size).toBe(126);
-  expect(BOARD_REGISTRY.find((s) => s.name === 'LinkedIn Jobs')).toMatchObject({
-    mode: 'scraper',
-    status: 'blocked',
-  });
-  expect(BOARD_REGISTRY.find((s) => s.name === 'Greenhouse')?.adapter).toBe('ats');
+it('catalogs only supported useful sources', () => {
+  expect(BOARD_REGISTRY).toHaveLength(11);
+  expect(BOARD_REGISTRY.every((s) => s.status === 'ready')).toBe(true);
+  expect(BOARD_REGISTRY.some((s) => s.name === 'LinkedIn Jobs')).toBe(false);
 });
 it('builds stable private qualification-driven queries without contacts, legal assertions or unverified skills', () => {
   const p = sampleCandidate(['typescript', 'verilog']);

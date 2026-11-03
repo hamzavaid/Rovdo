@@ -1,3 +1,4 @@
+import { discoverBoardPage } from './company-index';
 /** Public-feed/index decoding. Individual malformed records are isolated; snippets never become invented job descriptions. */
 import { z } from 'zod';
 import { JobSchema } from '@rovdo/shared';
@@ -168,6 +169,8 @@ export async function fetchDiscoveryPage(
   payload: Record<string, unknown>,
   read: DiscoveryRead,
 ): Promise<DiscoveryPage> {
+  if (sourceId === 'wayback' || sourceId === 'common-crawl')
+    return discoverBoardPage(sourceId, payload, read);
   const source = DISCOVERY_SOURCES.find((s) => s.id === sourceId);
   if (!source) throw new Error('UNKNOWN_SOURCE');
   let observedAt = Date.now();
@@ -249,28 +252,6 @@ export async function fetchDiscoveryPage(
     const page = pageRows(entries, payload);
     raw = page.rows;
     next = page.next;
-  } else if (source.adapter === 'index') {
-    const endpoint = new URL(String(payload.indexUrl));
-    if (
-      endpoint.protocol !== 'https:' ||
-      endpoint.username ||
-      endpoint.password ||
-      endpoint.search ||
-      endpoint.hash
-    )
-      throw new Error('INDEX_CONFIGURATION');
-    endpoint.searchParams.set(
-      'q',
-      (sourceId === 'web-index' ? '' : `site:${new URL(source.url).hostname} `) +
-        String(payload.query),
-    );
-    endpoint.searchParams.set('format', 'json');
-    endpoint.searchParams.set('pageno', String(payload.page ?? 1));
-    const data = z
-      .object({ results: z.array(z.unknown()) })
-      .parse(JSON.parse(await decode(endpoint.href)));
-    raw = data.results;
-    next = raw.length ? { ...payload, page: Number(payload.page ?? 1) + 1 } : null;
   } else throw new Error('SOURCE_NOT_IMPLEMENTED');
   const records: DiscoveryRecord[] = [];
   let rejected = 0;
@@ -328,15 +309,6 @@ export async function fetchDiscoveryPage(
           workMode: 'remote',
           exportAllowed: false,
         };
-      else if (source.adapter === 'index')
-        projected = {
-          url: r.url,
-          title: r.title,
-          company: null,
-          description: '',
-          location: '',
-          kind: 'index',
-        };
       else
         projected = { ...r, kind: source.adapter === 'github-list' ? 'repository' : 'aggregate' };
       const pay = JobSchema.shape.salary.safeParse(projected.salary ?? null);
@@ -352,11 +324,6 @@ export async function fetchDiscoveryPage(
         ...projected,
       });
       canonicalUrl(record.url);
-      if (source.adapter === 'index' && sourceId !== 'web-index') {
-        const host = new URL(record.url).hostname,
-          expected = new URL(source.url).hostname.replace(/^www\./, '');
-        if (host !== expected && !host.endsWith('.' + expected)) throw new Error('INDEX_SCOPE');
-      }
       records.push(record);
     } catch {
       rejected++;
@@ -398,11 +365,7 @@ export function normalizeDiscoveryJob(
   const key = sha256(url);
   return JobSchema.parse({
     id: `discovered:${key}`,
-    source:
-      record.kind === 'import' ||
-      DISCOVERY_SOURCES.find((s) => s.id === record.sourceId)?.adapter === 'jobspy'
-        ? 'jobspy'
-        : 'public-api',
+    source: 'public-api',
     tenant: source.tenant,
     sourceJobId: key,
     requisitionId: record.requisitionId,
