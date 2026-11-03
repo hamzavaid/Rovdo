@@ -120,6 +120,8 @@ export class GlobalDiscoveryEngine {
         ['greenhouse', 'lever', 'ashby', 'smartrecruiters'].includes(id),
       )
     ) {
+      const savedAfter = this.seedSavedCompanies(run, '');
+      if (savedAfter) this.enqueue(run, 'company-inventory', 'provider', { savedAfter }, 10);
       // Prime the queue synchronously: cached employers must not wait behind slow archive reads.
       const known = this.store.global.companyBatch('', 50, true);
       for (const row of known)
@@ -173,6 +175,41 @@ export class GlobalDiscoveryEngine {
       }
     }
     return run.id;
+  }
+  /** Keyset batches avoid parsing the entire historical/global source registry at startup. */
+  private seedSavedCompanies(run: DiscoveryRun, after: string): string | null {
+    const rows = this.store.discoverySourceBatch(after);
+    for (const { config, state } of rows) {
+      if (
+        config.ats === 'jsonld' ||
+        !run.options.sourceIds.includes(config.ats) ||
+        state.lastSuccessAt === null ||
+        !this.store.directoryAllowed(config)
+      )
+        continue;
+      const host =
+        config.ats === 'lever'
+          ? config.region === 'eu'
+            ? 'jobs.eu.lever.co'
+            : 'jobs.lever.co'
+          : config.ats === 'greenhouse'
+            ? 'job-boards.greenhouse.io'
+            : config.ats === 'ashby'
+              ? 'jobs.ashbyhq.com'
+              : 'careers.smartrecruiters.com';
+      const pageUrl = config.pageUrl ?? `https://${host}/${config.tenant}`;
+      const feed = { ats: config.ats, tenant: config.tenant, region: config.region };
+      this.store.global.rememberCompany(feed, config.company, pageUrl, state.lastSuccessAt);
+      this.store.global.validateCompany(feed, state.lastSuccessAt);
+      this.enqueue(
+        run,
+        'company-inventory',
+        'ats',
+        { feed, company: config.company, pageUrl },
+        2000,
+      );
+    }
+    return rows.length === 50 ? rows.at(-1)!.config.id : null;
   }
   private enqueue(
     run: DiscoveryRun,
@@ -355,6 +392,15 @@ export class GlobalDiscoveryEngine {
     try {
       this.assertActive(run, signal);
       if (task.kind === 'provider' && task.sourceId === 'company-inventory') {
+        if (typeof task.payload.savedAfter === 'string') {
+          const after = this.seedSavedCompanies(run, task.payload.savedAfter);
+          this.store.global.saveTask({
+            ...task,
+            status: after ? 'pending' : 'done',
+            payload: { savedAfter: after ?? task.payload.savedAfter },
+          });
+          return;
+        }
         const rows = this.store.global.companyBatch(
           String(task.payload.after ?? ''),
           50,
@@ -453,6 +499,17 @@ export class GlobalDiscoveryEngine {
         return;
       }
       const status = error instanceof DiscoveryHttpError ? error.status : 0;
+      const code = typeof error === 'object' && error && 'code' in error ? String(error.code) : '';
+      const networkError =
+        signal.aborted ||
+        (error instanceof Error && ['TimeoutError', 'AbortError'].includes(error.name)) ||
+        ['ABORT_ERR', 'ETIMEDOUT'].includes(code)
+          ? 'REQUEST_TIMEOUT'
+          : ['ENOTFOUND', 'EAI_AGAIN'].includes(code)
+            ? 'DNS_LOOKUP_FAILED'
+            : ['ECONNRESET', 'ECONNREFUSED', 'ENETUNREACH', 'EHOSTUNREACH'].includes(code)
+              ? 'CONNECTION_FAILED'
+              : null;
       const safe =
         error instanceof DiscoveryPolicyError
           ? error.code
@@ -473,13 +530,13 @@ export class GlobalDiscoveryEngine {
                   'SCHEMA_DRIFT',
                 ].includes(error.message)
               ? error.message
-              : status
-                ? `HTTP_${status}`
-                : 'SOURCE_RESPONSE_ERROR';
+              : (networkError ?? (status ? `HTTP_${status}` : 'SOURCE_RESPONSE_ERROR'));
+      const archive =
+        task.kind === 'provider' && ['wayback', 'common-crawl'].includes(task.sourceId);
       const blocked =
         error instanceof DiscoveryPolicyError ||
         (status >= 300 && status < 400) ||
-        task.attempts >= 4 ||
+        task.attempts >= (archive ? 1 : 4) ||
         [400, 401, 403, 404, 410].includes(status) ||
         [
           'POLICY_BLOCKED',
@@ -489,6 +546,7 @@ export class GlobalDiscoveryEngine {
           'SCHEMA_DRIFT',
         ].includes(safe);
       const backoff = Math.max(
+        archive ? 60000 : 0,
         error instanceof DiscoveryHttpError ? error.retryAfterMs : 0,
         Math.min(3600000, 1000 * 2 ** Math.min(task.attempts + 1, 11)),
       );
@@ -741,7 +799,15 @@ export class GlobalDiscoveryEngine {
           0.5,
       ),
       registry: DISCOVERY_SOURCES,
-      coverage: run ? this.store.global.coverage(run.id) : [],
+      coverage: run
+        ? this.store.global
+            .coverage(run.id)
+            .map((s) =>
+              run.status === 'completed' && s.status === 'waiting-for-discovered-employers'
+                ? { ...s, status: 'no-employers-discovered', error: 'NO_EMPLOYERS_DISCOVERED' }
+                : s,
+            )
+        : [],
       listings: run ? this.store.global.listings(run.id) : [],
       ...(run
         ? this.store.global.stats(run.id)

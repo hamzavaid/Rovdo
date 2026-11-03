@@ -100,7 +100,7 @@ it('discovers boards through keyless CDX with bounded cursor continuation and re
     };
   });
   expect(result.records).toHaveLength(1);
-  expect(result.next).toEqual({ target: 0, resumeKey: 'resume-key' });
+  expect(result.next).toEqual({ target: 0, partition: 0, resumeKey: 'resume-key' });
   expect(result.rejected).toBe(1);
   expect(seen[0]).toContain('limit=500');
 });

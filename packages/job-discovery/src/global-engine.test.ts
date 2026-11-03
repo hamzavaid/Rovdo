@@ -280,6 +280,10 @@ it('does not retry redirects and shares terminal certificate failures across pag
       sourceIds: ['wayback'],
       overrides: {},
     });
+    // Resume the final legacy host page: this test exercises terminal page
+    // failures, independently of how many archive partitions discovery enumerates.
+    const archive = store.global.ready(id, Date.now())[0]!;
+    store.global.saveTask({ ...archive, payload: { target: 6 } });
     for (let i = 0; i < 20 && store.global.run(id).status === 'running'; i++) await engine.tick();
     expect(seen.filter((u) => u.includes('broken.example'))).toHaveLength(1);
     expect(seen.filter((u) => u.includes('redirect.example'))).toHaveLength(1);

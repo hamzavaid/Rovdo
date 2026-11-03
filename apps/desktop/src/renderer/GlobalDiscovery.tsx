@@ -1,5 +1,6 @@
 /** Progressive global-search configuration, precise coverage and resumable collection controls. */
 import { useState } from 'react';
+import { discoveryOptionsForSearch } from './discovery-search';
 import type {
   CareerCommand,
   DiscoveryOptions,
@@ -8,6 +9,27 @@ import type {
 } from '@rovdo/shared';
 import type { z } from 'zod';
 type View = z.infer<typeof DiscoveryViewSchema>;
+const archiveSources = new Set(['wayback', 'common-crawl']);
+const atsSources = new Set(['greenhouse', 'lever', 'ashby', 'smartrecruiters']);
+function sourceReason(code: string | null): string {
+  if (!code) return 'None';
+  if (/^HTTP_5\d\d$/.test(code))
+    return `Source temporarily unavailable (${code.replace('HTTP_', 'HTTP ')}). Other sources continue.`;
+  return (
+    (
+      {
+        REQUEST_TIMEOUT: 'Source did not respond before the request deadline.',
+        DNS_LOOKUP_FAILED:
+          'Could not resolve the source address. Check your connection or try later.',
+        CONNECTION_FAILED: 'Could not connect to the source. Try again later.',
+        NO_EMPLOYERS_DISCOVERED:
+          'No company boards were found for this ATS. Enable public job lists or feeds to discover employers.',
+        SOURCE_RESPONSE_ERROR: 'Source request failed. Other sources continue; try again later.',
+        HTTP_429: 'Source rate limit reached. Waiting for its retry window.',
+      } as Record<string, string>
+    )[code] ?? code
+  );
+}
 export const defaultDiscovery: DiscoveryOptions = {
   sourceIds: [
     'greenhouse',
@@ -28,6 +50,7 @@ export const defaultDiscovery: DiscoveryOptions = {
 };
 export function GlobalDiscovery({
   view,
+  criteria,
   options,
   onOptions,
   command,
@@ -43,10 +66,35 @@ export function GlobalDiscovery({
   const [filter, setFilter] = useState('');
   const [sourceView, setSourceView] = useState<'all' | 'selected'>('all');
   const [showAll, setShowAll] = useState(false);
+  const [restarting, setRestarting] = useState(false);
   const update = (next: DiscoveryOptions) => {
     onOptions(next);
   };
   const selected = (view?.registry ?? []).filter((s) => options.sourceIds.includes(s.id));
+  const activeIds =
+    view?.run?.status === 'running' ? view.run.options.sourceIds : options.sourceIds;
+  const archiveOnly =
+    activeIds.some((id) => archiveSources.has(id)) &&
+    activeIds.every((id) => archiveSources.has(id) || atsSources.has(id));
+  const unavailable = view?.coverage.some((s) => ['blocked', 'retrying'].includes(s.status));
+  const useRecommended = async () => {
+    setRestarting(true);
+    try {
+      const next = { ...options, sourceIds: defaultDiscovery.sourceIds };
+      update(next);
+      if (view?.run?.status === 'running')
+        await command({ op: 'controlDiscovery', id: view.run.id, action: 'cancel' });
+      await command({
+        op: 'startDiscovery',
+        options: criteria
+          ? discoveryOptionsForSearch({ ...criteria, discovery: next }, next)
+          : next,
+        consent: true,
+      });
+    } finally {
+      setRestarting(false);
+    }
+  };
   return (
     <section className="global-discovery" aria-label="Global discovery">
       <p className="help-text">
@@ -54,6 +102,27 @@ export function GlobalDiscovery({
         feeds and public pages. It is not a claim to search every internet job. No AI provider is
         used.
       </p>
+      {(archiveOnly || unavailable) && (
+        <div className="surface-card" role="status">
+          <strong>
+            {archiveOnly ? 'Archive-only discovery' : 'Some discovery sources are unavailable'}
+          </strong>
+          <p className="help-text">
+            {archiveOnly
+              ? 'These ATS adapters need discovered company boards. Archive indexes can be slow or unavailable; public job lists and feeds provide independent discovery. Previously successful enabled employers are searched immediately.'
+              : 'Healthy sources continue independently. Failed archive requests are retried once after a cooldown, then marked unavailable for this search. Cached jobs and saved opportunities are preserved.'}
+          </p>
+          {archiveOnly && (
+            <button
+              type="button"
+              disabled={busy || restarting}
+              onClick={() => void useRecommended()}
+            >
+              {restarting ? 'Restarting discovery…' : 'Search with recommended sources'}
+            </button>
+          )}
+        </div>
+      )}
       <details className="surface-disclosure">
         <summary>Sources, queries and collection settings</summary>
         <details>
@@ -277,11 +346,11 @@ export function GlobalDiscovery({
                   {view.coverage.map((s) => (
                     <tr key={s.sourceId}>
                       <td>{view.registry.find((r) => r.id === s.sourceId)?.name ?? s.sourceId}</td>
-                      <td>{s.status}</td>
+                      <td>{s.status.replaceAll('-', ' ')}</td>
                       <td>{s.requests}</td>
                       <td>{s.records}</td>
                       <td>{s.rejected}</td>
-                      <td>{s.error ?? 'None'}</td>
+                      <td>{sourceReason(s.error)}</td>
                     </tr>
                   ))}
                 </tbody>

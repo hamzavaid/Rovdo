@@ -157,6 +157,10 @@ export class CareerStore {
       DELETE FROM rank_cache; INSERT INTO career_schema VALUES(6);`);
       });
     this.global = new DiscoveryStore(this.db);
+    this.db.exec(`CREATE INDEX IF NOT EXISTS saved_discovery_sources ON job_source(id)
+      WHERE json_extract(config,'$.enabled')=1
+      AND coalesce(json_extract(config,'$.collection'),'saved')='saved'
+      AND json_extract(state,'$.lastSuccessAt') IS NOT NULL`);
     // An interrupted page keeps its cursor and completed rows; no disappearance
     // decision is made until a complete authoritative snapshot succeeds.
     for (const source of this.sources())
@@ -372,6 +376,21 @@ export class CareerStore {
     return this.db
       .prepare('SELECT config,state FROM job_source ORDER BY id')
       .all()
+      .map((r) => ({
+        config: SourceConfigSchema.parse(JSON.parse(String(r.config))),
+        state: SourceStateSchema.parse(JSON.parse(String(r.state))),
+      }));
+  }
+  /** Previously successful saved feeds, bounded independently of the global registry size. */
+  discoverySourceBatch(after = ''): SourceView[] {
+    return this.db
+      .prepare(
+        `SELECT config,state FROM job_source WHERE id>?
+      AND json_extract(config,'$.enabled')=1
+      AND coalesce(json_extract(config,'$.collection'),'saved')='saved'
+      AND json_extract(state,'$.lastSuccessAt') IS NOT NULL ORDER BY id LIMIT 50`,
+      )
+      .all(after)
       .map((r) => ({
         config: SourceConfigSchema.parse(JSON.parse(String(r.config))),
         state: SourceStateSchema.parse(JSON.parse(String(r.state))),

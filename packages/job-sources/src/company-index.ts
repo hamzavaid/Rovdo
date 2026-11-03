@@ -12,6 +12,9 @@ const patterns = [
   'careers.smartrecruiters.com/*',
   'jobs.smartrecruiters.com/*',
 ];
+// Tenant prefixes partition a potentially enormous host scan. Walk every allowed
+// first character; these are resumable batches, not a cap on employers or jobs.
+const prefixes = 'abcdefghijklmnopqrstuvwxyz0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ_-';
 export async function discoverBoardPage(
   id: string,
   p: Record<string, unknown>,
@@ -20,8 +23,34 @@ export async function discoverBoardPage(
   const target = Number(p.target ?? 0);
   if (!Number.isSafeInteger(target) || target < 0 || target >= patterns.length)
     throw new Error('INVALID_CURSOR');
-  const get = async (url: string) => {
+  // Old persisted cursors must finish their original query before partitioning.
+  const legacy =
+    p.partition === undefined &&
+    ['target', 'index', 'pages', 'page', 'resumeKey'].some((k) => p[k] !== undefined);
+  const partition = legacy ? null : Number(p.partition ?? 0);
+  if (
+    partition !== null &&
+    (!Number.isSafeInteger(partition) || partition < 0 || partition >= prefixes.length)
+  )
+    throw new Error('INVALID_CURSOR');
+  const pattern = patterns[target]!.replace(
+    '*',
+    partition === null ? '*' : prefixes[partition] + '*',
+  );
+  const cursor = partition === null ? {} : { partition };
+  const get = async (url: string, empty = '') => {
     const r = await read(url);
+    if (id === 'common-crawl' && r.status === 404 && empty) {
+      // The CDX API uses 404 for a legitimate empty query, as well as missing endpoints.
+      // Only its documented no-capture JSON response is safe to advance past.
+      try {
+        const data = JSON.parse(r.body.toString('utf8')) as { message?: unknown };
+        if (typeof data.message === 'string' && /^No Captures found\b/i.test(data.message))
+          return empty;
+      } catch {
+        /* Other 404s remain failures. */
+      }
+    }
     if (r.status !== 200) {
       const seconds = Number(r.headers['retry-after'] ?? 0);
       throw new DiscoveryHttpError(
@@ -37,7 +66,7 @@ export async function discoverBoardPage(
   if (id === 'wayback') {
     const url = new URL('https://web.archive.org/cdx/search/cdx');
     for (const [k, v] of Object.entries({
-      url: patterns[target]!,
+      url: pattern,
       output: 'json',
       fl: 'original',
       filter: 'statuscode:200',
@@ -67,7 +96,7 @@ export async function discoverBoardPage(
     )
       throw new Error('SCHEMA_DRIFT');
     urls = data.slice(1).map((r) => r[0] as string);
-    if (resumeKey) next = { target, resumeKey };
+    if (resumeKey) next = { target, ...cursor, resumeKey };
   } else {
     let index = String(p.index ?? '');
     if (!index) {
@@ -81,14 +110,15 @@ export async function discoverBoardPage(
     const page = Number(p.page ?? 0);
     if (!Number.isSafeInteger(page) || page < 0) throw new Error('INVALID_CURSOR');
     const url = new URL(index);
-    url.searchParams.set('url', patterns[target]!);
+    url.searchParams.set('url', pattern);
     url.searchParams.set('output', 'json');
     url.searchParams.set('filter', 'status:200');
     url.searchParams.set('pageSize', '1');
     let pages = Number(p.pages ?? 0);
+    if (!Number.isSafeInteger(pages) || pages < 0) throw new Error('INVALID_CURSOR');
     if (!pages) {
       url.searchParams.set('showNumPages', 'true');
-      const meta = JSON.parse(await get(url.href)) as { pages: number };
+      const meta = JSON.parse(await get(url.href, '{"pages":0}')) as { pages: number };
       pages = meta.pages;
       if (!Number.isSafeInteger(pages) || pages < 0) throw new Error('SCHEMA_DRIFT');
       url.searchParams.delete('showNumPages');
@@ -110,9 +140,15 @@ export async function discoverBoardPage(
           }
         });
     }
-    if (page + 1 < pages) next = { target, index, pages, page: page + 1 };
+    if (page + 1 < pages) next = { target, ...cursor, index, pages, page: page + 1 };
+    // Reuse the validated collection identity between partitions, not the old page count.
+    if (!next && partition !== null && partition + 1 < prefixes.length)
+      next = { target, partition: partition + 1, index };
   }
-  if (!next && target + 1 < patterns.length) next = { target: target + 1 };
+  if (!next && partition !== null && partition + 1 < prefixes.length)
+    next = { target, partition: partition + 1 };
+  if (!next && target + 1 < patterns.length)
+    next = { target: target + 1, ...(partition === null ? {} : { partition: 0 }) };
   const unique = new Map<string, string>();
   let rejected = malformed;
   for (const url of urls) {

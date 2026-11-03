@@ -1,5 +1,27 @@
 import { it, expect } from 'vitest';
 import { fetchDiscoveryPage } from './global-adapters';
+it('partitions new archive scans by tenant prefix and preserves durable partition cursors', async () => {
+  const urls: string[] = [];
+  const page = await fetchDiscoveryPage('wayback', {}, async (url) => {
+    urls.push(url);
+    return { status: 200, headers: {}, body: Buffer.from('[["original"]]') };
+  });
+  expect(new URL(urls[0]!).searchParams.get('url')).toBe('job-boards.greenhouse.io/a*');
+  expect(page.next).toMatchObject({ target: 0, partition: 1 });
+});
+it('treats Common Crawl no-capture responses as an empty partition, not a broken source', async () => {
+  const page = await fetchDiscoveryPage('common-crawl', {}, async (url) => ({
+    status: url.endsWith('/collinfo.json') ? 200 : 404,
+    headers: {},
+    body: Buffer.from(
+      url.endsWith('/collinfo.json')
+        ? '[{"cdx-api":"https://index.commoncrawl.org/CC-MAIN-2026-43-index"}]'
+        : '{"message":"No Captures found for: example"}',
+    ),
+  }));
+  expect(page.records).toEqual([]);
+  expect(page.next).toMatchObject({ target: 0, partition: 1 });
+});
 it('uses the latest fixed-origin Common Crawl index, advances empty pages and quarantines malformed lines', async () => {
   const urls: string[] = [];
   const page = await fetchDiscoveryPage('common-crawl', {}, async (url) => {

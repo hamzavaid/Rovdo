@@ -29,7 +29,7 @@ test('globally discovers an unsaved employer, separates scopes, exports and pers
         let data: unknown;
         let statusCode = 200;
         if (url.hostname === 'web.archive.org' && url.pathname !== '/robots.txt') {
-          if (url.searchParams.get('url') !== 'job-boards.greenhouse.io/*') {
+          if (url.searchParams.get('url') !== 'job-boards.greenhouse.io/a*') {
             data = {};
             statusCode = 429;
           } else data = [['original'], ['https://jobs.lever.co/unsaved-fixture/123']];
@@ -121,6 +121,98 @@ test('globally discovers an unsaved employer, separates scopes, exports and pers
     await page.getByRole('button', { name: 'Jobs', exact: true }).click();
     await expect(page.getByText('Collection paused', { exact: true })).toBeVisible();
     await expect(page.locator('.job-card')).toHaveCount(1);
+  } finally {
+    await app.close();
+  }
+});
+
+test('recovers an archive-only search through independent recommended feeds', async () => {
+  const env = Object.fromEntries(
+    Object.entries(process.env).filter((e): e is [string, string] => e[1] !== undefined),
+  );
+  delete env.ELECTRON_RUN_AS_NODE;
+  delete env.NODE_OPTIONS;
+  const app = await electron.launch({
+    args: [
+      resolve('apps/desktop'),
+      `--rovdo-data-dir=${test.info().outputPath('archive-recovery-data')}`,
+    ],
+    env,
+  });
+  try {
+    await app.evaluate(() => {
+      const { createRequire } = process.getBuiltinModule('node:module');
+      const require = createRequire(process.cwd() + '/fixture.cjs');
+      const { EventEmitter } = process.getBuiltinModule('node:events');
+      (require('node:dns/promises') as { lookup: unknown }).lookup = async () => [
+        { address: '93.184.216.34', family: 4 },
+      ];
+      (require('node:https') as { request: unknown }).request = (
+        url: URL,
+        _options: unknown,
+        callback: (r: unknown) => void,
+      ) =>
+        Object.assign(new EventEmitter(), {
+          end() {
+            setTimeout(() => {
+              const independent = url.hostname === 'remotive.com';
+              const res = Object.assign(new EventEmitter(), {
+                statusCode: independent ? 200 : 503,
+                headers: {},
+              });
+              callback(res);
+              res.emit(
+                'data',
+                Buffer.from(
+                  JSON.stringify(
+                    independent
+                      ? {
+                          jobs: [
+                            {
+                              id: 1,
+                              title: 'Independent Feed Engineer',
+                              company_name: 'Recovery Fixture',
+                              url: 'https://careers.recovery.example/jobs/1',
+                              description: 'TypeScript required.',
+                              candidate_required_location: 'Remote',
+                              job_type: 'full_time',
+                            },
+                          ],
+                        }
+                      : { error: 'Unavailable' },
+                  ),
+                ),
+              );
+              res.emit('end');
+            }, 10);
+          },
+          destroy() {},
+        });
+    });
+    const page = await app.firstWindow();
+    await page.getByRole('button', { name: 'Jobs', exact: true }).click();
+    await page.getByText('Sources, queries and collection settings', { exact: true }).click();
+    await page.getByRole('button', { name: 'Clear source selection', exact: true }).click();
+    await page.getByLabel('Find discovery sources', { exact: true }).fill('Wayback');
+    await page.getByRole('checkbox', { name: 'Wayback company discovery', exact: true }).check();
+    await page.getByRole('button', { name: 'Search', exact: true }).click();
+    await page.getByText('Collection health (1)', { exact: true }).click();
+    await expect(
+      page.getByText('Source temporarily unavailable (HTTP 503). Other sources continue.', {
+        exact: true,
+      }),
+    ).toBeVisible({ timeout: 15000 });
+    await page
+      .getByRole('button', { name: 'Search with recommended sources', exact: true })
+      .click();
+    await expect(
+      page.getByRole('heading', { name: 'Independent Feed Engineer', exact: true }),
+    ).toBeVisible({ timeout: 15000 });
+    await expect(
+      page.getByRole('region', { name: 'Discovery progress', exact: true }),
+    ).toContainText('1 unique jobs collected');
+    const settings = await page.evaluate(() => window.rovdo!.getSettings());
+    expect(settings.ok && settings.settings.profiles.length).toBe(0);
   } finally {
     await app.close();
   }
