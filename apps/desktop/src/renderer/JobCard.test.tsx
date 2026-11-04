@@ -10,6 +10,14 @@ it('shows a clickable real title, meaningful score snapshot and progressive acti
     BUILTIN_RANKINGS[0]!,
     AS_OF,
   )[0]!;
+  match.job.provenance.push({
+    sourceId: 'fixture',
+    sourceKey: '1',
+    url: match.job.canonicalUrl,
+    collectedAt: 1,
+    rawSha256: 'a'.repeat(64),
+    fields: {},
+  });
   const html = renderToStaticMarkup(
     <JobCard
       match={match}

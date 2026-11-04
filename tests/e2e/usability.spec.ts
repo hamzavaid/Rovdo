@@ -135,8 +135,8 @@ test('uses real dashboard data, edits verified qualifications and previews balan
         .getByRole('navigation', { name: 'Jobs views' })
         .getByRole('button', { name: 'Find Jobs', exact: true }),
     ).toHaveAttribute('aria-pressed', 'true');
-    await page.getByRole('button', { name: 'Ranking & matching', exact: true }).click();
-    await page.getByLabel('Ranking preset').selectOption('builtin:technical-balanced');
+    await page.getByRole('button', { name: 'Ranking Methods', exact: true }).click();
+    await page.getByRole('button', { name: /^Balanced Match/ }).click();
     await page.getByRole('button', { name: 'Clone selected ranking', exact: true }).click();
     await page.getByLabel('Auto-balance weights', { exact: true }).check();
     await page.getByLabel('skills weight', { exact: true }).fill('60');
@@ -144,10 +144,8 @@ test('uses real dashboard data, edits verified qualifications and previews balan
     await page.getByLabel('confidence threshold', { exact: true }).fill('80');
     await page.getByRole('button', { name: 'Save ranking configuration' }).click();
     await page.getByRole('button', { name: 'Use as default ranking' }).click();
-    await page.getByRole('button', { name: 'Preview saved scores' }).click();
-    await expect(page.locator('.ranking-preview-results')).toContainText(
-      'Technical Balanced v2_clone',
-    );
+    await expect(page.getByRole('heading', { name: 'Before / After preview' })).toBeVisible();
+    await expect(page.locator('.ranking-preview-results')).toContainText(/\d+\.\d \/ 100/);
     for (const theme of ['light', 'dark'] as const) {
       await page.getByLabel('Appearance', { exact: true }).selectOption(theme);
       await page.setViewportSize({ width: 980, height: 850 });

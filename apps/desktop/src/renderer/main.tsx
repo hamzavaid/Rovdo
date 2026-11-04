@@ -8,6 +8,7 @@ import { App } from './App';
 import './styles.css';
 import './workspace.css';
 import './jobs.css';
+import './jobs-v5.css';
 
 const root = document.getElementById('root');
 if (!root) throw new Error('Missing application root');

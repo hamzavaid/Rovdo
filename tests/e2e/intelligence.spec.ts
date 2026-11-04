@@ -51,21 +51,15 @@ test('reviews imported qualifications and manages persisted custom ranking profi
     await page.getByText('Verified structured qualifications', { exact: true }).click();
     await expect(page.getByText('2 verified skills', { exact: false })).toBeVisible();
     await page.getByRole('button', { name: 'Jobs', exact: true }).click();
-    await page.getByRole('button', { name: 'Ranking & matching', exact: true }).click();
-    await page.getByLabel('Ranking preset').selectOption('builtin:technical-balanced');
-    await page.getByText('Manage ranking profiles', { exact: true }).click();
-    await page.getByText('Configure selected ranking', { exact: true }).click();
+    await page.getByRole('button', { name: 'Ranking Methods', exact: true }).click();
+    await page.getByRole('button', { name: /^Balanced Match/ }).click();
     await expect(page.getByLabel('Ranking name', { exact: true })).toBeDisabled();
-    await page.getByText('Manage ranking profiles', { exact: true }).click();
     const clone = page.getByRole('button', { name: 'Clone selected ranking', exact: true });
     await expect(clone).toBeVisible();
     expect(await clone.evaluate((e) => e.previousElementSibling?.textContent)).toBe(
       'Use as default ranking',
     );
     await clone.click();
-    await expect(page.getByLabel('Ranking preset').locator('option:checked')).toHaveText(
-      'Technical Balanced v2_clone',
-    );
     await expect(page.getByLabel('Ranking name', { exact: true })).toBeVisible();
     await expect(page.getByLabel('Ranking name', { exact: true })).toBeEnabled();
     await expect(page.getByLabel('Ranking name', { exact: true })).toHaveValue(
@@ -90,10 +84,11 @@ test('reviews imported qualifications and manages persisted custom ranking profi
       'My conservative backend',
     );
     await page.getByRole('button', { name: 'Use as default ranking' }).click();
-    await expect(page.getByText('Default: My conservative backend', { exact: true })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Use as default ranking' })).toBeDisabled();
     await page.screenshot({ path: test.info().outputPath('ranking-controls.png'), fullPage: true });
+    await page.getByText('Reset or delete custom method', { exact: true }).click();
     await page.getByRole('button', { name: 'Delete custom ranking' }).click();
-    await expect(page.getByLabel('Ranking preset')).toHaveValue('builtin:legacy-v1');
+    await expect(page.getByLabel('Ranking name')).toHaveValue('Legacy v1');
     const providers = await page.evaluate(() => window.rovdo!.getSettings());
     expect(providers.ok && providers.settings.profiles.length).toBe(0);
   } finally {

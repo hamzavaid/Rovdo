@@ -75,17 +75,19 @@ test('edits a verified profile and discovers, filters and saves fixture jobs wit
     await page.getByRole('button', { name: 'Save candidate profile' }).click();
     await expect(page.getByText('Profile version 2')).toBeVisible();
     await page.getByRole('button', { name: 'Jobs', exact: true }).click();
-    await page.getByLabel('Search jobs').fill('TypeScript');
+    await page.getByLabel('Search Jobs').fill('TypeScript');
     await expect(page.getByRole('heading', { name: 'TypeScript Engineer' })).toBeVisible();
     await page.locator('.job-details > summary').first().click();
     await page.getByText('Eligibility, ranking and provenance', { exact: true }).click();
     await expect(page.getByText('Qualification gaps: Rust')).toBeVisible();
     await page.getByRole('button', { name: 'Save opportunity' }).click();
     await expect(page.getByRole('button', { name: 'Remove saved opportunity' })).toBeVisible();
-    await page.getByRole('button', { name: 'Sources & Coverage', exact: true }).click();
-    await page.getByText('Source health', { exact: true }).click();
+    await page.getByRole('button', { name: 'Companies', exact: true }).click();
+    await page.getByText('Advanced Source Management', { exact: true }).click();
     await page.getByRole('button', { name: 'Delete source Fixture Company' }).click();
-    await expect(page.locator('.source-registry article')).toHaveCount(0);
+    await expect(page.getByRole('button', { name: 'Delete source Fixture Company' })).toHaveCount(
+      0,
+    );
     await page
       .getByRole('navigation', { name: 'Jobs views' })
       .getByRole('button', { name: 'Find Jobs', exact: true })

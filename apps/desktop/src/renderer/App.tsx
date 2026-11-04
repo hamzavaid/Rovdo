@@ -157,7 +157,12 @@ export function App() {
           </section>
           {view === 'discovery-settings' && <DiscoverySettings />}
           {(view === 'jobs' || view === 'profile') && (
-            <CareerWorkspace initialSavedOnly={savedJobs} tab={view} settings={settings} />
+            <CareerWorkspace
+              initialSavedOnly={savedJobs}
+              tab={view}
+              settings={settings}
+              onProfile={() => navigate('profile')}
+            />
           )}
           <footer className="workspace-footer">
             <span role="status">

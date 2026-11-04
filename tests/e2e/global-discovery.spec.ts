@@ -66,17 +66,15 @@ test('globally discovers an unsaved employer, separates scopes, exports and pers
     });
     let page = await app.firstWindow();
     await page.getByRole('button', { name: 'Jobs', exact: true }).click();
-    await page.getByRole('button', { name: 'Sources & Coverage', exact: true }).click();
+    await page.getByRole('button', { name: 'Scope & Collection', exact: true }).click();
     await expect(page.getByLabel('Search scope', { exact: true })).toHaveValue('global');
     await expect(
       page.getByRole('option', { name: 'Search All Saved Companies', exact: true }),
     ).toHaveCount(1);
-    await page.getByRole('button', { name: 'Sources & Coverage', exact: true }).click();
-    await page.getByRole('button', { name: 'Selected sources (11)', exact: true }).click();
+    await page.getByRole('button', { name: 'Scope & Collection', exact: true }).click();
+    await page.getByRole('button', { name: '+ Select sources', exact: true }).click();
     await expect(page.locator('.discovery-source')).toHaveCount(11);
-    await page.getByRole('button', { name: 'Show full source list', exact: true }).click();
-    await expect(page.locator('.discovery-source-list')).toHaveClass(/expanded/);
-    await page.getByRole('button', { name: 'All sources', exact: true }).click();
+    await page.getByRole('button', { name: 'Select all', exact: true }).click();
     await expect(page.locator('.discovery-source')).toHaveCount(11);
     expect(
       await page
@@ -84,7 +82,7 @@ test('globally discovers an unsaved employer, separates scopes, exports and pers
         .first()
         .evaluate((e) => e.getBoundingClientRect().height),
     ).toBeLessThan(65);
-    await page.getByRole('button', { name: 'Clear source selection', exact: true }).click();
+    await page.getByRole('button', { name: 'Clear selection', exact: true }).click();
     await page.evaluate(() =>
       window.rovdo!.careerCommand({ op: 'companyDiscovery', action: 'start' }),
     );
@@ -114,18 +112,18 @@ test('globally discovers an unsaved employer, separates scopes, exports and pers
     ).toBeVisible({ timeout: 20000 });
     await expect(
       page.getByRole('region', { name: 'Discovery progress', exact: true }),
-    ).toContainText('1 unique jobs collected');
+    ).toContainText('1 unique jobs in this run');
     await page.evaluate(() =>
       window.rovdo!.careerCommand({ op: 'companyDiscovery', action: 'pause' }),
     );
-    await page.getByRole('button', { name: 'Sources & Coverage', exact: true }).click();
+    await page.getByRole('button', { name: 'Scope & Collection', exact: true }).click();
     await page.getByLabel('Search scope', { exact: true }).selectOption('saved-companies');
     await page
       .getByRole('navigation', { name: 'Jobs views' })
       .getByRole('button', { name: 'Find Jobs', exact: true })
       .click();
     await expect(page.locator('.job-card')).toHaveCount(0);
-    await page.getByRole('button', { name: 'Sources & Coverage', exact: true }).click();
+    await page.getByRole('button', { name: 'Scope & Collection', exact: true }).click();
     await page.getByLabel('Search scope', { exact: true }).selectOption('global');
     await page
       .getByRole('navigation', { name: 'Jobs views' })
@@ -135,6 +133,7 @@ test('globally discovers an unsaved employer, separates scopes, exports and pers
     await app.evaluate(({ dialog }, file) => {
       dialog.showSaveDialog = async () => ({ canceled: false, filePath: file });
     }, test.info().outputPath('export.csv'));
+    await page.getByText('Export current page', { exact: true }).click();
     await page.getByRole('button', { name: 'Export page CSV', exact: true }).click();
     await expect(
       page.getByRole('status').filter({ hasText: 'File saved for this page' }),
@@ -246,7 +245,7 @@ test('keeps independent feeds usable during a background archive outage', async 
     ).toBeVisible({ timeout: 15000 });
     await expect(
       page.getByRole('region', { name: 'Discovery progress', exact: true }),
-    ).toContainText('1 unique jobs collected');
+    ).toContainText('1 unique jobs in this run');
     const settings = await page.evaluate(() => window.rovdo!.getSettings());
     expect(settings.ok && settings.settings.profiles.length).toBe(0);
   } finally {

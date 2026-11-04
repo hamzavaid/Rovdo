@@ -1,5 +1,7 @@
 /** Task-first job results, adapted from the supplied prototype using actual persisted matches and IPC actions. */
 import type { ReactNode, MouseEvent } from 'react';
+import { rankingLabel } from './jobs-state';
+import { useState } from 'react';
 import { eligibilityOutcome } from '@rovdo/career';
 import type { CareerCommand, CareerViewSchema, JobMatch, RankingProfile } from '@rovdo/shared';
 import type { z } from 'zod';
@@ -27,21 +29,38 @@ export function JobCard({
 }) {
   const url = m.job.canonicalUrl;
   const eligibility = eligibilityOutcome(m);
-  const link = (children: ReactNode, className?: string) => (
-    <a
-      className={className}
-      href={url}
-      onClick={(e: MouseEvent<HTMLAnchorElement>) => {
-        e.preventDefault();
-        void command({ op: 'openJob', jobId: m.job.id });
-      }}
-    >
-      {children}
-    </a>
-  );
+  const verified =
+    m.job.activeStatus === 'open' &&
+    (m.job.discovery
+      ? m.job.discovery.kind === 'employer' && m.job.discovery.availability === 'verified'
+      : ['greenhouse', 'lever', 'ashby', 'smartrecruiters'].includes(m.job.source) &&
+        m.job.provenance.length > 0);
+  const checked =
+    m.job.discovery?.checkedAt ??
+    (verified ? Math.max(...m.job.provenance.map((p) => p.collectedAt)) : null);
+  const [notes, setNotes] = useState<string | null>(null);
+  const link = (children: ReactNode, className?: string) =>
+    !verified ? (
+      <span className={className} title="An authoritative live posting has not been verified">
+        {children}
+      </span>
+    ) : (
+      <a
+        className={className}
+        href={url}
+        onClick={(e: MouseEvent<HTMLAnchorElement>) => {
+          e.preventDefault();
+          void command({ op: 'openJob', jobId: m.job.id });
+        }}
+      >
+        {children}
+      </a>
+    );
   const legacy = m.ranking?.method === 'legacy-v1' || !m.ranking;
   const method =
-    rankings.find((p) => p.id === m.ranking?.configId)?.name ??
+    (rankings.find((p) => p.id === m.ranking?.configId)
+      ? rankingLabel(rankings.find((p) => p.id === m.ranking?.configId)!)
+      : null) ??
     (legacy
       ? 'Legacy v1'
       : m.ranking?.method === 'technical-v2'
@@ -72,8 +91,13 @@ export function JobCard({
             </span>
             <strong>{m.job.company}</strong>
             {(marker?.seenAt ?? 0) < m.job.firstSeenAt && (
-              <span className="new-badge">New posting</span>
+              <span className="new-badge">Newly discovered</span>
             )}
+            {!!m.job.contentChangedAt &&
+              m.job.contentChangedAt > m.job.firstSeenAt &&
+              m.job.contentChangedAt > (marker?.seenAt ?? 0) && (
+                <span className="new-badge">Recently updated</span>
+              )}
           </div>
           <h2>{link(m.job.title, 'job-title-link')}</h2>
           <div className="job-meta">
@@ -101,6 +125,14 @@ export function JobCard({
         </aside>
       </header>
       <div className="job-card-actions">
+        {verified ? (
+          link('View posting', 'button-link posting-link')
+        ) : (
+          <button disabled title="An authoritative live posting has not been verified">
+            View posting unavailable
+          </button>
+        )}
+        <span className="action-spacer" />
         <button
           className="save-job-button"
           disabled={busy}
@@ -109,7 +141,16 @@ export function JobCard({
         >
           {saved ? 'Remove saved opportunity' : 'Save opportunity'}
         </button>
-        {link('View posting', 'button-link')}
+      </div>
+      <div className="job-verification">
+        <span className={verified ? 'verified-label' : 'unverified-label'}>
+          {verified ? '✓ Verified posting' : 'Unverified discovery'}
+        </span>
+        <small>
+          {checked
+            ? `Checked ${new Date(checked).toLocaleString()}`
+            : 'No live posting check recorded'}
+        </small>
       </div>
       <p
         className={`compact-eligibility fit-badge ${eligibility === 'FAIL' ? 'failed' : eligibility === 'UNKNOWN' ? 'review' : 'passed'}`}
@@ -128,6 +169,51 @@ export function JobCard({
       </p>
       <details className="job-details">
         <summary>Details</summary>
+        {saved && (
+          <section className="saved-job-notes">
+            <label>
+              Application status
+              <select
+                value={marker?.applicationStatus ?? (marker?.applied ? 'applied' : 'not-applied')}
+                onChange={(e) =>
+                  void command({
+                    op: 'markJob',
+                    jobId: m.job.id,
+                    applicationStatus: e.target.value as
+                      | 'not-applied'
+                      | 'applied'
+                      | 'interviewing'
+                      | 'offer'
+                      | 'rejected',
+                  })
+                }
+              >
+                {['not-applied', 'applied', 'interviewing', 'offer', 'rejected'].map((v) => (
+                  <option key={v}>{v}</option>
+                ))}
+              </select>
+            </label>
+            <label>
+              Private notes
+              <textarea
+                maxLength={10000}
+                rows={3}
+                value={notes ?? marker?.notes ?? ''}
+                onChange={(e) => setNotes(e.target.value)}
+              />
+            </label>
+            <button
+              disabled={busy || notes === null || notes === (marker?.notes ?? '')}
+              onClick={() =>
+                void command({ op: 'markJob', jobId: m.job.id, notes: notes ?? '' }).then(() =>
+                  setNotes(null),
+                )
+              }
+            >
+              Save notes
+            </button>
+          </section>
+        )}
         <section className="job-fit-snapshot" aria-label="Job fit snapshot">
           <div>
             <small>Eligibility</small>
@@ -249,9 +335,7 @@ export function JobCard({
           <p className="job-credit">
             Source: {link(m.job.discovery?.sourceName ?? m.job.source)}{' '}
             <span className="verification-badge">
-              {m.job.discovery?.availability ??
-                (m.job.activeStatus === 'open' ? 'verified' : 'unverified')}{' '}
-              posting
+              {verified ? 'verified' : 'unverified'} posting
             </span>
           </p>
           <details>

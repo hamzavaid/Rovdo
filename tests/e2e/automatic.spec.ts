@@ -82,7 +82,7 @@ test('Search All Saved Companies collects fixture feeds without employer identif
     });
     const page = await app.firstWindow();
     await page.getByRole('button', { name: 'Jobs', exact: true }).click();
-    await page.getByRole('button', { name: 'Sources & Coverage', exact: true }).click();
+    await page.getByRole('button', { name: 'Scope & Collection', exact: true }).click();
     await page.getByLabel('Search scope', { exact: true }).selectOption('saved-companies');
     await page
       .getByRole('navigation', { name: 'Jobs views' })
@@ -90,22 +90,26 @@ test('Search All Saved Companies collects fixture feeds without employer identif
       .click();
     await page.locator('form').getByRole('button', { name: 'Find Jobs', exact: true }).click();
     await expect(
-      page.getByText('Collecting and parsing job feeds...', { exact: true }),
+      page.getByText('Refreshing saved-company feeds. Cached jobs remain visible.', {
+        exact: true,
+      }),
     ).toBeVisible();
     await expect(
       page.locator('form').getByRole('button', { name: 'Find Jobs', exact: true }),
     ).toBeDisabled();
     await expect(page.locator('.job-card')).toHaveCount(3, { timeout: 15000 });
-    await page.getByRole('button', { name: 'Sources & Coverage', exact: true }).click();
-    await expect(page.getByText(/4 directory sources/)).toBeVisible();
-    await page.getByText('Verified source directory', { exact: true }).click();
-    const entry = page.locator('.directory-entry').first();
-    const heading = entry.locator('h3');
-    const toggle = entry.locator('.directory-heading button');
+    await page.getByRole('button', { name: 'Companies', exact: true }).click();
+    await expect(
+      page.getByRole('heading', { name: 'Verified Source Directory', exact: true }),
+    ).toBeVisible();
+    await expect(page.locator('.company-directory-card:visible')).toHaveCount(4);
+    const entry = page.locator('.company-directory-card:visible').first();
+    const heading = entry.locator('h3'),
+      toggle = entry.getByRole('button', { name: 'Disable', exact: true });
     const bounds = await Promise.all([
       heading.boundingBox(),
       toggle.boundingBox(),
-      entry.locator('.directory-provenance').boundingBox(),
+      entry.locator('.help-text').first().boundingBox(),
     ]);
     expect(bounds[1]!.x).toBeGreaterThanOrEqual(bounds[0]!.x + bounds[0]!.width);
     expect(bounds[2]!.y).toBeGreaterThanOrEqual(bounds[1]!.y + bounds[1]!.height);

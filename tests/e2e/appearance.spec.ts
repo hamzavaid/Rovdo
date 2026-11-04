@@ -75,15 +75,16 @@ test('persists Light/Dark/System appearance, follows OS changes and keeps contro
     ).toBeVisible();
     await page.getByRole('button', { name: 'Jobs', exact: true }).focus();
     await page.keyboard.press('Enter');
-    await page.getByText('Filters', { exact: true }).focus();
+    await page.getByRole('button', { name: /^All Filters/ }).focus();
     await page.keyboard.press('Enter');
+    await page.getByText('More criteria', { exact: true }).click();
     await expect(page.getByLabel('Technical role family')).toBeVisible();
     await page.setViewportSize({ width: 820, height: 740 });
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(
       true,
     );
     await page.keyboard.press('Escape');
-    await expect(page.getByRole('button', { name: 'Filters', exact: true })).toBeFocused();
+    await expect(page.getByRole('button', { name: /^All Filters/ })).toBeFocused();
     await page.getByLabel('Appearance', { exact: true }).focus();
     await page.keyboard.press('Tab');
     expect(await page.evaluate(() => document.activeElement !== document.body)).toBe(true);
