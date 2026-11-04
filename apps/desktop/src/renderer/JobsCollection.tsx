@@ -290,6 +290,51 @@ export function Pager({
     </div>
   );
 }
+/** Saved/approved sources predate the discovery inventory and remain visible independently. */
+function SavedEmployerDirectory({ entries }: { entries: View['directory'] }) {
+  const [query, setQuery] = useState(''),
+    [offset, setOffset] = useState(0);
+  const rows = entries.filter((e) =>
+    `${e.company} ${e.ats} ${e.tenant}`.toLowerCase().includes(query.trim().toLowerCase()),
+  );
+  return (
+    <section className="surface-card" aria-labelledby="saved-directory-title">
+      <h2 id="saved-directory-title">Saved employer directory</h2>
+      <p className="help-text">
+        All saved directory entries, including public career pages and sources not yet in the
+        live-board inventory. Policy approval and historical verification do not guarantee current
+        availability.
+      </p>
+      <label>
+        Search saved directory
+        <input
+          value={query}
+          onChange={(e) => {
+            setQuery(e.target.value);
+            setOffset(0);
+          }}
+        />
+      </label>
+      <p className="help-text">{rows.length} saved directory sources</p>
+      {rows.slice(offset, offset + 25).map((e) => (
+        <article className="company-directory-card" key={e.id}>
+          <h3>
+            {e.company || 'Employer name pending'}{' '}
+            <small>
+              {e.ats} / {e.tenant}
+            </small>
+          </h3>
+          <p className="help-text">
+            Policy: {e.policy} · Last verification: {dateLabel(Date.parse(e.verifiedAt))}
+          </p>
+          <p className="help-text company-source-url">{e.pageUrl ?? e.reference}</p>
+        </article>
+      ))}
+      {!rows.length && <p>No saved directory sources match.</p>}
+      <Pager offset={offset} size={25} total={rows.length} onChange={setOffset} />
+    </section>
+  );
+}
 export function CompaniesWorkspace({
   view,
   command,
@@ -304,7 +349,7 @@ export function CompaniesWorkspace({
     provider: 'all',
     status: 'all',
     offset: 0,
-    limit: 10,
+    limit: 25,
   });
   const [page, setPage] = useState(view?.companyPage),
     [error, setError] = useState(''),
@@ -353,7 +398,10 @@ export function CompaniesWorkspace({
           <h1>Companies</h1>
           <p>Automatic discovery builds a reusable directory of public employer boards.</p>
         </div>
-        <button onClick={() => setManual(true)}>+ Verify company URL</button>
+        <div className="company-header-actions">
+          <button onClick={() => setManual(true)}>+ Verify company URL</button>
+          <button onClick={() => setLog(true)}>Request Log</button>
+        </div>
       </div>
       <div className="button-row">
         <button
@@ -378,7 +426,6 @@ export function CompaniesWorkspace({
           />
           Automatic company discovery
         </label>
-        <button onClick={() => setLog(true)}>Request Log</button>
       </div>
       <PipelineActivity
         view={view?.companyDiscovery}
@@ -398,8 +445,8 @@ export function CompaniesWorkspace({
           </div>
         ))}
       </div>
-      <section className="surface-card">
-        <h2>Verified Source Directory</h2>
+      <section className="surface-card" aria-labelledby="verified-directory-title">
+        <h2 id="verified-directory-title">Verified Source Directory</h2>
         <p className="help-text">
           Pending leads, verified tenants and employer names are distinct. Disabling or removing a
           board preserves its opt-out and saved jobs.
@@ -453,6 +500,11 @@ export function CompaniesWorkspace({
           </label>
         </div>
         {error && <p role="alert">{error}</p>}
+        <p className="help-text" role="status">
+          {page?.total ?? 0} boards match. Showing {page?.rows.length ? query.offset + 1 : 0}–
+          {query.offset + (page?.rows.length ?? 0)}. Use the page controls to browse the complete
+          inventory.
+        </p>
         {page?.rows.map((b) => (
           <article className="company-directory-card" key={b.identity}>
             <div className="jobs-row">
@@ -543,8 +595,9 @@ export function CompaniesWorkspace({
           onChange={(offset) => setQuery({ ...query, offset })}
         />
       </section>
-      <details className="surface-card">
-        <summary>Advanced Source Management</summary>
+      <SavedEmployerDirectory entries={view?.directory ?? []} />
+      <section className="surface-card" aria-labelledby="advanced-source-title">
+        <h2 id="advanced-source-title">Advanced Source Management</h2>
         <ManualJobSource command={command} busy={busy} />
         <p className="help-text">
           Optional saved-company polling controls. Removing a source preserves collected jobs, saved
@@ -587,7 +640,7 @@ export function CompaniesWorkspace({
             </button>
           </article>
         ))}
-      </details>
+      </section>
       <details className="surface-card">
         <summary>Company discovery health</summary>
         <HealthTable view={view?.companyDiscovery} />

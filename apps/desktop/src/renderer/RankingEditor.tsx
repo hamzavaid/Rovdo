@@ -91,14 +91,16 @@ export function RankingEditor({
         </p>
       )}
       <fieldset disabled={builtin || busy}>
-        <label>
-          Ranking name
-          <input
-            value={ranking.name}
-            maxLength={100}
-            onChange={(e) => onChange({ ...ranking, name: e.target.value })}
-          />
-        </label>
+        {!builtin && (
+          <label>
+            Ranking name
+            <input
+              value={ranking.name}
+              maxLength={100}
+              onChange={(e) => onChange({ ...ranking, name: e.target.value })}
+            />
+          </label>
+        )}
         <div className="weight-heading">
           <h3>Component weights</h3>
           <output aria-live="polite">Total weight: {total} / 100</output>
@@ -156,27 +158,30 @@ export function RankingEditor({
                     })
                   }
                 />
-                <input
-                  aria-label={`${key} weight`}
-                  type="number"
-                  min="0"
-                  max="100"
-                  step="0.1"
-                  value={value}
-                  onChange={(e) =>
-                    onChange({
-                      ...ranking,
-                      weights: autoBalance
-                        ? balanceWeight(
-                            weights,
-                            key as keyof typeof weights,
-                            Number(e.target.value),
-                            allowed[ranking.method],
-                          )
-                        : setWeight(weights, key as keyof typeof weights, Number(e.target.value)),
-                    })
-                  }
-                />
+                <span className="weight-value">
+                  <input
+                    aria-label={`${key} weight`}
+                    type="number"
+                    min="0"
+                    max="100"
+                    step="0.1"
+                    value={value}
+                    onChange={(e) =>
+                      onChange({
+                        ...ranking,
+                        weights: autoBalance
+                          ? balanceWeight(
+                              weights,
+                              key as keyof typeof weights,
+                              Number(e.target.value),
+                              allowed[ranking.method],
+                            )
+                          : setWeight(weights, key as keyof typeof weights, Number(e.target.value)),
+                      })
+                    }
+                  />
+                  <span aria-hidden="true">%</span>
+                </span>
               </div>
             ))}
         </div>
@@ -202,7 +207,7 @@ export function RankingEditor({
             ))}
         </details>
         <h3>Shortlist thresholds</h3>
-        <div className="career-fields">
+        <div className="career-fields ranking-thresholds">
           {(['score', 'confidence', 'coverage'] as const).map((key) => (
             <label key={key}>
               {key} threshold{key === 'score' ? '' : ' (%)'}
@@ -293,7 +298,7 @@ export function RankingEditor({
             Assign the remaining {Math.round((100 - total) * 10) / 10} points before saving.
           </p>
         )}
-        <button className="primary-button" onClick={onSave}>
+        <button className="primary-button" disabled={total !== 100} onClick={onSave}>
           Save ranking configuration
         </button>
       </fieldset>

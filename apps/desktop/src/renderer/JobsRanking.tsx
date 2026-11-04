@@ -31,6 +31,7 @@ export function JobsRanking({
     ]),
     [scores, setScores] = useState<JobMatch[]>([]),
     [preview, setPreview] = useState<{ before: number; after: number } | null>(null),
+    [previewError, setPreviewError] = useState(''),
     [job, setJob] = useState(''),
     [reset, setReset] = useState('builtin:technical-balanced');
   const editable = (p: RankingProfile) =>
@@ -103,6 +104,7 @@ export function JobsRanking({
     if (!jobId || !draft || !data) return;
     let stale = false;
     setPreview(null);
+    setPreviewError('');
     const timer = setTimeout(() => {
       void Promise.all([
         window.rovdo!.careerCommand({ op: 'previewRanking', jobId, config: draft }),
@@ -120,15 +122,18 @@ export function JobsRanking({
         }),
       ])
         .then(([a, b]) => {
-          if (!stale && a.ok && b.ok)
-            setPreview({
-              after: a.view.comparisons[0]!.score,
-              before: b.view.comparisons.find((m) => m.ranking?.configId === data.defaultRanking)!
-                .score,
-            });
+          if (stale) return;
+          const after = a.ok ? a.view.comparisons[0] : undefined;
+          const before = b.ok
+            ? b.view.comparisons.find((m) => m.ranking?.configId === data.defaultRanking)
+            : undefined;
+          if (before && after) setPreview({ after: after.score, before: before.score });
+          else
+            setPreviewError('Preview unavailable. Check the configuration or choose another job.');
         })
         .catch(() => {
-          if (!stale) setError('Preview unavailable: check draft configuration');
+          if (!stale)
+            setPreviewError('Preview unavailable. Check the configuration and try again.');
         });
     }, 300);
     return () => {
@@ -145,7 +150,7 @@ export function JobsRanking({
     void command({ op: 'cloneRanking', id, name });
   }
   return (
-    <section className="jobs-page">
+    <section className="jobs-page ranking-page">
       <div className="jobs-row">
         <div>
           <h1>Ranking Methods</h1>
@@ -254,23 +259,40 @@ export function JobsRanking({
                   </button>
                 </details>
               )}
-              <section className="ranking-preview-results">
+              <section
+                className="ranking-preview-results"
+                aria-label="Ranking comparison preview"
+                aria-busy={!!jobId && !preview && !previewError}
+              >
                 <h3>Before / After preview</h3>
                 <p className="help-text">
                   Real indexed job and verified evidence. Unsaved drafts do not change your default.
                 </p>
-                <label>
-                  Find a preview job
-                  <input
-                    value={choiceQuery}
-                    onChange={(e) => {
-                      setChoiceQuery(e.target.value);
-                      setChoiceOffset(0);
-                      setJob('');
-                    }}
-                  />
-                </label>
-                <div className="button-row">
+                <div className="ranking-preview-controls">
+                  <label>
+                    Find a preview job
+                    <input
+                      value={choiceQuery}
+                      onChange={(e) => {
+                        setChoiceQuery(e.target.value);
+                        setChoiceOffset(0);
+                        setJob('');
+                      }}
+                    />
+                  </label>
+                  <label>
+                    Preview job
+                    <select value={jobId} onChange={(e) => setJob(e.target.value)}>
+                      {!available.length && <option value="">No matching indexed jobs</option>}
+                      {available.map((m) => (
+                        <option key={m.id} value={m.id}>
+                          {m.company} / {m.title}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                </div>
+                <div className="ranking-preview-pager">
                   <button
                     disabled={choiceOffset === 0}
                     onClick={() => {
@@ -291,20 +313,10 @@ export function JobsRanking({
                     More jobs
                   </button>
                 </div>
-                <label>
-                  Preview job
-                  <select value={jobId} onChange={(e) => setJob(e.target.value)}>
-                    {available.map((m) => (
-                      <option key={m.id} value={m.id}>
-                        {m.company} / {m.title}
-                      </option>
-                    ))}
-                  </select>
-                </label>
                 {!jobId ? (
                   <p>No indexed jobs are available. Search for jobs first.</p>
                 ) : (
-                  <div className="company-metrics">
+                  <div className="ranking-preview-scores">
                     <div>
                       <small>Current default</small>
                       <strong>{preview ? preview.before.toFixed(1) : '…'} / 100</strong>
@@ -315,6 +327,7 @@ export function JobsRanking({
                     </div>
                   </div>
                 )}
+                {previewError && <p role="status">{previewError}</p>}
               </section>
             </>
           )}

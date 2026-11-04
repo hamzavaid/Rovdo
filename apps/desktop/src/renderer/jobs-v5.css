@@ -464,3 +464,276 @@
   margin: 4px 0;
   color: var(--muted);
 }
+/* Keep the ranking editor out of the legacy wrapping-fieldset layout. */
+.jobs-v5 .jobs-page {
+  min-width: 0;
+}
+.jobs-v5 .jobs-ranking-grid > * {
+  min-width: 0;
+}
+.jobs-v5 .ranking-editor fieldset {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 16px;
+  border: 0;
+  padding: 0;
+  min-width: 0;
+}
+.jobs-v5 .ranking-editor fieldset > * {
+  min-width: 0;
+  margin-block: 0;
+}
+.jobs-v5 .ranking-editor fieldset > h3 {
+  margin-top: 10px;
+}
+.jobs-v5 .ranking-editor .button-row {
+  align-items: center;
+  gap: 12px;
+}
+.jobs-v5 .ranking-editor .button-row label {
+  margin: 0;
+}
+.jobs-v5 .ranking-editor .primary-button {
+  justify-self: start;
+}
+.jobs-v5 .weight-grid {
+  gap: 10px;
+}
+.jobs-v5 .weight-control {
+  grid-template-columns: minmax(0, 1fr) 76px;
+  gap: 8px 12px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--panel-subtle);
+  min-width: 0;
+}
+.jobs-v5 .weight-control label {
+  font-size: 13px;
+  margin: 0;
+}
+.jobs-v5 .weight-control input[type='range'] {
+  min-height: 24px;
+  height: 24px;
+}
+.jobs-v5 .weight-value {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+  color: var(--muted);
+}
+.jobs-v5 .weight-value input[type='number'] {
+  width: 60px;
+  min-height: 32px;
+  padding: 5px;
+  font-size: 13px;
+}
+.jobs-v5 .ranking-thresholds {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  align-items: start;
+}
+.jobs-v5 .ranking-thresholds small {
+  font-size: 12px;
+  line-height: 1.5;
+}
+.jobs-v5 .gate-grid {
+  gap: 12px;
+}
+.jobs-v5 .gate-control {
+  padding: 10px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+}
+.jobs-v5 .gate-control label {
+  font-size: 13px;
+}
+.jobs-v5 .gate-control small {
+  font-size: 12px;
+  line-height: 1.5;
+}
+.jobs-v5 .ranking-editor details {
+  border-top: 1px solid var(--border);
+  padding-top: 12px;
+}
+.jobs-v5 .ranking-preview-results {
+  margin-top: 24px;
+  padding: 16px;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: var(--panel-subtle);
+  min-width: 0;
+}
+.ranking-preview-controls {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 12px;
+  margin: 14px 0;
+}
+.ranking-preview-controls select,
+.ranking-preview-controls input {
+  width: 100%;
+  min-width: 0;
+}
+.ranking-preview-pager {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 14px;
+  font-size: 12px;
+  color: var(--muted);
+}
+.ranking-preview-pager button {
+  min-height: 30px;
+  padding: 5px 9px;
+  font-size: 12px;
+}
+.ranking-preview-scores {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+.ranking-preview-scores > div {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 14px;
+  background: var(--panel);
+}
+.ranking-preview-scores small {
+  display: block;
+  color: var(--muted);
+  font-size: 12px;
+}
+.ranking-preview-scores strong {
+  display: block;
+  margin-top: 8px;
+  font-size: 23px;
+  font-variant-numeric: tabular-nums;
+}
+.company-header-actions {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 8px;
+  margin-left: auto;
+}
+.company-source-url {
+  overflow-wrap: anywhere;
+}
+/* The drawer is portalled outside .career-workspace: explicitly style its controls. */
+.jobs-v5-dialog.filters-drawer {
+  overflow: hidden;
+}
+.jobs-v5-dialog.filters-drawer[open] {
+  display: flex;
+  flex-direction: column;
+}
+.jobs-v5-dialog.filters-drawer .dialog-heading {
+  flex: 0 0 auto;
+  padding: 18px 22px;
+}
+.jobs-v5-dialog.filters-drawer .dialog-content {
+  flex: 1;
+  overflow-y: auto;
+  min-height: 0;
+  padding: 18px 22px 0;
+}
+.jobs-v5-dialog label {
+  display: grid;
+  gap: 7px;
+  font-size: 13px;
+  margin: 0;
+  min-width: 0;
+}
+.jobs-v5-dialog input:not([type='checkbox']),
+.jobs-v5-dialog select {
+  width: 100%;
+  min-width: 0;
+  min-height: 39px;
+  padding: 9px 10px;
+  background: var(--panel-subtle);
+  color: var(--text);
+  border: 1px solid var(--control-border);
+  border-radius: 7px;
+}
+.jobs-v5-dialog .filter-section {
+  padding-bottom: 18px;
+  margin-bottom: 18px;
+  border-bottom: 1px solid var(--border);
+}
+.jobs-v5-dialog .filter-section h3 {
+  margin: 0 0 12px;
+  font-size: 14px;
+}
+.jobs-v5-dialog .career-fields {
+  gap: 14px;
+  margin: 0;
+  align-items: start;
+}
+.jobs-v5-dialog .jobs-chips {
+  margin: 10px 0;
+}
+.filter-company-entry {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: end;
+}
+.filter-company-entry button {
+  margin: 0;
+  min-height: 39px;
+}
+.filter-checks {
+  display: grid;
+  gap: 12px;
+  margin-top: 18px;
+}
+.jobs-v5-dialog .filter-checks label {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 10px;
+}
+.jobs-v5-dialog .filter-extra {
+  margin: 0 0 20px;
+}
+.jobs-v5-dialog .filter-extra .career-fields {
+  margin-top: 16px;
+}
+.jobs-v5-dialog.filters-drawer .dialog-actions {
+  bottom: 0;
+  margin: 0 -22px;
+  padding: 14px 22px;
+  gap: 12px;
+}
+@media (max-width: 1050px) {
+  .jobs-v5 .jobs-ranking-grid {
+    grid-template-columns: minmax(180px, 0.8fr) minmax(0, 2fr);
+  }
+  .jobs-v5 .ranking-thresholds {
+    grid-template-columns: 1fr;
+  }
+}
+@media (max-width: 800px) {
+  .jobs-v5 .jobs-ranking-grid {
+    grid-template-columns: 1fr;
+  }
+  .ranking-method-list {
+    grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  }
+}
+@media (max-width: 600px) {
+  .jobs-v5 .weight-grid,
+  .jobs-v5 .gate-grid,
+  .ranking-preview-scores {
+    grid-template-columns: 1fr;
+  }
+  .jobs-v5-dialog .career-fields {
+    grid-template-columns: 1fr;
+  }
+  .company-header-actions {
+    margin-left: 0;
+  }
+}

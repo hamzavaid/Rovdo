@@ -23,6 +23,16 @@ test('filters and pages cached jobs, saves searches, tracks feedback and compare
   store.saveSource(src);
   store.saveProfile(sampleCandidate());
   store.setDefaultRanking('builtin:technical-balanced');
+  for (let i = 0; i < 32; i++) {
+    const feed = { ats: 'lever', tenant: `directory-${i}`, region: 'global' };
+    store.global.rememberCompany(
+      feed,
+      `Verified Company ${String(i).padStart(2, '0')}`,
+      `https://jobs.lever.co/directory-${i}`,
+      1,
+    );
+    store.global.validateCompany(feed, 2);
+  }
   store.batch(
     src,
     Array.from({ length: 55 }, (_, i) => ({
@@ -151,10 +161,63 @@ test('filters and pages cached jobs, saves searches, tracks feedback and compare
       .evaluateAll((els) => els.map((e) => e.getBoundingClientRect().bottom));
     expect(Math.max(...bottoms) - Math.min(...bottoms)).toBeLessThan(3);
     await nav.getByRole('button', { name: 'Ranking Methods', exact: true }).click();
+    const editor = page.locator('.ranking-editor fieldset');
+    expect(await editor.evaluate((e) => getComputedStyle(e).display)).toBe('grid');
+    await expect(page.locator('.weight-control')).toHaveCount(8);
+    const preview = page.getByRole('region', { name: 'Ranking comparison preview' });
+    await expect(preview).toBeVisible();
+    await expect(preview.locator('.ranking-preview-scores > div')).toHaveCount(2);
+    expect(await preview.evaluate((e) => e.scrollWidth <= e.clientWidth)).toBe(true);
+    await page.getByRole('button', { name: 'Clone selected ranking', exact: true }).click();
+    await expect(page.getByLabel('Ranking name', { exact: true })).toHaveValue(/_clone/);
+    await page.getByRole('checkbox', { name: 'Auto-balance weights', exact: true }).check();
+    await page.getByRole('spinbutton', { name: 'skills weight', exact: true }).fill('45');
+    await expect(page.locator('.weight-heading output')).toHaveText('Total weight: 100 / 100');
+    await page.getByRole('button', { name: 'Save ranking configuration', exact: true }).click();
+    await expect(page.getByRole('spinbutton', { name: 'skills weight', exact: true })).toHaveValue(
+      '45',
+    );
+    const slider = await page
+      .getByRole('slider', { name: 'skills weight slider', exact: true })
+      .boundingBox();
+    const numeric = await page
+      .getByRole('spinbutton', { name: 'skills weight', exact: true })
+      .boundingBox();
+    expect(slider!.x + slider!.width).toBeLessThanOrEqual(numeric!.x);
+    await expect(preview.locator('.ranking-preview-scores strong').first()).toHaveText(
+      /^\d+(\.\d+)? \/ 100$/,
+    );
+    await page.screenshot({ path: test.info().outputPath('ranking-compact.png'), fullPage: true });
+    await page.setViewportSize({ width: 900, height: 800 });
+    expect(await editor.evaluate((e) => e.scrollWidth <= e.clientWidth)).toBe(true);
+    expect(await preview.evaluate((e) => e.scrollWidth <= e.clientWidth)).toBe(true);
+    await page.setViewportSize({ width: 1440, height: 1000 });
     await page.getByRole('button', { name: 'Import / Export JSON', exact: true }).click();
     await expect(page.getByLabel('Ranking configuration JSON')).toHaveValue(/technical-v2/);
     await page.keyboard.press('Escape');
     await expect(page.getByRole('heading', { name: 'Before / After preview' })).toBeVisible();
+    await nav.getByRole('button', { name: 'Companies', exact: true }).click();
+    const inventory = page.getByRole('region', { name: 'Verified Source Directory' });
+    await expect(inventory.locator('.company-directory-card')).toHaveCount(25);
+    await inventory.getByRole('button', { name: 'Next', exact: true }).click();
+    await expect(inventory.locator('.company-directory-card')).toHaveCount(7);
+    await expect(
+      page.getByRole('heading', { name: 'Saved employer directory', exact: true }),
+    ).toBeVisible();
+    await expect(
+      page.getByRole('heading', { name: 'Advanced Source Management', exact: true }),
+    ).toBeVisible();
+    await expect(
+      page.getByRole('button', { name: 'Refresh saved company', exact: true }),
+    ).toBeVisible();
+    const headerActions = page.locator('.company-header-actions');
+    const verifyBounds = await headerActions
+      .getByRole('button', { name: '+ Verify company URL', exact: true })
+      .boundingBox();
+    const logBounds = await headerActions
+      .getByRole('button', { name: 'Request Log', exact: true })
+      .boundingBox();
+    expect(logBounds!.y).toBeGreaterThan(verifyBounds!.y + verifyBounds!.height);
     await nav.getByRole('button', { name: 'Find Jobs', exact: true }).click();
     for (const mode of ['light', 'dark'] as const) {
       await page.getByLabel('Appearance', { exact: true }).selectOption(mode);
@@ -165,6 +228,10 @@ test('filters and pages cached jobs, saves searches, tracks feedback and compare
         .screenshot({ path: test.info().outputPath(`job-card-${mode}.png`) });
     }
     await page.getByRole('button', { name: /^All Filters/ }).click();
+    expect(await page.getByRole('dialog').evaluate((e) => e.scrollWidth <= e.clientWidth)).toBe(
+      true,
+    );
+    await page.screenshot({ path: test.info().outputPath('filters-compact-dark.png') });
     await page.getByText('More criteria', { exact: true }).click();
     await page.getByLabel('Eligibility constraint').selectOption('fail');
     await expect(page.getByLabel('Show excluded', { exact: true })).toBeChecked();

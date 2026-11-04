@@ -58,78 +58,83 @@ export function JobsFilters({
         Changes update your indexed results automatically. Collection sources are managed in Scope
         &amp; Collection.
       </p>
-      <h3>Focus</h3>
-      <div className="jobs-chips">
-        {[
-          ['Remote', 'remote'],
-          ['Embedded', 'embedded'],
-          ['Robotics', 'robotics'],
-          ['Semiconductor', 'semiconductor'],
-          ['Aerospace', 'aerospace'],
-        ].map(([label, value]) => (
-          <button
-            key={value}
-            aria-pressed={
-              value === 'remote'
-                ? search.workMode === 'remote'
-                : (search.focusTerms?.includes(
-                    value as NonNullable<JobSearch['focusTerms']>[number],
-                  ) ?? false)
-            }
-            onClick={() =>
-              value === 'remote'
-                ? set('workMode', search.workMode === 'remote' ? 'all' : 'remote')
-                : set(
-                    'focusTerms',
-                    search.focusTerms?.includes(
+      <section className="filter-section">
+        <h3>Focus</h3>
+        <div className="jobs-chips">
+          {[
+            ['Remote', 'remote'],
+            ['Embedded', 'embedded'],
+            ['Robotics', 'robotics'],
+            ['Semiconductor', 'semiconductor'],
+            ['Aerospace', 'aerospace'],
+          ].map(([label, value]) => (
+            <button
+              key={value}
+              aria-pressed={
+                value === 'remote'
+                  ? search.workMode === 'remote'
+                  : (search.focusTerms?.includes(
                       value as NonNullable<JobSearch['focusTerms']>[number],
+                    ) ?? false)
+              }
+              onClick={() =>
+                value === 'remote'
+                  ? set('workMode', search.workMode === 'remote' ? 'all' : 'remote')
+                  : set(
+                      'focusTerms',
+                      search.focusTerms?.includes(
+                        value as NonNullable<JobSearch['focusTerms']>[number],
+                      )
+                        ? search.focusTerms.filter((t) => t !== value)
+                        : [...(search.focusTerms ?? []), value],
                     )
-                      ? search.focusTerms.filter((t) => t !== value)
-                      : [...(search.focusTerms ?? []), value],
-                  )
-            }
-          >
-            {label}
-          </button>
-        ))}
-      </div>
-      <div className="career-fields">
-        <div>
-          <label>
-            Add company filter
-            <input
-              list="indexed-company-choices"
-              value={companyInput}
-              onChange={(e) => setCompanyInput(e.target.value)}
-              maxLength={200}
-              placeholder="Exact company name"
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') {
-                  e.preventDefault();
-                  if (companyInput.trim() && (search.companies?.length ?? 0) < 100) {
-                    set('companies', [
-                      ...new Set([...(search.companies ?? []), companyInput.trim()]),
-                    ]);
-                    setCompanyInput('');
+              }
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+      </section>
+      <section className="filter-section">
+        <h3>Companies</h3>
+        <div className="filter-company-picker">
+          <div className="filter-company-entry">
+            <label>
+              Add company filter
+              <input
+                list="indexed-company-choices"
+                value={companyInput}
+                onChange={(e) => setCompanyInput(e.target.value)}
+                maxLength={200}
+                placeholder="Exact company name"
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    e.preventDefault();
+                    if (companyInput.trim() && (search.companies?.length ?? 0) < 100) {
+                      set('companies', [
+                        ...new Set([...(search.companies ?? []), companyInput.trim()]),
+                      ]);
+                      setCompanyInput('');
+                    }
                   }
-                }
+                }}
+              />
+            </label>
+            <datalist id="indexed-company-choices">
+              {[...new Set(companySuggestions)].map((c) => (
+                <option key={c} value={c} />
+              ))}
+            </datalist>
+            <button
+              disabled={!companyInput.trim() || (search.companies?.length ?? 0) >= 100}
+              onClick={() => {
+                set('companies', [...new Set([...(search.companies ?? []), companyInput.trim()])]);
+                setCompanyInput('');
               }}
-            />
-          </label>
-          <datalist id="indexed-company-choices">
-            {[...new Set(companySuggestions)].map((c) => (
-              <option key={c} value={c} />
-            ))}
-          </datalist>
-          <button
-            disabled={!companyInput.trim() || (search.companies?.length ?? 0) >= 100}
-            onClick={() => {
-              set('companies', [...new Set([...(search.companies ?? []), companyInput.trim()])]);
-              setCompanyInput('');
-            }}
-          >
-            Add company
-          </button>
+            >
+              Add company
+            </button>
+          </div>
           <div className="jobs-chips">
             {search.companies?.map((c) => (
               <button
@@ -146,29 +151,6 @@ export function JobsFilters({
             ))}
           </div>
         </div>
-        {select('workMode', 'Work arrangement', ['all', 'remote', 'hybrid', 'onsite'])}
-        {select('experienceLevel', 'Experience level', [
-          'all',
-          'new-grad',
-          'junior',
-          'mid',
-          'senior',
-          'unknown',
-        ])}
-        <label>
-          Posted within
-          <select
-            value={search.freshnessDays ?? ''}
-            onChange={(e) =>
-              set('freshnessDays', e.target.value ? Number(e.target.value) : undefined)
-            }
-          >
-            <option value="">Any time</option>
-            <option value="1">24 hours</option>
-            <option value="7">Past week</option>
-            <option value="30">Past month</option>
-          </select>
-        </label>
         <label>
           Company name
           <input
@@ -177,40 +159,70 @@ export function JobsFilters({
             onChange={(e) => set('company', e.target.value)}
           />
         </label>
-        <label>
-          <input
-            type="checkbox"
-            checked={search.availability === 'verified'}
-            onChange={(e) => set('availability', e.target.checked ? 'verified' : 'all')}
-          />
-          Verified posting only
-        </label>
-        <label>
-          <input
-            type="checkbox"
-            checked={search.hideApplied ?? false}
-            onChange={(e) => set('hideApplied', e.target.checked)}
-          />
-          Hide applied jobs
-        </label>
-        <label>
-          <input
-            type="checkbox"
-            checked={search.includeExcluded}
-            onChange={(e) =>
-              onChange({
-                ...search,
-                includeExcluded: e.target.checked,
-                eligibility:
-                  !e.target.checked && search.eligibility === 'fail' ? 'all' : search.eligibility,
-                offset: 0,
-              })
-            }
-          />
-          Show excluded
-        </label>
-      </div>
-      <details>
+      </section>
+      <section className="filter-section">
+        <h3>Work &amp; posting</h3>
+        <div className="career-fields">
+          {select('workMode', 'Work arrangement', ['all', 'remote', 'hybrid', 'onsite'])}
+          {select('experienceLevel', 'Experience level', [
+            'all',
+            'new-grad',
+            'junior',
+            'mid',
+            'senior',
+            'unknown',
+          ])}
+          <label>
+            Posted within
+            <select
+              value={search.freshnessDays ?? ''}
+              onChange={(e) =>
+                set('freshnessDays', e.target.value ? Number(e.target.value) : undefined)
+              }
+            >
+              <option value="">Any time</option>
+              <option value="1">24 hours</option>
+              <option value="7">Past week</option>
+              <option value="30">Past month</option>
+            </select>
+          </label>
+        </div>
+        <div className="filter-checks">
+          <label>
+            <input
+              type="checkbox"
+              checked={search.availability === 'verified'}
+              onChange={(e) => set('availability', e.target.checked ? 'verified' : 'all')}
+            />
+            Verified posting only
+          </label>
+          <label>
+            <input
+              type="checkbox"
+              checked={search.hideApplied ?? false}
+              onChange={(e) => set('hideApplied', e.target.checked)}
+            />
+            Hide applied jobs
+          </label>
+          <label>
+            <input
+              type="checkbox"
+              checked={search.includeExcluded}
+              onChange={(e) =>
+                onChange({
+                  ...search,
+                  includeExcluded: e.target.checked,
+                  eligibility:
+                    !e.target.checked && search.eligibility === 'fail' ? 'all' : search.eligibility,
+                  offset: 0,
+                })
+              }
+            />
+            Show excluded
+          </label>
+        </div>
+      </section>
+      <details className="filter-extra">
         <summary>More criteria</summary>
         <div className="career-fields">
           {select('employmentType', 'Employment type', [

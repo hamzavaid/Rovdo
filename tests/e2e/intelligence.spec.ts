@@ -53,7 +53,8 @@ test('reviews imported qualifications and manages persisted custom ranking profi
     await page.getByRole('button', { name: 'Jobs', exact: true }).click();
     await page.getByRole('button', { name: 'Ranking Methods', exact: true }).click();
     await page.getByRole('button', { name: /^Balanced Match/ }).click();
-    await expect(page.getByLabel('Ranking name', { exact: true })).toBeDisabled();
+    await expect(page.getByLabel('Ranking name', { exact: true })).toHaveCount(0);
+    await expect(page.getByLabel('skills weight', { exact: true })).toBeDisabled();
     const clone = page.getByRole('button', { name: 'Clone selected ranking', exact: true });
     await expect(clone).toBeVisible();
     expect(await clone.evaluate((e) => e.previousElementSibling?.textContent)).toBe(
@@ -73,8 +74,10 @@ test('reviews imported qualifications and manages persisted custom ranking profi
       await page.getByLabel('experience weight', { exact: true }).inputValue(),
     );
     await page.getByLabel('experience weight', { exact: true }).fill(String(experience - 5));
-    await page.getByRole('button', { name: 'Save ranking configuration' }).click();
-    await expect(page.getByRole('alert')).toContainText('Weights must total 100');
+    await expect(page.getByRole('button', { name: 'Save ranking configuration' })).toBeDisabled();
+    await expect(
+      page.getByText('Assign the remaining 5 points before saving.', { exact: true }),
+    ).toBeVisible();
     await page.getByLabel('skills weight slider', { exact: true }).focus();
     await page.keyboard.press('End');
     await expect(page.getByLabel('skills weight', { exact: true })).toHaveValue(String(skills + 5));
@@ -88,7 +91,9 @@ test('reviews imported qualifications and manages persisted custom ranking profi
     await page.screenshot({ path: test.info().outputPath('ranking-controls.png'), fullPage: true });
     await page.getByText('Reset or delete custom method', { exact: true }).click();
     await page.getByRole('button', { name: 'Delete custom ranking' }).click();
-    await expect(page.getByLabel('Ranking name')).toHaveValue('Legacy v1');
+    await expect(page.getByLabel('Ranking name', { exact: true })).toHaveCount(0);
+    await expect(page.getByRole('heading', { name: 'Classic', exact: true })).toBeVisible();
+    await expect(page.getByLabel('skills weight', { exact: true })).toBeDisabled();
     const providers = await page.evaluate(() => window.rovdo!.getSettings());
     expect(providers.ok && providers.settings.profiles.length).toBe(0);
   } finally {

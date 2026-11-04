@@ -102,8 +102,9 @@ test('Search All Saved Companies collects fixture feeds without employer identif
     await expect(
       page.getByRole('heading', { name: 'Verified Source Directory', exact: true }),
     ).toBeVisible();
-    await expect(page.locator('.company-directory-card:visible')).toHaveCount(4);
-    const entry = page.locator('.company-directory-card:visible').first();
+    const inventory = page.getByRole('region', { name: 'Verified Source Directory', exact: true });
+    await expect(inventory.locator('.company-directory-card:visible')).toHaveCount(4);
+    const entry = inventory.locator('.company-directory-card:visible').first();
     const heading = entry.locator('h3'),
       toggle = entry.getByRole('button', { name: 'Disable', exact: true });
     const bounds = await Promise.all([
