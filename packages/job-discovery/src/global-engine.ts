@@ -165,7 +165,7 @@ export class GlobalDiscoveryEngine {
       {
         this.enqueue(run, id, 'provider', {});
         if (source.adapter === 'himalayas')
-          for (const query of queries)
+          for (const query of queries.slice(0, 3))
             this.enqueue(
               run,
               id,

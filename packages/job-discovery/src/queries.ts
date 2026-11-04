@@ -44,21 +44,21 @@ export function discoveryQueries(
   const queries = new Set<string>();
   const add = (s: string) => {
     const value = s.replace(/\s+/g, ' ').trim().slice(0, 500);
-    if (value) queries.add(value);
+    if (value && queries.size < 8) queries.add(value);
   };
-  for (const role of roles) {
+  // A small intent plan is independent of result pagination: never cap the job inventory.
+  for (const role of roles.slice(0, 2)) {
     add(`${role} jobs`);
-    for (const location of profile.preferences.locations.map(clean).filter(Boolean))
+    for (const location of profile.preferences.locations.map(clean).filter(Boolean).slice(0, 1))
       add(`${role} ${location} jobs`);
   }
   skills.forEach((skill, index) => {
     add(`${skill} ${roles[index % Math.max(1, roles.length)] ?? 'engineer'} jobs`);
-    if (skills[index + 1]) add(`${skill} ${skills[index + 1]} careers`);
   });
   for (const q of usable(i.education))
     if (q.field) add(`${clean(q.field)} ${roles[0] ?? 'technical'} jobs`);
   for (const role of roles)
     if (/verilog|fpga|asic/i.test(skills.join(' '))) add(`${role} FPGA ASIC hardware jobs`);
   if (!queries.size) add('jobs hiring careers');
-  return [...queries].sort();
+  return [...queries];
 }

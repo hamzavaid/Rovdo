@@ -34,3 +34,12 @@ it('keeps old search configurations readable and distinguishes all three scopes'
   for (const scope of ['global', 'saved-companies', 'company'])
     expect(JobSearchSchema.parse({ ...old, scope }).scope).toBe(scope);
 });
+it('bounds query permutations while preserving manual role priority and deterministic replay', () => {
+  const profile = sampleCandidate();
+  profile.preferences.roles = Array.from({ length: 20 }, (_, i) => `Engineer ${i}`);
+  profile.preferences.locations = ['Remote', 'US', 'Canada'];
+  const queries = discoveryQueries(profile);
+  expect(queries.length).toBeLessThanOrEqual(8);
+  expect(queries).toContain('Engineer 0 jobs');
+  expect(discoveryQueries(profile)).toEqual(queries);
+});
