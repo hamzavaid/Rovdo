@@ -215,6 +215,12 @@ test('recovers an archive-only search through independent recommended feeds', as
       .click();
     await page.locator('form').getByRole('button', { name: 'Find Jobs', exact: true }).click();
     await page.getByRole('button', { name: 'View Collection Health', exact: true }).click();
+    await expect(page.getByRole('region', { name: 'Discovery progress', exact: true })).toHaveCount(
+      0,
+    );
+    await expect(
+      page.getByRole('region', { name: 'Collection health details', exact: true }),
+    ).toBeVisible();
     await expect(
       page.getByText(
         'A Wayback query or index page was unavailable. Continuing with bounded pages or other ATS hosts; coverage is partial.',

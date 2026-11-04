@@ -128,6 +128,13 @@ export function CareerWorkspace({
   };
   useEffect(() => {
     loaded.current = false;
+    if (tab === 'jobs') {
+      // Honor the navigation destination when returning from Profile or the dashboard.
+      setJobView(initialSavedOnly ? 'saved' : 'results');
+      const next = { ...searchRef.current, savedOnly: initialSavedOnly, offset: 0 };
+      searchRef.current = next;
+      setSearch(next);
+    }
     const load = async () => {
       try {
         await refresh(true);
@@ -145,8 +152,8 @@ export function CareerWorkspace({
     return () => {
       if (timer) clearInterval(timer);
     };
-    // Search changes are submitted explicitly; the polling loop reads a ref.
-  }, [tab]);
+    // Result-filter changes have their own debounced read; polling reads the current ref.
+  }, [tab, initialSavedOnly]);
   async function command(cmd: CareerCommand) {
     if (
       view?.polling &&
@@ -281,7 +288,7 @@ export function CareerWorkspace({
       <OperationStatus
         label={
           actionLabel ??
-          (tab === 'jobs' && view?.polling
+          (tab === 'jobs' && jobView === 'results' && view?.polling
             ? 'Collecting and parsing job feeds...'
             : !view && !error
               ? 'Loading workspace...'
@@ -617,7 +624,7 @@ export function CareerWorkspace({
             </nav>
             <div hidden={jobView === 'sources'}>
               {jobView === 'saved' && <h2>Saved jobs</h2>}
-              <section className="job-search" aria-label="Find jobs">
+              <section hidden={jobView !== 'results'} className="job-search" aria-label="Find jobs">
                 <form
                   className="job-filters simplified-search"
                   onSubmit={(e) => {
@@ -727,7 +734,7 @@ export function CareerWorkspace({
                   </div>
                 </form>
               </section>
-              {jobView !== 'sources' && (
+              {jobView === 'results' && (
                 <CollectionActivity
                   view={view?.discovery}
                   command={command}
@@ -735,7 +742,7 @@ export function CareerWorkspace({
                   onHealth={showCollectionHealth}
                 />
               )}
-              {view?.polling && (
+              {jobView === 'results' && view?.polling && (
                 <p role="status">Checking saved employer feeds. Cached results remain available.</p>
               )}
               <section hidden={!rankingOpen} aria-label="Ranking workspace">
@@ -807,7 +814,16 @@ export function CareerWorkspace({
                 </section>
               </section>
               <div className="job-results-toolbar">
-                <strong>{view?.matchedCount ?? 0} matching jobs</strong>
+                <strong>
+                  {view?.matchedCount ?? 0} {jobView === 'saved' ? 'saved jobs' : 'matching jobs'}
+                </strong>
+                {jobView === 'saved' && (
+                  <AdvancedFilters
+                    search={search}
+                    setSearch={setSearch}
+                    sources={view?.discovery?.registry ?? []}
+                  />
+                )}
                 <label>
                   Sort results
                   <select
@@ -914,16 +930,20 @@ export function CareerWorkspace({
               {view && !view.matches.length && (
                 <section className="surface-card empty-results" aria-label="Search diagnostics">
                   <h2>
-                    {view.totalJobs
-                      ? 'No matching jobs'
-                      : view.polling
-                        ? 'Collecting jobs'
-                        : 'No jobs indexed yet'}
+                    {jobView === 'saved'
+                      ? 'No saved jobs match'
+                      : view.totalJobs
+                        ? 'No matching jobs'
+                        : view.polling
+                          ? 'Collecting jobs'
+                          : 'No jobs indexed yet'}
                   </h2>
                   <p>
-                    {view.totalJobs
-                      ? `${view.totalJobs} jobs are indexed, but none match the current query, filters and eligibility visibility.`
-                      : 'Start Search All to discover public feeds and employers, or choose Search All Saved Companies for the approved directory. Inspect coverage for incomplete or blocked sources.'}
+                    {jobView === 'saved'
+                      ? 'Save opportunities from Find Jobs to keep them here. Your current filters also apply to this list.'
+                      : view.totalJobs
+                        ? `${view.totalJobs} jobs are indexed, but none match the current query, filters and eligibility visibility.`
+                        : 'Start Search All to discover public feeds and employers, or choose Search All Saved Companies for the approved directory. Inspect coverage for incomplete or blocked sources.'}
                   </p>
                   {search.savedOnly && <p>This search is restricted to saved opportunities.</p>}
                   {!view.profile && (
@@ -1104,14 +1124,6 @@ export function CareerWorkspace({
                   </label>
                 )}
               </div>
-              {jobView === 'sources' && (
-                <CollectionActivity
-                  view={view?.discovery}
-                  command={command}
-                  busy={busy}
-                  onHealth={showCollectionHealth}
-                />
-              )}
               <GlobalDiscovery
                 view={view?.discovery}
                 criteria={search}

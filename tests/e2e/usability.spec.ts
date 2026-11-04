@@ -129,6 +129,12 @@ test('uses real dashboard data, edits verified qualifications and previews balan
     await page.getByRole('button', { name: 'Save candidate profile', exact: true }).click();
     await expect(page.getByText('Profile version 4', { exact: true })).toBeVisible();
     await page.getByRole('button', { name: 'Jobs', exact: true }).click();
+    await expect(page.getByRole('region', { name: 'Find jobs', exact: true })).toBeVisible();
+    await expect(
+      page
+        .getByRole('navigation', { name: 'Jobs views' })
+        .getByRole('button', { name: 'Find Jobs', exact: true }),
+    ).toHaveAttribute('aria-pressed', 'true');
     await page.getByRole('button', { name: 'Ranking & matching', exact: true }).click();
     await page.getByLabel('Ranking preset').selectOption('builtin:technical-balanced');
     await page.getByRole('button', { name: 'Clone selected ranking', exact: true }).click();

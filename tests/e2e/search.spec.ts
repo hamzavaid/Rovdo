@@ -92,6 +92,10 @@ test('filters and pages cached jobs, saves searches, tracks feedback and compare
     await page.getByRole('button', { name: 'Save opportunity', exact: true }).first().click();
     await page.getByRole('button', { name: 'Saved Jobs (1)', exact: true }).click();
     await expect(page.locator('.job-card')).toHaveCount(1);
+    await expect(page.getByRole('region', { name: 'Find jobs', exact: true })).toBeHidden();
+    await expect(page.getByRole('region', { name: 'Discovery progress', exact: true })).toHaveCount(
+      0,
+    );
     await page
       .getByRole('navigation', { name: 'Jobs views' })
       .getByRole('button', { name: 'Find Jobs', exact: true })
