@@ -13,7 +13,7 @@ export function JobsScope({
   view: z.infer<typeof CareerViewSchema> | null;
   search: JobSearch;
   onChange: (s: JobSearch) => void;
-  command: (c: CareerCommand) => Promise<void>;
+  command: (c: CareerCommand, onSuccess?: () => void) => Promise<void>;
   busy: boolean;
 }) {
   const [picker, setPicker] = useState(false),
@@ -230,7 +230,7 @@ export function JobsScope({
             <button
               disabled={busy}
               onClick={() =>
-                void command({ op: 'queryPlan', queries: null }).then(() => setDialog(null))
+                void command({ op: 'queryPlan', queries: null }, () => setDialog(null))
               }
             >
               Reset to profile
@@ -240,13 +240,16 @@ export function JobsScope({
                 busy || !queries.trim() || queries.split('\n').filter((s) => s.trim()).length > 8
               }
               onClick={() =>
-                void command({
-                  op: 'queryPlan',
-                  queries: queries
-                    .split('\n')
-                    .map((s) => s.trim())
-                    .filter(Boolean),
-                }).then(() => setDialog(null))
+                void command(
+                  {
+                    op: 'queryPlan',
+                    queries: queries
+                      .split('\n')
+                      .map((s) => s.trim())
+                      .filter(Boolean),
+                  },
+                  () => setDialog(null),
+                )
               }
             >
               Save query plan

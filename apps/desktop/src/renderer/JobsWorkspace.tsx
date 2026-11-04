@@ -119,7 +119,7 @@ export function JobsWorkspace({
     if (page === 'saved') setSaved({ ...next, savedOnly: true });
     else setFind({ ...next, savedOnly: false });
   }
-  async function command(cmd: CareerCommand) {
+  async function command(cmd: CareerCommand, onSuccess?: () => void) {
     await run(
       cmd.op === 'startDiscovery' ? 'Starting collection…' : 'Saving changes…',
       async () => {
@@ -141,6 +141,7 @@ export function JobsWorkspace({
               `${r.exported.saved ? 'File saved for this page' : 'Export canceled'}; ${r.exported.skipped} restricted records omitted.`,
             );
           if (!['compare', 'exportJobs', 'queryPlan'].includes(cmd.op)) await refresh();
+          onSuccess?.();
         } catch {
           setError('Action failed. Check the source health details and try again.');
         }
@@ -218,7 +219,7 @@ export function JobsWorkspace({
       savedOnly: false,
       offset: 0,
     };
-    void command({ op: 'saveSearch', name: name.trim(), search: config }).then(() => {
+    void command({ op: 'saveSearch', name: name.trim(), search: config }, () => {
       setBaseline(presetKey(search));
       setPresetModal(false);
     });
@@ -597,7 +598,7 @@ export function JobsWorkspace({
           {preset && (
             <button
               onClick={() =>
-                void command({ op: 'deleteSearch', id: preset }).then(() => {
+                void command({ op: 'deleteSearch', id: preset }, () => {
                   setPreset('');
                   setPresetModal(false);
                 })

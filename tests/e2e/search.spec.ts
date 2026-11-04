@@ -108,6 +108,29 @@ test('filters and pages cached jobs, saves searches, tracks feedback and compare
     await expect(page.getByRole('option', { name: 'My backend search', exact: true })).toHaveCount(
       1,
     );
+    await page.getByLabel('Location', { exact: true }).fill('Remote');
+    await page.getByRole('button', { name: 'Save search preset', exact: true }).click();
+    await page.getByLabel('Preset name').fill('Collision preset');
+    // Simulate a concurrent save after this editor loaded its list of names.
+    await page.evaluate(async () => {
+      const result = await window.rovdo!.careerCommand({
+        op: 'saveSearch',
+        name: 'Collision preset',
+        search: {
+          query: '',
+          company: '',
+          workMode: 'all',
+          savedOnly: false,
+          includeExcluded: false,
+        },
+      });
+      if (!result.ok) throw new Error('Fixture search could not be saved');
+    });
+    await page.getByRole('button', { name: 'Save preset', exact: true }).click();
+    await expect(page.getByLabel('Preset name')).toHaveValue('Collision preset');
+    await expect(page.getByRole('dialog')).toBeVisible();
+    await page.keyboard.press('Escape');
+    await page.getByLabel('Location', { exact: true }).fill('');
     await nav.getByRole('button', { name: 'Scope & Collection', exact: true }).click();
     await page.getByRole('button', { name: 'Select all', exact: true }).click();
     await nav.getByRole('button', { name: 'Find Jobs', exact: true }).click();
@@ -155,7 +178,7 @@ test('filters and pages cached jobs, saves searches, tracks feedback and compare
   }
   const persisted = new CareerStore(resolve(dir, 'rovdo.sqlite'));
   try {
-    expect(persisted.savedSearches()).toHaveLength(1);
+    expect(persisted.savedSearches()).toHaveLength(2);
     expect(
       persisted
         .markers()

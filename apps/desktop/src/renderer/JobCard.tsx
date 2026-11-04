@@ -23,7 +23,7 @@ export function JobCard({
   rankings: readonly RankingProfile[];
   reviews: View['reviews'];
   compareId: string;
-  command: (c: CareerCommand) => Promise<void>;
+  command: (c: CareerCommand, onSuccess?: () => void) => Promise<void>;
   onReview: () => void;
   busy: boolean;
 }) {
@@ -205,7 +205,7 @@ export function JobCard({
             <button
               disabled={busy || notes === null || notes === (marker?.notes ?? '')}
               onClick={() =>
-                void command({ op: 'markJob', jobId: m.job.id, notes: notes ?? '' }).then(() =>
+                void command({ op: 'markJob', jobId: m.job.id, notes: notes ?? '' }, () =>
                   setNotes(null),
                 )
               }
