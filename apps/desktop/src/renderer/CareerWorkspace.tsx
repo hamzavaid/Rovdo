@@ -18,6 +18,7 @@ import type {
 import type { z } from 'zod';
 import { JobCard } from './JobCard';
 import { GlobalDiscovery, defaultDiscovery } from './GlobalDiscovery';
+import { CollectionActivity } from './CollectionActivity';
 import { AdvancedFilters, DiscoveryControls } from './DiscoveryControls';
 import { LegacyFacts } from './LegacyFacts';
 import { QualificationComposer } from './QualificationComposer';
@@ -83,8 +84,11 @@ export function CareerWorkspace({
   const [terms, setTerms] = useState(false);
   const searchScope = search.scope ?? 'saved-companies';
   const [exportStatus, setExportStatus] = useState('');
-  const [jobView, setJobView] = useState<'results' | 'ranking' | 'sources'>('results');
+  const [jobView, setJobView] = useState<'results' | 'saved' | 'sources'>(
+    initialSavedOnly ? 'saved' : 'results',
+  );
   const [profileSection, setProfileSection] = useState('skills');
+  const [rankingOpen, setRankingOpen] = useState(false);
   const [previewRankingId, setPreviewRankingId] = useState('builtin:legacy-v1');
   const [previewJobId, setPreviewJobId] = useState('');
   const [compareId, setCompareId] = useState('builtin:legacy-v1');
@@ -93,15 +97,24 @@ export function CareerWorkspace({
   const [consent, setConsent] = useState(false);
   const [reviewHash, setReviewHash] = useState('');
   const refreshPending = useRef(0);
+  const refreshRevision = useRef(0);
   const refresh = async (background = false) => {
     if (background && refreshPending.current) return;
     refreshPending.current++;
+    const revision = ++refreshRevision.current;
+    const criteria = searchRef.current;
     try {
       const result = await window.rovdo!.careerCommand({
         op: 'view',
-        search: searchRef.current,
+        search: criteria,
         summary: tab === 'profile',
       });
+      if (
+        revision !== refreshRevision.current ||
+        JSON.stringify({ ...criteria, discovery: undefined }) !==
+          JSON.stringify({ ...searchRef.current, discovery: undefined })
+      )
+        return;
       if (result.ok) {
         setView(result.view);
         if (!loaded.current) {
@@ -164,7 +177,7 @@ export function CareerWorkspace({
           return;
         }
         setView((previous) =>
-          cmd.op === 'compare' && previous
+          tab === 'jobs' && previous
             ? {
                 ...result.view,
                 matches: previous.matches,
@@ -185,26 +198,32 @@ export function CareerWorkspace({
       }
     });
   }
-  // Route searches through the same action gate as mutations so rapid clicks cannot start overlapping work.
-  async function searchJobs() {
-    await run('Searching jobs...', async () => {
-      setError('');
-      try {
-        await refresh();
-      } catch {
-        setError('Search failed. Try again.');
-      }
-    });
-  }
   async function applySearch(next: JobSearch) {
-    await run('Loading results...', async () => {
-      setSearch(next);
-      searchRef.current = next;
-      try {
-        await refresh();
-      } catch {
-        setError('Search failed. Try again.');
-      }
+    setSearch(next);
+    searchRef.current = next;
+  }
+  // Debounce local retrieval, not collection. Source selection does not change result criteria.
+  const resultKey = JSON.stringify({ ...search, discovery: undefined });
+  useEffect(() => {
+    if (tab !== 'jobs') return;
+    const timer = setTimeout(() => {
+      void refresh().catch(() => setError('Search failed. Try again.'));
+    }, 250);
+    return () => clearTimeout(timer);
+    // The ref always supplies the latest criteria; only result-affecting changes schedule a read.
+  }, [resultKey, tab]);
+  function selectJobView(next: typeof jobView) {
+    setJobView(next);
+    setRankingOpen(false);
+    if (next !== 'sources')
+      void applySearch({ ...searchRef.current, savedOnly: next === 'saved', offset: 0 });
+  }
+  function showCollectionHealth() {
+    setJobView('sources');
+    requestAnimationFrame(() => {
+      const summary = document.querySelector<HTMLElement>('.discovery-progress summary');
+      summary?.focus();
+      summary?.scrollIntoView({ block: 'start' });
     });
   }
   function preferences(change: Partial<CandidateProfile['preferences']>) {
@@ -221,7 +240,14 @@ export function CareerWorkspace({
             ? 'projects'
             : 'identity';
   function resetFilters() {
-    void applySearch(initialSearch);
+    void applySearch({
+      ...initialSearch,
+      scope: search.scope,
+      discovery: search.discovery,
+      selectedSourceId: search.selectedSourceId,
+      rankingId: search.rankingId,
+      savedOnly: jobView === 'saved',
+    });
   }
   const reviewMatch = view?.matches.find((m) => m.job.id === reviewId);
   const reviewJob = reviewMatch?.job;
@@ -572,210 +598,216 @@ export function CareerWorkspace({
           </>
         ) : (
           <>
-            <div className="eyebrow">DETERMINISTIC DISCOVERY</div>
-            <h1>Job discovery</h1>
-            <p>
-              Search and rank public company feeds without a model or API key. Unknown eligibility
-              stays flagged for review. Sources poll only while Rovdo is running.
+            <h1>Jobs</h1>
+            <p className="help-text">
+              Search your job index while Rovdo discovers new opportunities.
             </p>
-            <nav className="section-nav" aria-label="Jobs views">
-              {[
-                ['results', 'Search & results'],
-                ['ranking', 'Ranking & matching'],
-                ['sources', 'Sources & coverage'],
-              ].map(([id, label]) => (
-                <button
-                  key={id}
-                  aria-pressed={jobView === id}
-                  onClick={() => setJobView(id as typeof jobView)}
-                >
+            <nav className="section-nav jobs-tabs" aria-label="Jobs views">
+              {(
+                [
+                  ['results', 'Find Jobs'],
+                  ['saved', `Saved Jobs (${view?.savedIds.length ?? 0})`],
+                  ['sources', 'Sources & Coverage'],
+                ] as const
+              ).map(([id, label]) => (
+                <button key={id} aria-pressed={jobView === id} onClick={() => selectJobView(id)}>
                   {label}
                 </button>
               ))}
             </nav>
-            <div hidden={jobView !== 'results'}>
+            <div hidden={jobView === 'sources'}>
+              {jobView === 'saved' && <h2>Saved jobs</h2>}
               <section className="job-search" aria-label="Find jobs">
                 <form
-                  className={`job-filters ${searchScope === 'company' ? 'has-selected-employer' : ''}`}
+                  className="job-filters simplified-search"
                   onSubmit={(e) => {
                     e.preventDefault();
-                    searchRef.current = { ...search, offset: 0 };
-                    setSearch(searchRef.current);
+                    const next = { ...search, offset: 0 };
+                    searchRef.current = next;
+                    setSearch(next);
+                    // Refresh cached matches immediately; collection never clears the visible list.
+                    void refresh().catch(() => setError('Search failed. Try again.'));
                     if (searchScope === 'global')
                       void command({
                         op: 'startDiscovery',
-                        options: discoveryOptionsForSearch(search, defaultDiscovery),
+                        options: discoveryOptionsForSearch(next, defaultDiscovery),
                         consent: true,
                       });
                     else if (searchScope === 'company' && search.selectedSourceId)
                       void command({ op: 'pollCompany', id: search.selectedSourceId });
                     else if (searchScope === 'saved-companies')
                       void command({ op: 'searchSavedCompanies' });
-                    else void searchJobs();
                   }}
                 >
                   <div className="search-primary-row">
                     <label>
-                      Search scope
-                      <select
-                        aria-label="Search scope"
-                        value={searchScope}
-                        onChange={(e) => {
-                          setSearch({
-                            ...search,
-                            scope: e.target.value as JobSearch['scope'],
-                            selectedSourceId: undefined,
-                            offset: 0,
-                          });
-                        }}
-                      >
-                        <option value="global">Search All</option>
-                        <option value="saved-companies">Search All Saved Companies</option>
-                        <option value="company">Selected company</option>
-                      </select>
-                    </label>
-                    <label>
                       Search jobs
                       <input
+                        placeholder="Job title, keyword, or company"
                         value={search.query}
-                        onChange={(e) => setSearch({ ...search, query: e.target.value })}
+                        onChange={(e) => setSearch({ ...search, query: e.target.value, offset: 0 })}
                       />
                     </label>
-                    {searchScope === 'company' && (
-                      <label>
-                        Selected employer
-                        <select
-                          required
-                          value={search.selectedSourceId ?? ''}
-                          onChange={(e) =>
-                            setSearch({ ...search, selectedSourceId: e.target.value || undefined })
-                          }
-                        >
-                          <option value="">Choose a saved company</option>
-                          {view?.sources.map((s) => (
-                            <option key={s.config.id} value={s.config.id}>
-                              {s.config.company}
-                              {s.config.enabled ? '' : ' (disabled)'}
-                            </option>
-                          ))}
-                        </select>
-                      </label>
-                    )}
                     <label>
-                      Work mode filter
+                      Location
+                      <input
+                        placeholder="Anywhere"
+                        value={search.location ?? ''}
+                        onChange={(e) =>
+                          setSearch({ ...search, location: e.target.value, offset: 0 })
+                        }
+                      />
+                    </label>
+                    <label>
+                      Job type
                       <select
-                        aria-label="Work mode filter"
-                        value={search.workMode}
+                        value={search.employmentType ?? 'all'}
                         onChange={(e) =>
                           setSearch({
                             ...search,
-                            workMode: e.target.value as JobSearch['workMode'],
+                            employmentType: e.target.value as JobSearch['employmentType'],
+                            offset: 0,
                           })
                         }
                       >
-                        {['all', 'remote', 'hybrid', 'onsite'].map((m) => (
-                          <option key={m}>{m}</option>
+                        {[
+                          'all',
+                          'full-time',
+                          'part-time',
+                          'contract',
+                          'internship',
+                          'temporary',
+                          'unknown',
+                        ].map((v) => (
+                          <option key={v} value={v}>
+                            {v === 'all' ? 'All types' : v}
+                          </option>
                         ))}
                       </select>
                     </label>
                     <button
                       className="primary-button"
+                      type="submit"
                       disabled={
                         busy ||
-                        (searchScope !== 'global' && view?.polling) ||
+                        (searchScope === 'company' && !search.selectedSourceId) ||
+                        !!view?.polling ||
+                        view?.discovery?.run?.status === 'running' ||
                         (searchScope === 'global' &&
                           !(search.discovery ?? defaultDiscovery).sourceIds.length)
                       }
-                      type="submit"
                     >
-                      Search
+                      Find Jobs
                     </button>
                   </div>
                   <div className="search-secondary-row">
-                    <label>
-                      Source filter
-                      <select
-                        aria-label="Source filter"
-                        value={search.sourceId ?? ''}
-                        onChange={(e) =>
-                          setSearch({ ...search, sourceId: e.target.value || undefined })
-                        }
-                      >
-                        <option value="">All collected sources</option>
-                        {view?.discovery?.registry.map((s) => (
-                          <option key={s.id} value={s.id}>
-                            {s.name}
-                          </option>
-                        ))}
-                        {['jsonld'].map((s) => (
-                          <option key={'native-' + s} value={s}>
-                            {s}
-                          </option>
-                        ))}
-                      </select>
-                    </label>
-                    <div className="search-toggles">
-                      <label>
-                        <input
-                          type="checkbox"
-                          checked={search.savedOnly}
-                          onChange={(e) => setSearch({ ...search, savedOnly: e.target.checked })}
-                        />
-                        Saved only
-                      </label>
-                      <label>
-                        <input
-                          type="checkbox"
-                          checked={search.includeExcluded}
-                          onChange={(e) =>
-                            setSearch({ ...search, includeExcluded: e.target.checked })
-                          }
-                        />
-                        Show excluded
-                      </label>
-                    </div>
-                    <AdvancedFilters search={search} setSearch={setSearch} onApply={applySearch} />
-                    <button type="button" onClick={resetFilters}>
-                      Reset all filters
-                    </button>
+                    <AdvancedFilters
+                      search={search}
+                      setSearch={setSearch}
+                      sources={view?.discovery?.registry ?? []}
+                    />
                     <button
-                      hidden={searchScope !== 'saved-companies'}
                       type="button"
-                      disabled={busy || view?.polling}
-                      onClick={() => void command({ op: 'searchSavedCompanies' })}
+                      className="text-action"
+                      onClick={() => setRankingOpen(!rankingOpen)}
+                      aria-expanded={rankingOpen}
                     >
-                      Refresh employer feeds
+                      Ranking &amp; matching
                     </button>
+                    <span className="help-text">
+                      Cached results update automatically.{' '}
+                      <button
+                        type="button"
+                        className="text-action"
+                        onClick={() => selectJobView('sources')}
+                      >
+                        Manage sources
+                      </button>
+                    </span>
                   </div>
                 </form>
-                <p className="help-text coverage-counts">
-                  {view?.directory.length ?? 0}
-                  {' directory sources | '}
-                  {view?.sources.filter((s) => s.config.enabled).length ?? 0}
-                  {' enabled | '}
-                  {view?.sources.filter(
-                    (s) => s.state.status === 'OK' || s.state.status === 'EMPTY_SOURCE',
-                  ).length ?? 0}
-                  {' healthy | '}
-                  {view?.sources.filter((s) => s.state.status === 'FAILED_SOURCE').length ?? 0} need
-                  attention. Search uses indexed jobs; refresh collects due verified feeds.
-                </p>
               </section>
-
-              {searchScope === 'global' && (
-                <GlobalDiscovery
+              {jobView !== 'sources' && (
+                <CollectionActivity
                   view={view?.discovery}
-                  criteria={search}
-                  options={search.discovery ?? defaultDiscovery}
-                  onOptions={(options) => setSearch({ ...search, discovery: options })}
                   command={command}
                   busy={busy}
+                  onHealth={showCollectionHealth}
                 />
               )}
+              {view?.polling && (
+                <p role="status">Checking saved employer feeds. Cached results remain available.</p>
+              )}
+              <section hidden={!rankingOpen} aria-label="Ranking workspace">
+                {'      '}
+                <ProfileIntelligence
+                  settings={settings}
+                  onSelected={setPreviewRankingId}
+                  tab={tab}
+                  onChanged={(next) => {
+                    if (next) setDraft(next);
+                    loaded.current = false;
+                    void refresh();
+                  }}
+                />
+                <section className="surface-card">
+                  <h2>Preview saved ranking</h2>
+                  <p className="help-text">
+                    Compare the selected saved configuration against a real indexed job. Unsaved
+                    edits are not used; save the configuration first.
+                  </p>
+                  {!view?.matches.length && (
+                    <p className="help-text">
+                      Search for jobs or reset filters in Find Jobs before previewing a saved
+                      configuration.
+                    </p>
+                  )}
+                  <label>
+                    Preview job
+                    <select
+                      value={previewJobId || view?.matches[0]?.job.id || ''}
+                      onChange={(e) => setPreviewJobId(e.target.value)}
+                    >
+                      {view?.matches.map((m) => (
+                        <option key={m.job.id} value={m.job.id}>
+                          {m.job.company} / {m.job.title}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <button
+                    disabled={busy || !view?.matches.length}
+                    onClick={() =>
+                      void command({
+                        op: 'compare',
+                        jobId: previewJobId || view!.matches[0]!.job.id,
+                        rankingIds: [
+                          previewRankingId,
+                          previewRankingId === 'builtin:legacy-v1'
+                            ? 'builtin:technical-balanced'
+                            : 'builtin:legacy-v1',
+                        ],
+                      })
+                    }
+                  >
+                    Preview saved scores
+                  </button>
+                  {!!view?.comparisons.length && (
+                    <div className="ranking-preview-results">
+                      {view.comparisons.map((m) => (
+                        <p key={m.ranking?.configId}>
+                          {view.rankingProfiles.find((p) => p.id === m.ranking?.configId)?.name}
+                          {': '}
+                          {m.score.toFixed(1)} / 100; confidence {Math.round(m.confidence * 100)}%;
+                          coverage {Math.round((m.ranking?.requiredCoverage ?? 0) * 100)}%
+                        </p>
+                      ))}
+                    </div>
+                  )}
+                </section>
+              </section>
               <div className="job-results-toolbar">
-                <button type="button" disabled={busy} onClick={() => void searchJobs()}>
-                  Apply filters to cached jobs
-                </button>
+                <strong>{view?.matchedCount ?? 0} matching jobs</strong>
                 <label>
                   Sort results
                   <select
@@ -905,7 +937,10 @@ export function CareerWorkspace({
                     sources / {view.sources.filter((s) => s.config.enabled).length} enabled. Unknown
                     eligibility remains reviewable.
                   </p>
-                  <button onClick={() => setJobView('sources')}>Review source coverage</button>
+                  <div className="button-row">
+                    <button onClick={resetFilters}>Reset filters</button>
+                    <button onClick={() => selectJobView('sources')}>Review source coverage</button>
+                  </div>
                 </section>
               )}
               <div className="job-list">
@@ -936,7 +971,6 @@ export function CareerWorkspace({
                       offset: Math.max(0, (search.offset ?? 0) - 50),
                     };
                     setSearch(searchRef.current);
-                    void searchJobs();
                   }}
                 >
                   Previous 50
@@ -946,7 +980,6 @@ export function CareerWorkspace({
                   onClick={() => {
                     searchRef.current = { ...search, offset: (search.offset ?? 0) + 50 };
                     setSearch(searchRef.current);
-                    void searchJobs();
                   }}
                 >
                   Next 50
@@ -1015,83 +1048,83 @@ export function CareerWorkspace({
                 command={command}
                 busy={busy}
                 loadSearch={(s) => {
+                  setJobView(s.savedOnly ? 'saved' : 'results');
                   void applySearch({ ...s, scope: s.scope ?? 'saved-companies' });
                 }}
               />
             </div>
-            <section hidden={jobView !== 'ranking'} aria-label="Ranking workspace">
-              {'      '}
-              <ProfileIntelligence
-                settings={settings}
-                onSelected={setPreviewRankingId}
-                tab={tab}
-                onChanged={(next) => {
-                  if (next) setDraft(next);
-                  loaded.current = false;
-                  void refresh();
-                }}
-              />
-              <section className="surface-card">
-                <h2>Preview saved ranking</h2>
-                <p className="help-text">
-                  Compare the selected saved configuration against a real indexed job. Unsaved edits
-                  are not used; save the configuration first.
-                </p>
-                {!view?.matches.length && (
-                  <p className="help-text">
-                    Search for jobs or reset filters in Search &amp; results before previewing a
-                    saved configuration.
-                  </p>
-                )}
+            <section hidden={jobView !== 'sources'} aria-label="Source workspace">
+              <h2>Where Rovdo collects jobs</h2>
+              <p className="help-text">
+                These settings control future collection. They do not change filters on jobs already
+                in your index. Removing a source preserves collected jobs and saved opportunities.
+              </p>
+              <div className="career-fields collection-settings">
                 <label>
-                  Preview job
+                  Search scope
                   <select
-                    value={previewJobId || view?.matches[0]?.job.id || ''}
-                    onChange={(e) => setPreviewJobId(e.target.value)}
+                    aria-label="Search scope"
+                    value={searchScope}
+                    onChange={(e) =>
+                      setSearch({
+                        ...search,
+                        scope: e.target.value as JobSearch['scope'],
+                        selectedSourceId: undefined,
+                        offset: 0,
+                      })
+                    }
                   >
-                    {view?.matches.map((m) => (
-                      <option key={m.job.id} value={m.job.id}>
-                        {m.job.company} / {m.job.title}
-                      </option>
-                    ))}
+                    <option value="global">Search All</option>
+                    <option value="saved-companies">Search All Saved Companies</option>
+                    <option value="company">Selected company</option>
                   </select>
                 </label>
-                <button
-                  disabled={busy || !view?.matches.length}
-                  onClick={() =>
-                    void command({
-                      op: 'compare',
-                      jobId: previewJobId || view!.matches[0]!.job.id,
-                      rankingIds: [
-                        previewRankingId,
-                        previewRankingId === 'builtin:legacy-v1'
-                          ? 'builtin:technical-balanced'
-                          : 'builtin:legacy-v1',
-                      ],
-                    })
-                  }
-                >
-                  Preview saved scores
-                </button>
-                {!!view?.comparisons.length && (
-                  <div className="ranking-preview-results">
-                    {view.comparisons.map((m) => (
-                      <p key={m.ranking?.configId}>
-                        {view.rankingProfiles.find((p) => p.id === m.ranking?.configId)?.name}
-                        {': '}
-                        {m.score.toFixed(1)} / 100; confidence {Math.round(m.confidence * 100)}%;
-                        coverage {Math.round((m.ranking?.requiredCoverage ?? 0) * 100)}%
-                      </p>
-                    ))}
-                  </div>
+                {searchScope === 'company' && (
+                  <label>
+                    Selected employer
+                    <select
+                      aria-label="Selected employer"
+                      value={search.selectedSourceId ?? ''}
+                      onChange={(e) =>
+                        setSearch({
+                          ...search,
+                          selectedSourceId: e.target.value || undefined,
+                          offset: 0,
+                        })
+                      }
+                    >
+                      <option value="">Choose a saved company</option>
+                      {view?.sources.map((s) => (
+                        <option key={s.config.id} value={s.config.id}>
+                          {s.config.company}
+                          {s.config.enabled ? '' : ' (disabled)'}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
                 )}
-              </section>
-            </section>
-            <section hidden={jobView !== 'sources'} aria-label="Source workspace">
-              <h2>Sources &amp; coverage</h2>
+              </div>
+              {jobView === 'sources' && (
+                <CollectionActivity
+                  view={view?.discovery}
+                  command={command}
+                  busy={busy}
+                  onHealth={showCollectionHealth}
+                />
+              )}
+              <GlobalDiscovery
+                view={view?.discovery}
+                criteria={search}
+                options={search.discovery ?? defaultDiscovery}
+                onOptions={(options) => setSearch({ ...search, discovery: options })}
+                command={command}
+                busy={busy}
+              />
               <p className="help-text">
-                Source registration, feed health and collection permissions. Removing a source keeps
-                existing jobs and saved opportunities.
+                {view?.directory.length ?? 0} directory sources /{' '}
+                {view?.sources.filter((s) => s.config.enabled).length ?? 0} enabled saved employers
+                / {view?.sources.filter((s) => s.state.status === 'FAILED_SOURCE').length ?? 0}{' '}
+                failed saved sources.
               </p>
               <details className="source-registry">
                 <summary>Source health</summary>
@@ -1251,6 +1284,7 @@ export function CareerWorkspace({
                 command={command}
                 busy={busy}
                 loadSearch={(s) => {
+                  setJobView(s.savedOnly ? 'saved' : 'results');
                   void applySearch({ ...s, scope: s.scope ?? 'saved-companies' });
                 }}
               />

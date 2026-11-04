@@ -82,18 +82,22 @@ test('Search All Saved Companies collects fixture feeds without employer identif
     });
     const page = await app.firstWindow();
     await page.getByRole('button', { name: 'Jobs', exact: true }).click();
+    await page.getByRole('button', { name: 'Sources & Coverage', exact: true }).click();
     await page.getByLabel('Search scope', { exact: true }).selectOption('saved-companies');
-    await page.getByRole('button', { name: 'Search', exact: true }).click();
+    await page
+      .getByRole('navigation', { name: 'Jobs views' })
+      .getByRole('button', { name: 'Find Jobs', exact: true })
+      .click();
+    await page.locator('form').getByRole('button', { name: 'Find Jobs', exact: true }).click();
     await expect(
       page.getByText('Collecting and parsing job feeds...', { exact: true }),
     ).toBeVisible();
     await expect(
-      page.getByRole('button', { name: 'Refresh employer feeds', exact: true }),
+      page.locator('form').getByRole('button', { name: 'Find Jobs', exact: true }),
     ).toBeDisabled();
-    await expect(page.getByRole('button', { name: 'Search', exact: true })).toBeDisabled();
     await expect(page.locator('.job-card')).toHaveCount(3, { timeout: 15000 });
+    await page.getByRole('button', { name: 'Sources & Coverage', exact: true }).click();
     await expect(page.getByText(/4 directory sources/)).toBeVisible();
-    await page.getByRole('button', { name: 'Sources & coverage', exact: true }).click();
     await page.getByText('Verified source directory', { exact: true }).click();
     const entry = page.locator('.directory-entry').first();
     const heading = entry.locator('h3');

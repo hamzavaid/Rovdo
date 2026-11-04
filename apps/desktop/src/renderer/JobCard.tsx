@@ -100,55 +100,9 @@ export function JobCard({
           <small>{method}</small>
         </aside>
       </header>
-      <section className="job-fit-snapshot" aria-label="Job fit snapshot">
-        <div>
-          <small>Eligibility</small>
-          <strong
-            className={`fit-badge ${eligibility === 'FAIL' ? 'failed' : eligibility === 'UNKNOWN' ? 'review' : 'passed'}`}
-          >
-            {eligibility === 'FAIL'
-              ? 'Excluded by hard requirement'
-              : eligibility === 'UNKNOWN'
-                ? 'Eligibility needs review'
-                : 'Published checks passed'}
-          </strong>
-        </div>
-        <div>
-          <small>Evidence confidence</small>
-          <strong>{Math.round(m.confidence * 100)}%</strong>
-          <span>{m.matchedSkills.length} verified skill matches</span>
-          {m.review && eligibility === 'PASS' && <span>Qualification evidence needs review</span>}
-        </div>
-        <div>
-          <small>Required-skill coverage</small>
-          <strong>
-            {legacy
-              ? 'Not assessed by Legacy v1'
-              : `${Math.round((m.ranking?.requiredCoverage ?? 0) * 100)}%`}
-          </strong>
-          <span>
-            {m.ranking?.preferenceScore === null || m.ranking?.preferenceScore === undefined
-              ? 'Preference fit unknown'
-              : `Preference fit ${m.ranking.preferenceScore}%`}
-          </span>
-        </div>
-      </section>
-      {m.ranking?.assessment && !m.ranking.assessment.complete && (
-        <p role="note" className="help-text">
-          {m.ranking.assessment.status === 'not-published'
-            ? 'Qualification requirements were not published; automatic shortlisting is unavailable.'
-            : `Assessment incomplete: ${m.ranking.assessment.assessed}/${m.ranking.assessment.total} requirements interpreted. Unresolved mandatory qualifications need review.`}
-        </p>
-      )}
-      {!!marker?.feedbackConflicts?.length && (
-        <p role="note">
-          Merged sources had conflicting relevance feedback. Choose Relevant or Irrelevant to
-          resolve it.
-        </p>
-      )}
       <div className="job-card-actions">
         <button
-          className="primary-button"
+          className="save-job-button"
           disabled={busy}
           aria-pressed={saved}
           onClick={() => void command({ op: 'saveJob', jobId: m.job.id, saved: !saved })}
@@ -156,168 +110,242 @@ export function JobCard({
           {saved ? 'Remove saved opportunity' : 'Save opportunity'}
         </button>
         {link('View posting', 'button-link')}
-        <button
-          aria-pressed={marker?.feedback === 'relevant'}
-          onClick={() =>
-            void command({
-              op: 'markJob',
-              jobId: m.job.id,
-              feedback: marker?.feedback === 'relevant' ? 'none' : 'relevant',
-            })
-          }
-        >
-          Relevant
-        </button>
-        <details className="job-more">
-          <summary aria-label="More job actions">More actions</summary>
-          <div className="job-action-menu">
-            <button
-              onClick={() =>
-                void command({ op: 'markJob', jobId: m.job.id, applied: !marker?.applied })
-              }
+      </div>
+      <p
+        className={`compact-eligibility fit-badge ${eligibility === 'FAIL' ? 'failed' : eligibility === 'UNKNOWN' ? 'review' : 'passed'}`}
+      >
+        {eligibility === 'FAIL'
+          ? 'Excluded by hard requirement'
+          : eligibility === 'UNKNOWN'
+            ? 'Eligibility needs review'
+            : 'Published checks passed'}
+        {marker?.applied && (
+          <>
+            {' '}
+            / <span>Applied</span>
+          </>
+        )}
+      </p>
+      <details className="job-details">
+        <summary>Details</summary>
+        <section className="job-fit-snapshot" aria-label="Job fit snapshot">
+          <div>
+            <small>Eligibility</small>
+            <strong
+              className={`fit-badge ${eligibility === 'FAIL' ? 'failed' : eligibility === 'UNKNOWN' ? 'review' : 'passed'}`}
             >
-              {marker?.applied ? 'Clear applied marker' : 'Mark as applied'}
-            </button>
-            <button
-              aria-pressed={marker?.feedback === 'irrelevant'}
-              onClick={() =>
-                void command({ op: 'markJob', jobId: m.job.id, feedback: 'irrelevant' })
-              }
-            >
-              Irrelevant
-            </button>
-            <button
-              onClick={() => void command({ op: 'markJob', jobId: m.job.id, feedback: 'none' })}
-            >
-              Clear feedback
-            </button>
-            <button onClick={() => void command({ op: 'markJob', jobId: m.job.id, seen: true })}>
-              Mark as read
-            </button>
-            <button
-              onClick={() =>
-                void command({
-                  op: 'compare',
-                  jobId: m.job.id,
-                  rankingIds: [
-                    ...new Set([
-                      m.ranking?.configId ?? 'builtin:technical-balanced',
-                      compareId,
-                      m.ranking?.configId === 'builtin:technical-balanced'
-                        ? 'builtin:legacy-v1'
-                        : 'builtin:technical-balanced',
-                    ]),
-                  ].slice(0, 2),
-                })
-              }
-            >
-              Compare ranking methods
-            </button>
-            {saved && !m.excluded && <button onClick={onReview}>Preview optional AI review</button>}
+              {eligibility === 'FAIL'
+                ? 'Excluded by hard requirement'
+                : eligibility === 'UNKNOWN'
+                  ? 'Eligibility needs review'
+                  : 'Published checks passed'}
+            </strong>
           </div>
-        </details>
-      </div>
-      <div className="job-card-explanation">
-        <p className="job-credit">
-          Source: {link(m.job.discovery?.sourceName ?? m.job.source)}{' '}
-          <span className="verification-badge">
-            {m.job.discovery?.availability ??
-              (m.job.activeStatus === 'open' ? 'verified' : 'unverified')}{' '}
-            posting
-          </span>
-          {marker?.applied && <span className="verification-badge">Applied</span>}
-        </p>
-        <details>
-          <summary>Eligibility, ranking and provenance</summary>
-          <p>Matched skills: {m.matchedSkills.join(', ') || 'None verified'}</p>
-          <p>Qualification gaps: {m.gaps.join(', ') || 'No explicit gaps extracted'}</p>
-          {m.ranking && (
-            <>
-              <p>
-                Configuration {m.ranking.configId} revision {m.ranking.configRevision} / taxonomy{' '}
-                {m.ranking.taxonomyVersion}
-                {' / requirements '}
-                {m.ranking.parserVersion} / evidence {m.ranking.evidenceVersion}
-                {' / as of '}
-                {m.ranking.asOf}
-              </p>
-              <table className="ranking-breakdown">
-                <thead>
-                  <tr>
-                    <th>Component</th>
-                    <th>Match</th>
-                    <th>Active weight</th>
-                    <th>Points</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {m.ranking.components.map((c) => (
-                    <tr key={c.name}>
-                      <td>{c.name}</td>
-                      <td>{c.value === null ? 'Inactive' : `${Math.round(c.value * 100)}%`}</td>
-                      <td>{(c.activeWeight * 100).toFixed(1)}%</td>
-                      <td>{c.contribution.toFixed(2)}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-              {m.ranking.requirements.map((r) => (
-                <p key={r.id}>
-                  {r.importance}: {r.excerpt} / {Math.round(r.strength * 100)}
-                  {'% / '}
-                  {r.explanation}
-                  {r.matchedSkillId ? ` / satisfied by ${r.matchedSkillId}` : ''} / evidence{' '}
-                  {r.evidenceIds.join(', ') || 'missing'}
+          <div>
+            <small>Evidence confidence</small>
+            <strong>{Math.round(m.confidence * 100)}%</strong>
+            <span>{m.matchedSkills.length} verified skill matches</span>
+            {m.review && eligibility === 'PASS' && <span>Qualification evidence needs review</span>}
+          </div>
+          <div>
+            <small>Required-skill coverage</small>
+            <strong>
+              {legacy
+                ? 'Not assessed by Legacy v1'
+                : `${Math.round((m.ranking?.requiredCoverage ?? 0) * 100)}%`}
+            </strong>
+            <span>
+              {m.ranking?.preferenceScore === null || m.ranking?.preferenceScore === undefined
+                ? 'Preference fit unknown'
+                : `Preference fit ${m.ranking.preferenceScore}%`}
+            </span>
+          </div>
+        </section>
+        {m.ranking?.assessment && !m.ranking.assessment.complete && (
+          <p role="note" className="help-text">
+            {m.ranking.assessment.status === 'not-published'
+              ? 'Qualification requirements were not published; automatic shortlisting is unavailable.'
+              : `Assessment incomplete: ${m.ranking.assessment.assessed}/${m.ranking.assessment.total} requirements interpreted. Unresolved mandatory qualifications need review.`}
+          </p>
+        )}
+        {!!marker?.feedbackConflicts?.length && (
+          <p role="note">
+            Merged sources had conflicting relevance feedback. Choose Relevant or Irrelevant to
+            resolve it.
+          </p>
+        )}
+        <div
+          className="job-detail-actions"
+          onClick={(event) => {
+            // Dismiss the action menu after a choice without collapsing the job's evidence.
+            if (event.target instanceof HTMLElement && event.target.closest('button'))
+              event.currentTarget.querySelector('details')?.removeAttribute('open');
+          }}
+        >
+          <button
+            aria-pressed={marker?.feedback === 'relevant'}
+            onClick={() =>
+              void command({
+                op: 'markJob',
+                jobId: m.job.id,
+                feedback: marker?.feedback === 'relevant' ? 'none' : 'relevant',
+              })
+            }
+          >
+            Relevant
+          </button>
+          <details className="job-more">
+            <summary aria-label="More job actions">More actions</summary>
+            <div className="job-action-menu">
+              <button
+                onClick={() =>
+                  void command({ op: 'markJob', jobId: m.job.id, applied: !marker?.applied })
+                }
+              >
+                {marker?.applied ? 'Clear applied marker' : 'Mark as applied'}
+              </button>
+              <button
+                aria-pressed={marker?.feedback === 'irrelevant'}
+                onClick={() =>
+                  void command({ op: 'markJob', jobId: m.job.id, feedback: 'irrelevant' })
+                }
+              >
+                Irrelevant
+              </button>
+              <button
+                onClick={() => void command({ op: 'markJob', jobId: m.job.id, feedback: 'none' })}
+              >
+                Clear feedback
+              </button>
+              <button onClick={() => void command({ op: 'markJob', jobId: m.job.id, seen: true })}>
+                Mark as read
+              </button>
+              <button
+                onClick={() =>
+                  void command({
+                    op: 'compare',
+                    jobId: m.job.id,
+                    rankingIds: [
+                      ...new Set([
+                        m.ranking?.configId ?? 'builtin:technical-balanced',
+                        compareId,
+                        m.ranking?.configId === 'builtin:technical-balanced'
+                          ? 'builtin:legacy-v1'
+                          : 'builtin:technical-balanced',
+                      ]),
+                    ].slice(0, 2),
+                  })
+                }
+              >
+                Compare ranking methods
+              </button>
+              {saved && !m.excluded && (
+                <button onClick={onReview}>Preview optional AI review</button>
+              )}
+            </div>
+          </details>
+        </div>
+        <div className="job-card-explanation">
+          <p className="job-credit">
+            Source: {link(m.job.discovery?.sourceName ?? m.job.source)}{' '}
+            <span className="verification-badge">
+              {m.job.discovery?.availability ??
+                (m.job.activeStatus === 'open' ? 'verified' : 'unverified')}{' '}
+              posting
+            </span>
+          </p>
+          <details>
+            <summary>Eligibility, ranking and provenance</summary>
+            <p>Matched skills: {m.matchedSkills.join(', ') || 'None verified'}</p>
+            <p>Qualification gaps: {m.gaps.join(', ') || 'No explicit gaps extracted'}</p>
+            {m.ranking && (
+              <>
+                <p>
+                  Configuration {m.ranking.configId} revision {m.ranking.configRevision} / taxonomy{' '}
+                  {m.ranking.taxonomyVersion}
+                  {' / requirements '}
+                  {m.ranking.parserVersion} / evidence {m.ranking.evidenceVersion}
+                  {' / as of '}
+                  {m.ranking.asOf}
                 </p>
+                <table className="ranking-breakdown">
+                  <thead>
+                    <tr>
+                      <th>Component</th>
+                      <th>Match</th>
+                      <th>Active weight</th>
+                      <th>Points</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {m.ranking.components.map((c) => (
+                      <tr key={c.name}>
+                        <td>{c.name}</td>
+                        <td>{c.value === null ? 'Inactive' : `${Math.round(c.value * 100)}%`}</td>
+                        <td>{(c.activeWeight * 100).toFixed(1)}%</td>
+                        <td>{c.contribution.toFixed(2)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+                {m.ranking.requirements.map((r) => (
+                  <p key={r.id}>
+                    {r.importance}: {r.excerpt} / {Math.round(r.strength * 100)}
+                    {'% / '}
+                    {r.explanation}
+                    {r.matchedSkillId ? ` / satisfied by ${r.matchedSkillId}` : ''} / evidence{' '}
+                    {r.evidenceIds.join(', ') || 'missing'}
+                  </p>
+                ))}
+              </>
+            )}
+            <ul>
+              {m.checks.map((c, i) => (
+                <li key={i}>
+                  {c.result} · {c.rule}: {c.excerpt}
+                </li>
               ))}
-            </>
-          )}
-          <ul>
-            {m.checks.map((c, i) => (
-              <li key={i}>
-                {c.result} · {c.rule}: {c.excerpt}
-              </li>
+            </ul>
+            <p>
+              Profile v{m.profileVersion} · {m.scorerVersion}
+              {' · BM25 '}
+              {m.bm25Raw.toFixed(6)} (lower is more relevant)
+            </p>
+            {m.reasons.map((r, i) => (
+              <p key={i}>{r}</p>
             ))}
-          </ul>
-          <p>
-            Profile v{m.profileVersion} · {m.scorerVersion}
-            {' · BM25 '}
-            {m.bm25Raw.toFixed(6)} (lower is more relevant)
-          </p>
-          {m.reasons.map((r, i) => (
-            <p key={i}>{r}</p>
-          ))}
-          <p>
-            {m.job.duplicateGroup
-              ? 'Possible duplicate or employer conflict: review required.'
-              : 'No duplicate conflict detected.'}
-          </p>
-          <ul>
-            {m.job.provenance.map((p) => (
-              <li key={p.sourceKey}>
-                {p.sourceKey} · {p.url}
-                {' · collected '}
-                {new Date(p.collectedAt).toLocaleString()}
-                {' · raw hash '}
-                {p.rawSha256.slice(0, 16)}
-              </li>
-            ))}
-          </ul>
-        </details>
+            <p>
+              {m.job.duplicateGroup
+                ? 'Possible duplicate or employer conflict: review required.'
+                : 'No duplicate conflict detected.'}
+            </p>
+            <ul>
+              {m.job.provenance.map((p) => (
+                <li key={p.sourceKey}>
+                  {p.sourceKey} · {p.url}
+                  {' · collected '}
+                  {new Date(p.collectedAt).toLocaleString()}
+                  {' · raw hash '}
+                  {p.rawSha256.slice(0, 16)}
+                </li>
+              ))}
+            </ul>
+          </details>
 
-        {reviews
-          .filter((r) => r.jobId === m.job.id)
-          .map((r) => (
-            <details key={`${r.model}-${r.createdAt}`}>
-              <summary>Advisory AI review / {r.model}</summary>
-              <p>{r.text}</p>
-              <p>
-                Estimated ${r.estimatedUsd?.toFixed(6) ?? 'unavailable'}. Deterministic evidence
-                remains authoritative.
-              </p>
-            </details>
-          ))}
-      </div>
+          {reviews
+            .filter((r) => r.jobId === m.job.id)
+            .map((r) => (
+              <details key={`${r.model}-${r.createdAt}`}>
+                <summary>Advisory AI review / {r.model}</summary>
+                <p>{r.text}</p>
+                <p>
+                  Estimated ${r.estimatedUsd?.toFixed(6) ?? 'unavailable'}. Deterministic evidence
+                  remains authoritative.
+                </p>
+              </details>
+            ))}
+        </div>
+      </details>
     </article>
   );
 }

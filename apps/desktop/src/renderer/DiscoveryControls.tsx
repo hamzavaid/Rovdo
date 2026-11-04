@@ -10,14 +10,15 @@ type View = z.infer<typeof CareerViewSchema>;
 export function AdvancedFilters({
   search,
   setSearch,
-  onApply,
+  sources = [],
 }: {
   search: JobSearch;
   setSearch: (s: JobSearch) => void;
-  onApply?: (s: JobSearch) => Promise<void>;
+  sources?: { id: string; name: string }[];
 }) {
   const [open, setOpen] = useState(false);
-  const [draft, setDraft] = useState(search);
+  const draft = search;
+  const setDraft = (next: JobSearch) => setSearch({ ...next, offset: 0 });
   const set = (key: keyof JobSearch, value: unknown) => setDraft({ ...draft, [key]: value });
   const numeric = (key: keyof JobSearch, label: string, min: number, max: number) => (
     <label>
@@ -53,22 +54,22 @@ export function AdvancedFilters({
         type="button"
         className="filter-launch"
         onClick={() => {
-          setDraft(search);
           setOpen(true);
         }}
       >
-        Advanced search filters
+        Filters
       </button>
       {open && (
         <ProfileDialog
           closeLabel="Close search filters"
-          title="Search filters"
+          title="Refine jobs"
+          className="filters-drawer"
           onClose={() => setOpen(false)}
         >
           <div className="advanced-filters">
             <p>
-              These filters narrow results without changing candidate evidence or the saved ranking
-              method. Unknown eligibility remains reviewable.
+              Changes update cached results automatically. Collection sources are configured in
+              Sources &amp; Coverage. Unknown eligibility remains reviewable.
             </p>
             <div className="career-fields">
               <label>
@@ -76,24 +77,35 @@ export function AdvancedFilters({
                 <input value={draft.company} onChange={(e) => set('company', e.target.value)} />
               </label>
               <label>
-                Employment type
-                <select
-                  aria-label="Employment type"
-                  value={draft.employmentType ?? 'all'}
-                  onChange={(e) => set('employmentType', e.target.value)}
-                >
-                  {[
-                    'all',
-                    'full-time',
-                    'part-time',
-                    'contract',
-                    'internship',
-                    'temporary',
-                    'unknown',
-                  ].map((v) => (
+                Work mode filter
+                <select value={draft.workMode} onChange={(e) => set('workMode', e.target.value)}>
+                  {['all', 'remote', 'hybrid', 'onsite'].map((v) => (
                     <option key={v}>{v}</option>
                   ))}
                 </select>
+              </label>
+              <label>
+                Source filter
+                <select
+                  value={draft.sourceId ?? ''}
+                  onChange={(e) => set('sourceId', e.target.value || undefined)}
+                >
+                  <option value="">All collected sources</option>
+                  {sources.map((s) => (
+                    <option key={s.id} value={s.id}>
+                      {s.name}
+                    </option>
+                  ))}
+                  <option value="jsonld">jsonld</option>
+                </select>
+              </label>
+              <label>
+                <input
+                  type="checkbox"
+                  checked={draft.includeExcluded}
+                  onChange={(e) => set('includeExcluded', e.target.checked)}
+                />
+                Show excluded
               </label>
               <label>
                 Posting verification
@@ -215,9 +227,6 @@ export function AdvancedFilters({
               </label>
             </div>
             <div className="dialog-actions">
-              <button type="button" onClick={() => setOpen(false)}>
-                Cancel
-              </button>
               <button
                 type="button"
                 onClick={() =>
@@ -225,27 +234,19 @@ export function AdvancedFilters({
                     query: search.query,
                     company: '',
                     workMode: 'all',
-                    savedOnly: false,
+                    savedOnly: search.savedOnly,
                     includeExcluded: false,
                     scope: search.scope,
                     discovery: search.discovery,
+                    selectedSourceId: search.selectedSourceId,
                     rankingId: search.rankingId,
                   })
                 }
               >
-                Reset filter details
+                Reset filters
               </button>
-              <button
-                type="button"
-                className="primary-button"
-                onClick={() => {
-                  const next = { ...draft, offset: 0 };
-                  setSearch(next);
-                  setOpen(false);
-                  void onApply?.(next);
-                }}
-              >
-                Apply filters
+              <button type="button" className="primary-button" onClick={() => setOpen(false)}>
+                Done
               </button>
             </div>
           </div>

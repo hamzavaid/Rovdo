@@ -59,22 +59,50 @@ test('filters and pages cached jobs, saves searches, tracks feedback and compare
   try {
     const page = await app.firstWindow();
     await page.getByRole('button', { name: 'Jobs', exact: true }).click();
-    await expect(page.getByLabel('Search scope')).toHaveValue('global');
-    await page.getByText('Advanced search filters', { exact: true }).click();
-    await page.getByLabel('Company name', { exact: true }).fill('Canceled employer');
-    await page.getByRole('button', { name: 'Cancel', exact: true }).click();
-    await page.getByRole('button', { name: 'Advanced search filters', exact: true }).click();
-    await expect(page.getByLabel('Company name', { exact: true })).toHaveValue('');
+    await expect(
+      page.getByRole('navigation', { name: 'Jobs views' }).getByRole('button'),
+    ).toHaveCount(3);
+    await page.getByRole('button', { name: 'Filters', exact: true }).click();
     await page.getByLabel('Company name', { exact: true }).fill('No such employer');
-    await page.getByRole('button', { name: 'Apply filters', exact: true }).click();
     await expect(page.locator('.job-card')).toHaveCount(0);
+    await expect(page.getByRole('dialog')).toBeVisible();
+    await page.keyboard.press('Escape');
+    await expect(page.getByRole('button', { name: 'Filters', exact: true })).toBeFocused();
     await expect(page.getByRole('heading', { name: 'No matching jobs' })).toBeVisible();
-    await page.getByRole('button', { name: 'Advanced search filters', exact: true }).click();
+    await page.getByRole('button', { name: 'Filters', exact: true }).click();
     await page.getByLabel('Company name', { exact: true }).fill('');
     await page.getByLabel('Technical role family').selectOption('software');
     await page.getByLabel('Minimum qualification score', { exact: true }).fill('50');
-    await page.getByRole('button', { name: 'Apply filters', exact: true }).click();
+    await page.getByRole('button', { name: 'Done', exact: true }).click();
     await expect(page.locator('.job-card')).toHaveCount(50);
+    await expect(page.locator('.job-details').first()).not.toHaveAttribute('open');
+    expect(
+      await page
+        .locator('.job-card')
+        .first()
+        .evaluate((e) => e.getBoundingClientRect().height),
+    ).toBeLessThan(250);
+    await page.getByRole('button', { name: 'Sources & Coverage', exact: true }).click();
+    await page.getByRole('button', { name: 'Clear source selection', exact: true }).click();
+    await page
+      .getByRole('navigation', { name: 'Jobs views' })
+      .getByRole('button', { name: 'Find Jobs', exact: true })
+      .click();
+    await expect(page.locator('.job-card')).toHaveCount(50);
+    await page.getByRole('button', { name: 'Save opportunity', exact: true }).first().click();
+    await page.getByRole('button', { name: 'Saved Jobs (1)', exact: true }).click();
+    await expect(page.locator('.job-card')).toHaveCount(1);
+    await page
+      .getByRole('navigation', { name: 'Jobs views' })
+      .getByRole('button', { name: 'Find Jobs', exact: true })
+      .click();
+    await expect(page.locator('.job-card')).toHaveCount(50);
+    await page.getByRole('button', { name: 'Sources & Coverage', exact: true }).click();
+    await page.getByRole('button', { name: 'Restore default sources', exact: true }).click();
+    await page
+      .getByRole('navigation', { name: 'Jobs views' })
+      .getByRole('button', { name: 'Find Jobs', exact: true })
+      .click();
     await app.evaluate(({ shell }) => {
       shell.openExternal = async (url: string) => {
         (globalThis as typeof globalThis & { openedJob?: string }).openedJob = url;
@@ -111,6 +139,7 @@ test('filters and pages cached jobs, saves searches, tracks feedback and compare
     await page.getByLabel('Saved search name').fill('My backend search');
     await page.getByRole('button', { name: 'Save current search' }).click();
     await expect(page.getByRole('button', { name: 'Load My backend search' })).toBeVisible();
+    await page.locator('.job-details > summary').first().click();
     await page.getByLabel('More job actions').first().click();
     await page.getByRole('button', { name: 'Mark as applied', exact: true }).first().click();
     await expect(
@@ -129,7 +158,10 @@ test('filters and pages cached jobs, saves searches, tracks feedback and compare
     await page.getByText('Manage ranking profiles', { exact: true }).click();
     await page.getByRole('button', { name: 'Export selected configuration' }).click();
     await expect(page.getByLabel('Ranking configuration JSON')).toHaveValue(/technical-v2/);
-    await page.getByRole('button', { name: 'Search & results', exact: true }).click();
+    await page
+      .getByRole('navigation', { name: 'Jobs views' })
+      .getByRole('button', { name: 'Find Jobs', exact: true })
+      .click();
     await page
       .locator('.job-search')
       .screenshot({ path: test.info().outputPath('unified-search.png') });
@@ -141,15 +173,19 @@ test('filters and pages cached jobs, saves searches, tracks feedback and compare
         .first()
         .screenshot({ path: test.info().outputPath(`job-card-${mode}.png`) });
     }
-    await page.getByRole('button', { name: 'Advanced search filters', exact: true }).click();
+    await page.getByRole('button', { name: 'Filters', exact: true }).click();
     await page.getByLabel('Eligibility constraint').selectOption('fail');
-    await page.getByRole('button', { name: 'Apply filters', exact: true }).click();
+    await page.getByRole('button', { name: 'Done', exact: true }).click();
     await expect(page.getByText('Explicit failure requires Show excluded jobs.')).toBeVisible();
     await page.getByRole('button', { name: 'Show excluded jobs', exact: true }).focus();
     await page.keyboard.press('Enter');
+    await page.getByRole('button', { name: 'Filters', exact: true }).click();
     await expect(page.getByLabel('Show excluded', { exact: true })).toBeChecked();
+    await page.getByRole('button', { name: 'Done', exact: true }).click();
     await expect(page.getByText('Explicit failure requires Show excluded jobs.')).toHaveCount(0);
-    await expect(page.getByRole('button', { name: 'Search', exact: true })).toBeEnabled();
+    await expect(
+      page.locator('form').getByRole('button', { name: 'Find Jobs', exact: true }),
+    ).toBeEnabled();
   } finally {
     await app.close();
   }

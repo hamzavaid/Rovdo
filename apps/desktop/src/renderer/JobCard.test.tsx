@@ -24,6 +24,9 @@ it('shows a clickable real title, meaningful score snapshot and progressive acti
     />,
   );
   expect(html).toContain(`href="${match.job.canonicalUrl}"`);
+  expect(html).toContain('<details class="job-details"><summary>Details</summary>');
+  expect(html.indexOf('job-details')).toBeLessThan(html.indexOf('job-fit-snapshot'));
+  expect(html).not.toContain('<details class="job-details" open');
   expect(html).toContain('More job actions');
   expect(html).toContain('Not assessed by Legacy v1');
   expect(html).toContain('Evidence confidence');

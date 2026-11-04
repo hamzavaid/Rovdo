@@ -127,7 +127,7 @@ export function GlobalDiscovery({
           )}
         </div>
       )}
-      <details className="surface-disclosure">
+      <details className="surface-disclosure" open>
         <summary>Sources, queries and collection settings</summary>
         <details>
           <summary>Profile-guided queries ({view?.plan.length ?? 0})</summary>
@@ -253,86 +253,8 @@ export function GlobalDiscovery({
         </div>
       </details>
       {view?.run && (
-        <section className="surface-card discovery-progress" aria-label="Discovery progress">
-          <div className="discovery-progress-header">
-            <strong>
-              {view.run.status === 'running'
-                ? 'Collection in progress'
-                : view.run.status === 'completed' &&
-                    view.coverage.some((s) => ['blocked', 'partial'].includes(s.status))
-                  ? 'Collection finished with unavailable sources'
-                  : `Collection ${view.run.status}`}
-            </strong>
-            <div className="button-row">
-              {view.run.status === 'running' && (
-                <>
-                  <button
-                    type="button"
-                    disabled={busy}
-                    onClick={() =>
-                      void command({ op: 'controlDiscovery', id: view.run!.id, action: 'pause' })
-                    }
-                  >
-                    Pause discovery
-                  </button>
-                  <button
-                    type="button"
-                    disabled={busy}
-                    onClick={() =>
-                      void command({ op: 'controlDiscovery', id: view.run!.id, action: 'cancel' })
-                    }
-                  >
-                    Cancel discovery
-                  </button>
-                </>
-              )}
-              {view.run.status === 'paused' && (
-                <button
-                  type="button"
-                  disabled={busy}
-                  onClick={() =>
-                    void command({ op: 'controlDiscovery', id: view.run!.id, action: 'resume' })
-                  }
-                >
-                  Resume discovery
-                </button>
-              )}
-            </div>
-          </div>
-          <div className="discovery-stats" aria-live="polite">
-            <div>
-              <strong>{view.companies}</strong>
-              {' discovered companies'}
-            </div>
-            <div>
-              <strong>
-                {
-                  view.coverage.filter(
-                    (s) => s.requests > 0 || s.records > 0 || s.status === 'ready',
-                  ).length
-                }
-              </strong>
-              {' sources searched'}
-            </div>
-            <div data-stat="jobs">
-              <strong>{view.jobs}</strong>
-              {' unique jobs collected'}
-            </div>
-            <div>
-              <strong>{view.filtered}</strong>
-              {' jobs filtered'}
-            </div>
-            <div>
-              <strong>{view.pending}</strong>
-              {' pending pages or resolutions'}
-            </div>
-          </div>
-          <p className="help-text">
-            {view.done} completed tasks. Progress and cached results survive restarts. Cached feeds,
-            unavailable sources and unverified leads are not live availability guarantees.
-          </p>
-          {view.run.reason && <p>{view.run.reason}</p>}
-          <details>
+        <section className="surface-card discovery-progress" aria-label="Collection health details">
+          <details open>
             <summary>Collection health ({view.coverage.length})</summary>
             <div className="coverage-table">
               <table>

@@ -66,11 +66,12 @@ test('globally discovers an unsaved employer, separates scopes, exports and pers
     });
     let page = await app.firstWindow();
     await page.getByRole('button', { name: 'Jobs', exact: true }).click();
+    await page.getByRole('button', { name: 'Sources & Coverage', exact: true }).click();
     await expect(page.getByLabel('Search scope', { exact: true })).toHaveValue('global');
     await expect(
       page.getByRole('option', { name: 'Search All Saved Companies', exact: true }),
     ).toHaveCount(1);
-    await page.getByText('Sources, queries and collection settings', { exact: true }).click();
+    await page.getByRole('button', { name: 'Sources & Coverage', exact: true }).click();
     await page.getByRole('button', { name: 'Selected sources (13)', exact: true }).click();
     await expect(page.locator('.discovery-source')).toHaveCount(13);
     await page.getByRole('button', { name: 'Show full source list', exact: true }).click();
@@ -90,20 +91,33 @@ test('globally discovers an unsaved employer, separates scopes, exports and pers
     await page.getByRole('checkbox', { name: 'Wayback company discovery', exact: true }).check();
     await page.getByLabel('Find discovery sources', { exact: true }).fill('Lever');
     await page.getByRole('checkbox', { name: 'Lever', exact: true }).check();
-    await page.getByRole('button', { name: 'Search', exact: true }).click();
+    await page
+      .getByRole('navigation', { name: 'Jobs views' })
+      .getByRole('button', { name: 'Find Jobs', exact: true })
+      .click();
+    await page.locator('form').getByRole('button', { name: 'Find Jobs', exact: true }).click();
     await expect(
       page.getByRole('heading', { name: 'Outside Directory Engineer', exact: true }),
     ).toBeVisible({ timeout: 20000 });
     await expect(
       page.getByRole('region', { name: 'Discovery progress', exact: true }),
     ).toContainText('1 unique jobs collected');
+    await page.getByText('Activity details', { exact: true }).click();
     await page.getByRole('button', { name: 'Pause discovery', exact: true }).click();
     await expect(page.getByText('Collection paused', { exact: true })).toBeVisible();
+    await page.getByRole('button', { name: 'Sources & Coverage', exact: true }).click();
     await page.getByLabel('Search scope', { exact: true }).selectOption('saved-companies');
-    await page.getByRole('button', { name: 'Apply filters to cached jobs', exact: true }).click();
+    await page
+      .getByRole('navigation', { name: 'Jobs views' })
+      .getByRole('button', { name: 'Find Jobs', exact: true })
+      .click();
     await expect(page.locator('.job-card')).toHaveCount(0);
+    await page.getByRole('button', { name: 'Sources & Coverage', exact: true }).click();
     await page.getByLabel('Search scope', { exact: true }).selectOption('global');
-    await page.getByRole('button', { name: 'Apply filters to cached jobs', exact: true }).click();
+    await page
+      .getByRole('navigation', { name: 'Jobs views' })
+      .getByRole('button', { name: 'Find Jobs', exact: true })
+      .click();
     await expect(page.locator('.job-card')).toHaveCount(1);
     await app.evaluate(({ dialog }, file) => {
       dialog.showSaveDialog = async () => ({ canceled: false, filePath: file });
@@ -191,12 +205,16 @@ test('recovers an archive-only search through independent recommended feeds', as
     });
     const page = await app.firstWindow();
     await page.getByRole('button', { name: 'Jobs', exact: true }).click();
-    await page.getByText('Sources, queries and collection settings', { exact: true }).click();
+    await page.getByRole('button', { name: 'Sources & Coverage', exact: true }).click();
     await page.getByRole('button', { name: 'Clear source selection', exact: true }).click();
     await page.getByLabel('Find discovery sources', { exact: true }).fill('Wayback');
     await page.getByRole('checkbox', { name: 'Wayback company discovery', exact: true }).check();
-    await page.getByRole('button', { name: 'Search', exact: true }).click();
-    await page.getByText('Collection health (1)', { exact: true }).click();
+    await page
+      .getByRole('navigation', { name: 'Jobs views' })
+      .getByRole('button', { name: 'Find Jobs', exact: true })
+      .click();
+    await page.locator('form').getByRole('button', { name: 'Find Jobs', exact: true }).click();
+    await page.getByRole('button', { name: 'View Collection Health', exact: true }).click();
     await expect(
       page.getByText(
         'A Wayback query or index page was unavailable. Continuing with bounded pages or other ATS hosts; coverage is partial.',
@@ -207,6 +225,10 @@ test('recovers an archive-only search through independent recommended feeds', as
     ).toBeVisible({ timeout: 15000 });
     await page
       .getByRole('button', { name: 'Search with recommended sources', exact: true })
+      .click();
+    await page
+      .getByRole('navigation', { name: 'Jobs views' })
+      .getByRole('button', { name: 'Find Jobs', exact: true })
       .click();
     await expect(
       page.getByRole('heading', { name: 'Independent Feed Engineer', exact: true }),

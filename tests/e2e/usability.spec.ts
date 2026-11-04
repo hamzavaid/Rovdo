@@ -70,7 +70,10 @@ test('uses real dashboard data, edits verified qualifications and previews balan
     expect(await page.evaluate(() => getComputedStyle(document.body).fontSize)).toBe('15px');
     await page.screenshot({ path: test.info().outputPath('overview.png'), fullPage: true });
     await page.getByRole('button', { name: 'Review saved opportunities', exact: true }).click();
-    await expect(page.getByLabel('Saved only', { exact: true })).toBeChecked();
+    await expect(page.getByRole('button', { name: /^Saved Jobs/ })).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    );
     await page.getByRole('button', { name: 'Profile', exact: true }).click();
     await expect(page.locator('.skill-chip')).toHaveCount(3);
     expect(
