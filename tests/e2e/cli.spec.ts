@@ -12,7 +12,8 @@ for (const kind of ['claude', 'codex'] as const)
         : join(bin, 'node_modules', '@openai', 'codex', 'bin', 'codex.js');
     const calls = test.info().outputPath('fixture-calls.jsonl');
     await mkdir(join(entry, '..'), { recursive: true });
-    const script = `${process.platform === 'win32' ? '' : '#!/usr/bin/env node\n'}
+    // Bind fixtures to the test runner's Node, rather than an unrelated node found by a GUI PATH.
+    const script = `${process.platform === 'win32' ? '' : `#!${process.execPath}\n`}
 const fs=require('node:fs');
 if(process.argv.includes('--version')){console.log(${JSON.stringify(kind === 'claude' ? '2.1.248 (Claude Code)' : 'codex-cli 0.165.0')});process.exit(0);}
 if(${JSON.stringify(kind)}==='claude' && (!process.argv.includes('--restricted')||!process.argv.includes('--strict-mcp-config')||process.argv[process.argv.indexOf('--tools')+1]!==''))process.exit(8);

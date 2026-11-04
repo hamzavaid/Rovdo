@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest';
-import { mkdtemp, mkdir, writeFile, rm } from 'node:fs/promises';
+import { mkdtemp, mkdir, writeFile, rm, realpath } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { CliRuntime, executableCandidates, resolveLauncher, cliEnvironment } from './cli-runtime';
@@ -107,7 +107,7 @@ describe('bounded local CLI runtime', () => {
     await writeFile(entry, '');
     await writeFile(cmd, 'malicious wrapper contents are never executed');
     const launch = await resolveLauncher(cmd, 'claude', process.execPath);
-    expect(launch).toEqual({ executable: process.execPath, prefix: [entry] });
+    expect(launch).toEqual({ executable: process.execPath, prefix: [await realpath(entry)] });
     await expect(
       resolveLauncher(join(dir, 'evil.cmd'), 'claude', process.execPath),
     ).rejects.toThrow();
@@ -125,7 +125,7 @@ describe('bounded local CLI runtime', () => {
     await writeFile(cmd, 'never executed');
     expect(await resolveLauncher(cmd, id, process.execPath)).toEqual({
       executable: process.execPath,
-      prefix: [entry],
+      prefix: [await realpath(entry)],
     });
   });
 });
