@@ -275,9 +275,29 @@ export async function discoverBoardPage(
         retryAfterMs: Math.max(60000, error instanceof DiscoveryHttpError ? error.retryAfterMs : 0),
       };
     }
+    // Exploratory sampling is bounded to one older collection, then the exact primary
+    // partition walk resumes. Empty successful indexes are different from outages.
+    const emptyScopes = Number(p.emptyScopes ?? 0);
+    if (!Number.isSafeInteger(emptyScopes) || emptyScopes < 0) throw new Error('INVALID_CURSOR');
+    if (p.returnIndex) {
+      if (typeof p.returnIndex !== 'string' || !indexPattern.test(p.returnIndex))
+        throw new Error('INVALID_CURSOR');
+      if (next) next = { ...next, returnIndex: p.returnIndex };
+      else {
+        index = p.returnIndex;
+        collectionIndex = index;
+      }
+    } else if (!urls.length && !next && !p.direct && partition !== null && emptyScopes >= 3) {
+      const available = await collections();
+      const older = available[available.indexOf(index) + 1];
+      if (older && older !== index)
+        next = { target, partition, index: older, returnIndex: index, page: 0 };
+    }
     // Reuse the validated collection identity between partitions, not the old page count.
     if (!next && !scopeFinished && partition !== null && partition + 1 < prefixes.length)
       next = { target, partition: partition + 1, index };
+    if (next && !p.returnIndex && !next.returnIndex && !urls.length && !p.direct)
+      next = { ...next, emptyScopes: emptyScopes + 1 };
   }
   if (!next && !scopeFinished && partition !== null && partition + 1 < prefixes.length)
     next = { target, partition: partition + 1 };
@@ -312,6 +332,7 @@ export async function discoverBoardPage(
     }
   }
   return {
+    rawRecords: urls.length,
     records: [...unique.values()].map(({ url, original }) => ({
       url,
       companyEvidence: `Archive URL: ${original}`.slice(0, 500),

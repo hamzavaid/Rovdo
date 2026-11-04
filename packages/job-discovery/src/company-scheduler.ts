@@ -29,18 +29,18 @@ export class CompanyDiscoveryScheduler {
       this.active ||
       this.stopped ||
       this.options.suspended?.() ||
-      this.store.setting('automatic-company-discovery') === 'false' ||
       this.store.global.runningRuns().some((r) => (r.lane ?? 'jobs') === 'jobs')
     )
       return;
     this.active = true;
     try {
-      const runs = this.store.global.runs().filter((r) => r.lane === 'companies');
+      const runs = this.store.global.runs(0, 'companies');
       const latest = runs[0];
       if (latest?.status === 'paused') {
         if (!/Restarted|shutdown/i.test(latest.reason ?? '')) return;
         await this.engine.control(latest.id, 'resume');
       } else if (!runs.some((r) => r.status === 'running')) {
+        if (this.store.setting('automatic-company-discovery') === 'false') return;
         if (this.options.automaticStart?.() === false) return;
         if (Number(this.store.setting('company-discovery-next') ?? 0) > Date.now()) return;
         this.start();

@@ -222,6 +222,7 @@ export const JobSchema = z.strictObject({
   updatedAt: z.union([z.iso.date(), z.iso.datetime({ offset: true })]).nullable(),
   firstSeenAt: z.number(),
   lastSeenAt: z.number(),
+  contentChangedAt: z.number().nonnegative().optional(),
   activeStatus: z.enum(['open', 'closed', 'unknown']),
   validThrough: z
     .union([z.iso.date(), z.iso.datetime({ offset: true })])
@@ -295,6 +296,12 @@ export const JobMatchSchema = z.strictObject({
 });
 export type JobMatch = z.infer<typeof JobMatchSchema>;
 export const JobSearchSchema = z.strictObject({
+  within: z.string().max(200).optional(),
+  companies: z.array(z.string().trim().min(1).max(200)).max(100).optional(),
+  focusTerms: z
+    .array(z.enum(['semiconductor', 'aerospace', 'embedded', 'robotics']))
+    .max(4)
+    .optional(),
   pageSize: z.union([z.literal(10), z.literal(25), z.literal(50)]).optional(),
   scope: z.enum(['global', 'saved-companies', 'company']).optional(),
   selectedSourceId: z.uuid().optional(),
@@ -362,6 +369,16 @@ export const JobMarkerSchema = z.strictObject({
 export type JobMarker = z.infer<typeof JobMarkerSchema>;
 export type SavedSearch = z.infer<typeof SavedSearchSchema>;
 export const CareerViewSchema = z.strictObject({
+  rankingJobs: z
+    .array(z.strictObject({ id: z.string(), company: z.string(), title: z.string() }))
+    .optional(),
+  rankingJobTotal: z.number().int().optional(),
+  collectionDefaults: z
+    .strictObject({
+      scope: z.enum(['global', 'saved-companies', 'company']),
+      options: DiscoveryOptionsSchema,
+    })
+    .optional(),
   companyDiscovery: DiscoveryViewSchema.optional(),
   companyPage: CompanyPageSchema.optional(),
   automaticCompanyDiscovery: z.boolean().optional(),
@@ -386,6 +403,16 @@ export const CareerViewSchema = z.strictObject({
   cache: z.object({ hits: z.number(), misses: z.number() }).optional(),
 });
 export const CareerCommandSchema = z.discriminatedUnion('op', [
+  z.strictObject({
+    op: z.literal('rankingJobs'),
+    query: z.string().max(200),
+    offset: z.number().int().nonnegative().default(0),
+  }),
+  z.strictObject({
+    op: z.literal('collectionSettings'),
+    scope: z.enum(['global', 'saved-companies', 'company']),
+    options: DiscoveryOptionsSchema,
+  }),
   z.strictObject({ op: z.literal('companyPage'), query: CompanyQuerySchema }),
   z.strictObject({
     op: z.literal('companyDiscovery'),
@@ -395,7 +422,7 @@ export const CareerCommandSchema = z.discriminatedUnion('op', [
   z.strictObject({
     op: z.literal('companyBoard'),
     identity: z.string().min(1).max(500),
-    action: z.enum(['enable', 'disable', 'retire', 'refresh', 'interval']),
+    action: z.enum(['enable', 'disable', 'retire', 'refresh', 'interval', 'test']),
     intervalMs: z.number().int().min(60000).max(2592000000).optional(),
   }),
   z.strictObject({

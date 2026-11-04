@@ -97,6 +97,13 @@ it('reuses a fresh complete board snapshot without refetching, reparsing or rein
     expect(requests).toBe(before);
     expect(ingest).not.toHaveBeenCalled();
     expect(store.global.stats(warm).jobs).toBe(1);
+    expect(engine.view().metrics).toMatchObject({
+      newJobs: 0,
+      updatedJobs: 0,
+      knownBoards: 1,
+      boardsChecked: 0,
+      cacheHits: 1,
+    });
     expect(store.jobs()[0]!.discovery!.checkedAt).toBe(observation);
     expect(store.jobs()[0]!.discovery!.availability).toBe('verified');
   } finally {

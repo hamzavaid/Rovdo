@@ -16,6 +16,10 @@ export class DiscoveryStore extends DiscoveryTelemetry {
     super(db);
     db.exec(`
  CREATE TABLE IF NOT EXISTS pipeline_event(sequence INTEGER PRIMARY KEY AUTOINCREMENT,run_id TEXT NOT NULL,json TEXT NOT NULL);
+ CREATE TABLE IF NOT EXISTS discovery_counter(run_id TEXT NOT NULL,key TEXT NOT NULL,value INTEGER NOT NULL,PRIMARY KEY(run_id,key));
+ CREATE TABLE IF NOT EXISTS discovery_source_health(source_id TEXT PRIMARY KEY,observed_at INTEGER NOT NULL,next_refresh INTEGER NOT NULL);
+ CREATE TABLE IF NOT EXISTS finder_board(source_id TEXT NOT NULL,identity TEXT NOT NULL,PRIMARY KEY(source_id,identity));
+ CREATE TABLE IF NOT EXISTS board_run_event(run_id TEXT NOT NULL,identity TEXT NOT NULL,event TEXT NOT NULL,PRIMARY KEY(run_id,identity,event));
  CREATE INDEX IF NOT EXISTS pipeline_event_run ON pipeline_event(run_id,sequence);
  CREATE TABLE IF NOT EXISTS discovery_request(sequence INTEGER PRIMARY KEY AUTOINCREMENT,run_id TEXT NOT NULL,source_id TEXT NOT NULL,json TEXT NOT NULL);
  CREATE INDEX IF NOT EXISTS discovery_request_run ON discovery_request(run_id,sequence);
@@ -112,6 +116,7 @@ export class DiscoveryStore extends DiscoveryTelemetry {
       !db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='career_setting'").get()
     )
       return;
+    this.migrateCanonicalBoards();
     this.migrateJobSelections();
     if (
       this.db.prepare("SELECT value FROM career_setting WHERE key='board-directory-v1'").get()
@@ -136,6 +141,74 @@ export class DiscoveryStore extends DiscoveryTelemetry {
         this.db.exec('ROLLBACK TO board_projection_backfill; RELEASE board_projection_backfill');
         throw error;
       }
+    }
+  }
+  private migrateCanonicalBoards() {
+    if (
+      this.db
+        .prepare("SELECT value FROM career_setting WHERE key='canonical-board-identities-v1'")
+        .get()?.value === '1'
+    )
+      return;
+    this.db.exec('SAVEPOINT canonical_boards');
+    try {
+      for (const row of this.db
+        .prepare('SELECT * FROM company_inventory ORDER BY discovered_at,identity')
+        .all()) {
+        const key = [row.ats, row.tenant, row.region].map((v) => String(v).toLowerCase()).join(':');
+        if (key === row.identity) continue;
+        const old = this.db
+          .prepare('SELECT json FROM company_board_state WHERE identity=?')
+          .get(String(row.identity));
+        const canonical = this.board(key);
+        this.db.prepare('DELETE FROM company_inventory WHERE identity=?').run(String(row.identity));
+        this.db
+          .prepare(
+            "INSERT INTO company_inventory VALUES(?,?,?,?,?,?,?,?,?) ON CONFLICT(identity) DO UPDATE SET discovered_at=MIN(discovered_at,excluded.discovered_at),observed_at=MAX(observed_at,excluded.observed_at),validated_at=CASE WHEN validated_at IS NULL THEN excluded.validated_at WHEN excluded.validated_at IS NULL THEN validated_at ELSE MAX(validated_at,excluded.validated_at) END,company=CASE WHEN company_inventory.company='' THEN excluded.company ELSE company_inventory.company END",
+          )
+          .run(
+            key,
+            String(row.ats).toLowerCase(),
+            String(row.tenant).toLowerCase(),
+            String(row.region).toLowerCase(),
+            String(row.company),
+            String(row.page_url),
+            Number(row.discovered_at),
+            Number(row.observed_at),
+            row.validated_at === null ? null : Number(row.validated_at),
+          );
+        if (canonical) {
+          const historical = old ? CompanyBoardSchema.parse(JSON.parse(String(old.json))) : null;
+          this.saveBoard({
+            ...canonical,
+            identity: key,
+            ats: String(row.ats).toLowerCase() as CompanyBoard['ats'],
+            tenant: String(row.tenant).toLowerCase(),
+            region: String(row.region).toLowerCase() as CompanyBoard['region'],
+            enabled: canonical.enabled && (historical?.enabled ?? true),
+            retiredAt: canonical.retiredAt ?? historical?.retiredAt ?? null,
+            nameStatus:
+              canonical.company &&
+              row.company &&
+              canonical.company.toLowerCase() !== String(row.company).toLowerCase()
+                ? 'conflict'
+                : canonical.nameStatus,
+          });
+        }
+        if (String(row.identity) !== key)
+          this.db
+            .prepare('DELETE FROM company_board_state WHERE identity=?')
+            .run(String(row.identity));
+      }
+      this.db
+        .prepare(
+          "INSERT OR REPLACE INTO career_setting VALUES('canonical-board-identities-v1','1')",
+        )
+        .run();
+      this.db.exec('RELEASE canonical_boards');
+    } catch (error) {
+      this.db.exec('ROLLBACK TO canonical_boards;RELEASE canonical_boards');
+      throw error;
     }
   }
 
@@ -180,6 +253,21 @@ export class DiscoveryStore extends DiscoveryTelemetry {
       )
       .run(day, source);
     return true;
+  }
+  recordFinderBoard(sourceId: string, identity: string) {
+    if (!['wayback', 'common-crawl'].includes(sourceId)) return;
+    this.db.prepare('INSERT OR IGNORE INTO finder_board VALUES(?,?)').run(sourceId, identity);
+  }
+  finderYield(sourceId: string) {
+    const requests = Number(
+      this.db
+        .prepare('SELECT COALESCE(SUM(requests),0) n FROM company_request_budget WHERE source=?')
+        .get(sourceId)!.n,
+    );
+    const verified = Number(
+      this.db.prepare('SELECT COUNT(*) n FROM finder_board WHERE source_id=?').get(sourceId)!.n,
+    );
+    return { requests, verified, yield: requests ? verified / requests : 0 };
   }
   migrateArchives() {
     if (this.db.prepare("SELECT value FROM career_setting WHERE key='archive-lanes-v1'").get())
@@ -263,7 +351,6 @@ export class DiscoveryStore extends DiscoveryTelemetry {
       nameStatus: row.company ? 'known' : 'pending',
       enabled: true,
       retiredAt: null,
-      discoveredAt: row.discovered_at,
       lastAttempt: null,
       lastSuccess: null,
       nextRefresh: 0,
@@ -276,6 +363,8 @@ export class DiscoveryStore extends DiscoveryTelemetry {
       lastModified: null,
       origin: 'discovery',
       ...(state ? JSON.parse(String(state.json)) : {}),
+      intervalMs: this.refreshInterval(identity.toLowerCase()),
+      discoveredAt: row.discovered_at,
       observedAt: row.observed_at,
       validatedAt: row.validated_at,
     });
@@ -564,10 +653,12 @@ export class DiscoveryStore extends DiscoveryTelemetry {
     if (!r) throw new Error('RUN_NOT_FOUND');
     return DiscoveryRunSchema.parse(JSON.parse(String(r.json)));
   }
-  runs(offset = 0): DiscoveryRun[] {
+  runs(offset = 0, lane?: 'jobs' | 'companies'): DiscoveryRun[] {
     return this.db
-      .prepare('SELECT json FROM discovery_run ORDER BY rowid DESC LIMIT 20 OFFSET ?')
-      .all(offset)
+      .prepare(
+        `SELECT json FROM discovery_run ${lane ? "WHERE COALESCE(json_extract(json,'$.lane'),'jobs')=?" : ''} ORDER BY rowid DESC LIMIT 20 OFFSET ?`,
+      )
+      .all(...(lane ? [lane, offset] : [offset]))
       .map((r) => DiscoveryRunSchema.parse(JSON.parse(String(r.json))));
   }
   enqueue(input: DiscoveryTask) {

@@ -14,7 +14,13 @@ it('pages company inventory, persists opt-outs and does not mutate collected job
     store.global.configureBoard('lever:fixture0:global', 'retire');
     expect(store.global.companyPage({ status: 'disabled' }).total).toBe(1);
     expect(store.global.companyPage({}).verified).toBe(12);
+    store.global.configureBoard('lever:fixture1:global', 'interval', 86400000);
+    expect(store.global.board('lever:fixture1:global')?.intervalMs).toBe(86400000);
     expect(store.jobCount()).toBe(0);
+    store.global.reserveCompanyRequest('wayback', Date.now());
+    store.global.recordFinderBoard('wayback', 'lever:fixture1:global');
+    store.global.recordFinderBoard('wayback', 'lever:fixture1:global');
+    expect(store.global.finderYield('wayback')).toEqual({ requests: 1, verified: 1, yield: 1 });
   } finally {
     store.close();
   }

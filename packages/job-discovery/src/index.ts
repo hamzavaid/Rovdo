@@ -219,6 +219,27 @@ export class DiscoveryEngine {
           throw error;
         }
         if (complete) {
+          if (['greenhouse', 'lever', 'ashby', 'smartrecruiters'].includes(config.ats)) {
+            const feed = { ats: config.ats, tenant: config.tenant, region: config.region };
+            const pageUrl =
+              config.pageUrl ??
+              this.store
+                .directory()
+                .find(
+                  (d) =>
+                    d.ats === config.ats &&
+                    d.tenant.toLowerCase() === config.tenant.toLowerCase() &&
+                    d.region === config.region,
+                )?.pageUrl ??
+              sourceEndpoint(config);
+            this.store.global.rememberCompany(feed, config.company, pageUrl, this.now());
+            this.store.global.validateCompany(feed, this.now(), {
+              complete: state.rejected === 0,
+              nextRefresh: state.nextPollAt,
+              ...(state.etag ? { etag: state.etag } : {}),
+              ...(state.lastModified ? { lastModified: state.lastModified } : {}),
+            });
+          }
           this.store.audit(id, state);
           return;
         }

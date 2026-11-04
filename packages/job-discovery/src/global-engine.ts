@@ -171,7 +171,13 @@ export class GlobalDiscoveryEngine {
         continue;
       }
       {
-        this.enqueue(run, id, 'provider', {});
+        this.enqueue(
+          run,
+          id,
+          'provider',
+          {},
+          this.lane === 'companies' ? Math.min(1, this.store.global.finderYield(id).yield) : 0,
+        );
         if (source.adapter === 'himalayas')
           for (const query of queries.slice(0, 3))
             this.enqueue(
@@ -189,6 +195,33 @@ export class GlobalDiscoveryEngine {
             );
       }
     }
+    return run.id;
+  }
+  /** An explicit one-board test uses the same policy and live parser, with no archive scan. */
+  testBoard(identity: string) {
+    if (this.lane !== 'companies') throw new Error('WRONG_DISCOVERY_LANE');
+    const board = this.store.global.board(identity);
+    if (!board || !this.store.global.companyAllowed(board)) throw new Error('BOARD_NOT_ALLOWED');
+    const current = this.store.global.runningRuns().find((r) => r.lane === 'companies');
+    const run: DiscoveryRun = current ?? {
+      id: randomUUID(),
+      lane: 'companies',
+      status: 'running',
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+      profileVersion: null,
+      queries: [],
+      options: { sourceIds: [board.ats], overrides: {} },
+      reason: 'Explicit board revalidation',
+    };
+    this.store.global.saveRun(run);
+    this.enqueue(
+      run,
+      board.ats,
+      'resolve',
+      { url: board.pageUrl, company: board.company, title: '', revalidate: true },
+      2000,
+    );
     return run.id;
   }
   private reuseBoard(
@@ -210,6 +243,7 @@ export class GlobalDiscoveryEngine {
         pageUrl,
       );
       this.store.global.linkSnapshot(run.id, source.id, source.tenant);
+      this.store.global.count(run.id, 'cacheHits');
       this.store.global.note(
         run.id,
         feed.ats,
@@ -366,6 +400,7 @@ export class GlobalDiscoveryEngine {
       // URL-only cache keys would replay the first window for every later range.
       const cacheKey = headers?.range ? `${url}#rovdo-range=${headers.range}` : url;
       const cached = this.store.global.cache(cacheKey, Date.now());
+      if (cached) this.store.global.count(run.id, 'cacheHits');
       if (cached)
         return {
           status: cached.status,
@@ -410,7 +445,13 @@ export class GlobalDiscoveryEngine {
           if (this.lane === 'companies') {
             if (this.store.global.runningRuns().some((r) => (r.lane ?? 'jobs') === 'jobs'))
               throw new Error('SEARCH_PRIORITY');
-            if (!this.store.global.reserveCompanyRequest(task.sourceId, Date.now()))
+            const budgetSource =
+              /^(?:https:\/\/web\.archive\.org|https:\/\/(?:index|data)\.commoncrawl\.org)$/.test(
+                origin,
+              )
+                ? task.sourceId
+                : 'live-validation';
+            if (!this.store.global.reserveCompanyRequest(budgetSource, Date.now()))
               throw new Error('DAILY_BUDGET');
           }
           this.store.global.note(run.id, task.sourceId, 'collecting', 0, 0, null, 1);
@@ -586,6 +627,19 @@ export class GlobalDiscoveryEngine {
         });
       } else if (task.kind === 'provider') {
         const page = await fetchDiscoveryPage(task.sourceId, task.payload, read);
+        if (!page.warning && !page.next)
+          this.store.global.sourceSuccess(
+            task.sourceId,
+            observedAt,
+            observedAt +
+              (task.sourceId === 'remotive'
+                ? 21600000
+                : task.sourceId === 'himalayas'
+                  ? 86400000
+                  : 3600000),
+          );
+        if (['wayback', 'common-crawl'].includes(task.sourceId))
+          this.store.global.count(run.id, 'archiveRecords', page.rawRecords ?? page.records.length);
         this.assertActive(run, signal);
         if (page.warning && page.next) {
           this.store.global.saveTask({
@@ -609,6 +663,8 @@ export class GlobalDiscoveryEngine {
         const source = this.providers.find((s) => s.id === task.sourceId)!;
         const config = this.store.globalSource(source.id, source.name, source.url);
         const jobs: Job[] = [];
+        if (this.lane === 'jobs')
+          this.store.global.event(run.id, 'verify', 'running', page.records.length);
         let parsed = 0;
         for (const record of page.records) {
           if (parsed++ % 8 === 0) {
@@ -630,6 +686,20 @@ export class GlobalDiscoveryEngine {
             reason: null,
           };
           this.store.global.saveListing(listing);
+          const knownFeed = feedFromUrl(url);
+          const knownBoard = knownFeed
+            ? this.store.global.board(
+                [knownFeed.ats, knownFeed.tenant, knownFeed.region].join(':').toLowerCase(),
+              )
+            : null;
+          if (
+            knownFeed &&
+            knownBoard?.validatedAt &&
+            this.reuseBoard(run, knownFeed, knownBoard.company, knownBoard.pageUrl)
+          ) {
+            this.store.global.updateListing(run.id, url, 'resolved');
+            continue;
+          }
           const job = normalizeDiscoveryJob(record, config, run.id, observedAt);
           if (job) {
             jobs.push(job);
@@ -649,7 +719,21 @@ export class GlobalDiscoveryEngine {
               this.priority(run, record),
             );
         }
+        if (this.lane === 'jobs')
+          this.store.global.event(
+            run.id,
+            'verify',
+            page.rejected ? 'partial' : 'complete',
+            jobs.length,
+          );
+        this.store.global.event(run.id, 'publish', 'running', jobs.length);
         if (jobs.length) await this.store.ingestDiscoveredAsync(run.id, config, jobs, signal);
+        this.store.global.event(
+          run.id,
+          'publish',
+          'complete',
+          this.store.global.stats(run.id).jobs,
+        );
         this.store.global.note(run.id, source.id, 'ready', page.records.length, page.rejected);
         const hash = page.rawPageHash ?? sha256(JSON.stringify(page.records.map((r) => r.url)));
         if (page.next) {
@@ -745,7 +829,20 @@ export class GlobalDiscoveryEngine {
         error instanceof DiscoveryHttpError ? error.retryAfterMs : 0,
         Math.min(3600000, 1000 * 2 ** Math.min(task.attempts + 1, 11)),
       );
-      if (task.kind === 'ats') this.store.global.boardFailure(task.id, safe, Date.now() + backoff);
+      if (task.kind === 'ats') {
+        this.store.global.boardEvent(
+          run.id,
+          [
+            String((task.payload.feed as Record<string, unknown>)?.ats),
+            String((task.payload.feed as Record<string, unknown>)?.tenant),
+            String((task.payload.feed as Record<string, unknown>)?.region),
+          ]
+            .join(':')
+            .toLowerCase(),
+          'failed',
+        );
+        this.store.global.boardFailure(task.id, safe, Date.now() + backoff);
+      }
       this.store.global.saveTask({
         ...task,
         status: blocked ? 'blocked' : 'pending',
@@ -789,6 +886,12 @@ export class GlobalDiscoveryEngine {
     const url = canonicalUrl(String(task.payload.url));
     if (!permittedPage(url)) throw new Error('POLICY_BLOCKED');
     const direct = feedFromUrl(url);
+    if (direct)
+      this.store.global.boardEvent(
+        run.id,
+        [direct.ats, direct.tenant, direct.region].join(':').toLowerCase(),
+        'identified',
+      );
     if (direct && !this.store.global.companyAllowed(direct)) {
       this.store.global.saveTask({ ...task, status: 'done', error: 'BOARD_OPTED_OUT' });
       return;
@@ -949,6 +1052,11 @@ export class GlobalDiscoveryEngine {
           nextRefresh: Date.now() + 86400000,
         },
       );
+      const identity = [direct.ats, direct.tenant, direct.region].join(':').toLowerCase();
+      this.store.global.boardEvent(run.id, identity, 'attempted');
+      this.store.global.boardEvent(run.id, identity, 'verified');
+      this.store.global.recordFinderBoard(task.sourceId, identity);
+      this.store.global.event(run.id, 'register', 'complete', 1);
       this.store.global.updateListing(
         run.id,
         url,
@@ -1005,6 +1113,7 @@ export class GlobalDiscoveryEngine {
       return;
     }
     this.store.global.boardAttempt(boardKey, Date.now());
+    this.store.global.boardEvent(run.id, boardKey, 'attempted');
     const virtual = this.store.globalSource(
       `${feed.ats}-${feed.tenant}-${feed.region}`,
       company,
@@ -1031,9 +1140,12 @@ export class GlobalDiscoveryEngine {
           lastModified: priorBoard?.lastModified ?? null,
         };
     const page = await adapter.fetchPage(state, signal);
+    this.store.global.boardEvent(run.id, boardKey, 'checked');
     if (page.status === 304) {
       if (!priorBoard?.complete) throw new Error('SCHEMA_DRIFT');
       this.store.global.validateCompany(feed, observedAt, { complete: true });
+      this.store.global.boardEvent(run.id, boardKey, 'verified');
+      this.store.global.recordFinderBoard(task.sourceId, boardKey);
       this.store.global.linkSnapshot(run.id, virtual.id, virtual.tenant);
       this.store.global.note(run.id, feed.ats, 'checked-no-new-jobs');
       this.store.global.releaseBoard(task.id);
@@ -1047,8 +1159,11 @@ export class GlobalDiscoveryEngine {
       ...(page.headers.etag ? { etag: page.headers.etag } : {}),
       ...(page.headers['last-modified'] ? { lastModified: page.headers['last-modified'] } : {}),
     });
+    this.store.global.boardEvent(run.id, boardKey, 'verified');
+    this.store.global.recordFinderBoard(task.sourceId, boardKey);
     this.assertActive(run, signal);
     const jobs = page.jobs.map((job) => ({
+      // Live ATS validation above, separate from candidate eligibility and archive discovery.
       ...job,
       discovery: {
         kind: 'employer' as const,
@@ -1124,12 +1239,13 @@ export class GlobalDiscoveryEngine {
     this.controllers.delete(id);
   }
   view() {
-    const runs = this.store.global.runs().filter((r) => (r.lane ?? 'jobs') === this.lane);
+    const runs = this.store.global.runs(0, this.lane);
     const run =
       this.store.global.runningRuns().find((r) => (r.lane ?? 'jobs') === this.lane) ??
       runs[0] ??
       null;
     return DiscoveryViewSchema.parse({
+      ...(run ? { metrics: this.store.global.metrics(run.id) } : {}),
       events: run ? this.store.global.events(run.id) : [],
       run,
       runs,
@@ -1144,6 +1260,7 @@ export class GlobalDiscoveryEngine {
       coverage: run
         ? this.store.global
             .coverage(run.id)
+            .map((c) => ({ ...c, ...this.store.global.sourceTiming(c.sourceId) }))
             .filter(
               (s) => this.lane === 'companies' || !['wayback', 'common-crawl'].includes(s.sourceId),
             )

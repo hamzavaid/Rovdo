@@ -94,7 +94,7 @@ export class CareerStore {
     const version = Number(
       this.db.prepare('SELECT COALESCE(MAX(version),0) AS n FROM career_schema').get()!.n,
     );
-    if (version > 8) throw new Error('DATABASE_TOO_NEW');
+    if (version > 9) throw new Error('DATABASE_TOO_NEW');
     if (!version)
       this.transaction(() => {
         this.db.exec(`
@@ -159,6 +159,7 @@ export class CareerStore {
     this.global = new DiscoveryStore(this.db);
     if (version < 7) this.transaction(() => this.db.exec('INSERT INTO career_schema VALUES(7)'));
     if (version < 8) this.transaction(() => this.db.exec('INSERT INTO career_schema VALUES(8)'));
+    if (version < 9) this.transaction(() => this.db.exec('INSERT INTO career_schema VALUES(9)'));
     this.db.exec(`CREATE INDEX IF NOT EXISTS saved_discovery_sources ON job_source(id)
       WHERE json_extract(config,'$.enabled')=1
       AND coalesce(json_extract(config,'$.collection'),'saved')='saved'
@@ -642,6 +643,14 @@ export class CareerStore {
           ...raw,
           firstSeenAt: old?.firstSeenAt ?? provenance.collectedAt,
           lastSeenAt: Math.max(old?.lastSeenAt ?? 0, provenance.collectedAt),
+          ...(old
+            ? {
+                contentChangedAt:
+                  old.contentSha256 !== raw.contentSha256
+                    ? provenance.collectedAt
+                    : (old.contentChangedAt ?? old.firstSeenAt),
+              }
+            : { contentChangedAt: provenance.collectedAt }),
           provenance: old
             ? [
                 ...old.provenance.filter(
@@ -1076,6 +1085,30 @@ export class CareerStore {
     if (words.length)
       add('job_fts MATCH ?', words.map((w) => `"${w.replaceAll('"', '""')}"`).join(' OR '));
     if (s.company) add("instr(lower(json_extract(j.json,'$.company')),lower(?))>0", s.company);
+    if (s.companies?.length) {
+      where.push(
+        `lower(json_extract(j.json,'$.company')) IN (${s.companies.map(() => '?').join(',')})`,
+      );
+      params.push(...s.companies.map((c) => c.toLowerCase()));
+    }
+    if (s.focusTerms?.length) {
+      where.push(
+        '(' +
+          s.focusTerms
+            .map(
+              () =>
+                "instr(lower(json_extract(j.json,'$.title')||' '||json_extract(j.json,'$.descriptionText')),?)>0",
+            )
+            .join(' OR ') +
+          ')',
+      );
+      params.push(...s.focusTerms);
+    }
+    if (s.within)
+      add(
+        "instr(lower(json_extract(j.json,'$.title')||' '||json_extract(j.json,'$.descriptionText')),lower(?))>0",
+        s.within,
+      );
     if (s.scope === 'saved-companies')
       where.push(
         "EXISTS(SELECT 1 FROM job_source_snapshot ss JOIN job_source src ON src.id=ss.source_id WHERE ss.job_id=j.id AND COALESCE(json_extract(src.config,'$.collection'),'saved')<>'global')",
@@ -1498,6 +1531,19 @@ export class CareerStore {
           })(),
         ),
       );
+  }
+  rankingJobChoices(query = '', offset = 0) {
+    const sql =
+      "FROM career_job WHERE instr(lower(json_extract(json,'$.title')||' '||json_extract(json,'$.company')),lower(?))>0";
+    return {
+      rows: this.db
+        .prepare(
+          `SELECT id,json_extract(json,'$.company') company,json_extract(json,'$.title') title ${sql} ORDER BY company,title,id LIMIT 50 OFFSET ?`,
+        )
+        .all(query, offset)
+        .map((r) => ({ id: String(r.id), company: String(r.company), title: String(r.title) })),
+      total: Number(this.db.prepare(`SELECT COUNT(*) n ${sql}`).get(query)!.n),
+    };
   }
   saveSearch(name: string, search: JobSearch): SavedSearch {
     if (

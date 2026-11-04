@@ -11,7 +11,12 @@ import {
   fingerprint,
   SCORING_POLICY_VERSION,
 } from '@rovdo/career';
-import { CareerCommandSchema, CareerResultSchema, JobSearchSchema } from '@rovdo/shared';
+import {
+  CareerCommandSchema,
+  CareerResultSchema,
+  JobSearchSchema,
+  JOB_SOURCE_IDS,
+} from '@rovdo/shared';
 import type { CareerCommand, JobSearch } from '@rovdo/shared';
 import type { CareerStore } from '@rovdo/storage';
 import { discoverEmployers, refreshEmployers } from '@rovdo/job-discovery';
@@ -56,7 +61,11 @@ export function createCareerService(
     const candidate = profile ?? emptyProfile();
     const asOf = new Date().toISOString().slice(0, 10);
     const jobRun = global.view().run;
-    if (!summary && jobRun) {
+    const hadRanking = jobRun
+      ? store.global.events(jobRun.id).some((e) => e.stage === 'rank' && e.status === 'complete')
+      : false;
+    const missesBefore = store.cacheStats.misses;
+    if (!summary && jobRun && !hadRanking && store.jobCount() > 0) {
       store.global.event(jobRun.id, 'eligibility', 'running');
       store.global.event(jobRun.id, 'rank', 'running');
     }
@@ -73,7 +82,11 @@ export function createCareerService(
           true,
         );
     const visible = page.matches;
-    if (!summary && jobRun) {
+    if (
+      !summary &&
+      jobRun &&
+      (store.cacheStats.misses > missesBefore || (!hadRanking && store.jobCount() > 0))
+    ) {
       store.global.event(
         jobRun.id,
         'eligibility',
@@ -84,7 +97,13 @@ export function createCareerService(
     }
     const totalJobs = store.jobCount();
     const discovery = global.view();
+    const choices = store.rankingJobChoices();
     return {
+      rankingJobs: choices.rows,
+      rankingJobTotal: choices.total,
+      ...(store.setting('job-collection-defaults-v1')
+        ? { collectionDefaults: JSON.parse(store.setting('job-collection-defaults-v1')!) }
+        : {}),
       companyDiscovery: companies.engine.view(),
       companyPage: store.global.companyPage(),
       automaticCompanyDiscovery: store.setting('automatic-company-discovery') !== 'false',
@@ -158,10 +177,23 @@ export function createCareerService(
       if (!parsed.success) return CareerResultSchema.parse({ ok: false, code: 'VALIDATION_ERROR' });
       const cmd = parsed.data;
       try {
+        if (cmd.op === 'collectionSettings') {
+          if (
+            cmd.options.sourceIds.some((id) => !(JOB_SOURCE_IDS as readonly string[]).includes(id))
+          )
+            throw new Error('UNKNOWN_SOURCE');
+          store.setting(
+            'job-collection-defaults-v1',
+            JSON.stringify({ scope: cmd.scope, options: cmd.options }),
+          );
+        }
         if (cmd.op === 'companyDiscovery') {
           if (cmd.action === 'automatic') {
             if (cmd.enabled === undefined) throw new Error('ENABLED_REQUIRED');
             store.setting('automatic-company-discovery', String(cmd.enabled));
+            const active = companies.engine.view().run;
+            if (!cmd.enabled && active?.status === 'running')
+              await companies.control(active.id, 'pause');
           } else if (cmd.action === 'start') {
             companies.start();
             void companies.engine.tick().catch(() => {});
@@ -171,8 +203,12 @@ export function createCareerService(
             await companies.control(run.id, cmd.action);
           }
         }
-        if (cmd.op === 'companyBoard')
-          store.global.configureBoard(cmd.identity, cmd.action, cmd.intervalMs);
+        if (cmd.op === 'companyBoard') {
+          if (cmd.action === 'test') {
+            companies.engine.testBoard(cmd.identity);
+            void companies.engine.tick().catch(() => {});
+          } else store.global.configureBoard(cmd.identity, cmd.action, cmd.intervalMs);
+        }
         if (cmd.op === 'queryPlan')
           store.setting('discovery-query-plan-v1', JSON.stringify(cmd.queries));
         if (cmd.op === 'openJob') {
@@ -266,6 +302,11 @@ export function createCareerService(
           cmd.op !== 'view' || cmd.summary === true,
         );
         if (cmd.op === 'companyPage') current.companyPage = store.global.companyPage(cmd.query);
+        if (cmd.op === 'rankingJobs') {
+          const choices = store.rankingJobChoices(cmd.query, cmd.offset);
+          current.rankingJobs = choices.rows;
+          current.rankingJobTotal = choices.total;
+        }
         if (cmd.op === 'requestLog') {
           const log = store.global.requests(cmd.lane, cmd.sourceId, cmd.offset);
           current.requests = log.rows;

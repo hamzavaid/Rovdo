@@ -16,6 +16,7 @@ export const JOB_SOURCE_IDS = [
 export const BOARD_FINDER_IDS = ['wayback', 'common-crawl'] as const;
 export const CompanyBoardSchema = z.strictObject({
   identity: z.string(),
+  intervalMs: z.number().int().min(60000).max(2592000000).default(3600000),
   ats: z.enum(['greenhouse', 'lever', 'ashby', 'smartrecruiters']),
   tenant: z.string(),
   region: z.enum(['global', 'eu']),
@@ -150,6 +151,8 @@ export const DiscoveryListingSchema = z.strictObject({
 });
 export type DiscoveryListing = z.infer<typeof DiscoveryListingSchema>;
 export const DiscoveryCoverageSchema = z.strictObject({
+  lastSuccessAt: z.number().nullable().optional(),
+  nextRefreshAt: z.number().nullable().optional(),
   sourceId: z.string(),
   status: z.string(),
   requests: z.number(),
@@ -159,6 +162,7 @@ export const DiscoveryCoverageSchema = z.strictObject({
   updatedAt: z.number(),
 });
 export const DiscoveryViewSchema = z.strictObject({
+  metrics: z.record(z.string(), z.number().nonnegative()).optional(),
   events: z.array(PipelineEventSchema).default([]),
   plan: z.array(z.string()).default([]),
   run: DiscoveryRunSchema.nullable(),

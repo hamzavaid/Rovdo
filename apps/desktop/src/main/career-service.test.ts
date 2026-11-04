@@ -36,6 +36,30 @@ it('validates company controls and private bounded query plans through the ownin
     );
     const page = await service.command({ op: 'companyPage', query: {} }, sender);
     expect(page.ok && page.view.companyPage?.total).toBe(0);
+    expect(
+      (
+        await service.command(
+          {
+            op: 'collectionSettings',
+            scope: 'global',
+            options: { sourceIds: ['wayback'], overrides: {} },
+          },
+          sender,
+        )
+      ).ok,
+    ).toBe(false);
+    const prefs = await service.command(
+      {
+        op: 'collectionSettings',
+        scope: 'saved-companies',
+        options: { sourceIds: ['lever'], overrides: {} },
+      },
+      sender,
+    );
+    expect(prefs.ok && prefs.view.collectionDefaults).toEqual({
+      scope: 'saved-companies',
+      options: { sourceIds: ['lever'], overrides: {} },
+    });
   } finally {
     await service.shutdown();
     await engine.shutdown();
