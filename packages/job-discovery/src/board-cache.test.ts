@@ -90,14 +90,32 @@ it('reuses a fresh complete board snapshot without refetching, reparsing or rein
     for (let n = 0; n < 10 && store.global.run(cold).status === 'running'; n++) await engine.tick();
     expect(store.jobCount()).toBe(1);
     const before = requests;
+    const observation = store.jobs()[0]!.discovery!.checkedAt;
     const ingest = vi.spyOn(store, 'ingestDiscoveredAsync');
     const warm = engine.start({ sourceIds: ['lever'], overrides: {} });
     for (let n = 0; n < 10 && store.global.run(warm).status === 'running'; n++) await engine.tick();
     expect(requests).toBe(before);
     expect(ingest).not.toHaveBeenCalled();
     expect(store.global.stats(warm).jobs).toBe(1);
+    expect(store.jobs()[0]!.discovery!.checkedAt).toBe(observation);
+    expect(store.jobs()[0]!.discovery!.availability).toBe('verified');
   } finally {
     await engine.shutdown();
+    store.close();
+  }
+});
+
+it('does not let foreground controls cancel the independent company lane', async () => {
+  const store = new CareerStore(':memory:');
+  const companies = new GlobalDiscoveryEngine(store, { lane: 'companies' });
+  const jobs = new GlobalDiscoveryEngine(store);
+  try {
+    const id = companies.start({ sourceIds: ['lever'], overrides: {} });
+    await expect(jobs.control(id, 'cancel')).rejects.toThrow('WRONG_DISCOVERY_LANE');
+    expect(store.global.run(id).status).toBe('running');
+  } finally {
+    await companies.shutdown();
+    await jobs.shutdown();
     store.close();
   }
 });

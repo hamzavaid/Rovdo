@@ -1038,6 +1038,7 @@ export class GlobalDiscoveryEngine {
   }
   async control(id: string, action: 'pause' | 'resume' | 'cancel') {
     const run = this.store.global.run(id);
+    if ((run.lane ?? 'jobs') !== this.lane) throw new Error('WRONG_DISCOVERY_LANE');
     if (action === 'resume') {
       if (run.status !== 'paused') throw new Error('RUN_NOT_PAUSED');
       await this.work;

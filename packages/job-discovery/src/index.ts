@@ -103,6 +103,8 @@ export class DiscoveryEngine {
     const source = this.store.sources().find((s) => s.config.id === id);
     if (!source || !source.config.enabled || source.state.nextPollAt > this.now()) return;
     const config = source.config;
+    const boardIdentity = `${config.ats}:${config.tenant.toLowerCase()}:${config.region.toLowerCase()}`;
+    const leaseOwner = `saved:${id}`;
     if (!this.store.directoryAllowed(config, this.now())) {
       this.store.setState(id, {
         ...source.state,
@@ -155,6 +157,13 @@ export class DiscoveryEngine {
       state.requests++;
     };
     adapter.setReadGate?.(gate);
+    if (
+      this.store.global.board(boardIdentity) &&
+      !this.store.global.claimBoard(boardIdentity, leaseOwner, this.now())
+    ) {
+      this.store.setState(id, { ...source.state, nextPollAt: this.now() + 1000 });
+      return;
+    }
     try {
       for (let pageIndex = 0; pageIndex < 100; pageIndex++) {
         if (this.stopping) throw new Error('INTERRUPTED');
@@ -234,6 +243,8 @@ export class DiscoveryEngine {
         this.store.deferOrigin(origin, this.now() + Math.max(retry, backoff));
       this.store.setState(id, state);
       this.store.audit(id, state);
+    } finally {
+      this.store.global.releaseBoard(leaseOwner);
     }
   }
   async shutdown(): Promise<void> {

@@ -568,6 +568,7 @@ export class DiscoveryStore {
       .all()) {
       const t = DiscoveryTaskSchema.parse(JSON.parse(String(row.json)));
       if ((this.run(t.runId).lane ?? 'jobs') !== lane) continue;
+      this.releaseBoard(t.id);
       this.saveTask({ ...t, status: 'pending' });
     }
     for (const row of this.db.prepare('SELECT json FROM discovery_run').all()) {
