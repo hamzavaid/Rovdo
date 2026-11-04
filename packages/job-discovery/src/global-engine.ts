@@ -1,5 +1,5 @@
 /** Incremental global collection. Each tick processes bounded pages; durable tasks have no total results/employers cap. */
-import { randomUUID } from 'node:crypto';
+import { randomUUID, createHash } from 'node:crypto';
 import { setTimeout as delay, setImmediate as yieldTurn } from 'node:timers/promises';
 import { z } from 'zod';
 import { DiscoveryOptionsSchema, DiscoveryViewSchema, SourceStateSchema } from '@rovdo/shared';
@@ -27,6 +27,7 @@ import {
   robotsAllow,
   sha256,
   canonicalUrl,
+  sourceEndpoint,
   DiscoveryHttpError,
   DiscoveryPolicyError,
 } from '@rovdo/job-sources';
@@ -83,6 +84,7 @@ export class GlobalDiscoveryEngine {
       (async (ms, signal) => {
         await delay(ms, undefined, signal ? { signal } : {});
       });
+    store.global.migrateArchives();
     store.global.recover(this.lane);
   }
   start(input: DiscoveryOptions): string {
@@ -127,6 +129,9 @@ export class GlobalDiscoveryEngine {
       reason: null,
     };
     this.store.global.saveRun(run);
+    if (this.lane === 'companies')
+      this.enqueue(run, 'company-inventory', 'provider', { after: '', candidates: true }, 100);
+
     if (
       this.lane === 'jobs' &&
       options.sourceIds.some((id) =>
@@ -332,6 +337,12 @@ export class GlobalDiscoveryEngine {
             this.store.global.failure('origin:' + origin, Date.now()) ??
             this.store.global.failure(url, Date.now());
           if (newlyFailed) throw new DiscoveryPolicyError(newlyFailed);
+          if (this.lane === 'companies') {
+            if (this.store.global.runningRuns().some((r) => (r.lane ?? 'jobs') === 'jobs'))
+              throw new Error('SEARCH_PRIORITY');
+            if (!this.store.global.reserveCompanyRequest(task.sourceId, Date.now()))
+              throw new Error('DAILY_BUDGET');
+          }
           this.store.global.note(run.id, task.sourceId, 'collecting', 0, 0, null, 1);
           let response: PublicResponse;
           try {
@@ -376,6 +387,7 @@ export class GlobalDiscoveryEngine {
                 : retry
                   ? Date.parse(retry) - Date.now()
                   : 0;
+            if (wait > 0) this.store.deferOrigin(origin, Date.now() + wait);
             throw new DiscoveryHttpError(
               response.status,
               Number.isFinite(wait) ? Math.max(0, wait) : 0,
@@ -440,19 +452,29 @@ export class GlobalDiscoveryEngine {
           50,
           task.payload.validated === true,
         );
-        for (const row of rows)
-          if (row.company)
+        for (const row of rows) {
+          if (task.payload.candidates) {
+            if ((row.validatedAt === null || !row.company) && this.store.global.companyAllowed(row))
+              this.enqueue(
+                run,
+                'company-inventory',
+                'resolve',
+                { url: row.pageUrl, company: row.company, archive: true },
+                100,
+              );
+          } else if (row.company)
             this.enqueue(
               run,
               'company-inventory',
               'ats',
               {
                 feed: { ats: row.ats, tenant: row.tenant, region: row.region },
-                company: row.company || row.tenant,
+                company: row.company,
                 pageUrl: row.pageUrl,
               },
               2000,
             );
+        }
         const next = rows.length
           ? { ...task.payload, after: rows.at(-1)!.identity }
           : task.payload.validated
@@ -467,7 +489,13 @@ export class GlobalDiscoveryEngine {
         const page = await fetchDiscoveryPage(task.sourceId, task.payload, read);
         this.assertActive(run, signal);
         if (page.warning && page.next) {
-          this.store.global.saveTask({ ...task, status: 'blocked', error: page.warning });
+          this.store.global.saveTask({
+            ...task,
+            status: task.attempts < 3 ? 'pending' : 'blocked',
+            attempts: task.attempts + 1,
+            nextAt: Date.now() + 3600000,
+            error: page.warning,
+          });
           this.enqueue(
             run,
             task.sourceId,
@@ -547,6 +575,18 @@ export class GlobalDiscoveryEngine {
       } else if (task.kind === 'resolve') await this.resolve(run, task, read, signal);
       else await this.collectAts(run, task, read, signal);
     } catch (error) {
+      if (error instanceof Error && ['SEARCH_PRIORITY', 'DAILY_BUDGET'].includes(error.message)) {
+        this.store.global.saveTask({
+          ...task,
+          status: 'pending',
+          nextAt:
+            error.message === 'DAILY_BUDGET'
+              ? Date.parse(new Date(Date.now() + 86400000).toISOString().slice(0, 10))
+              : Date.now() + 2000,
+          error: error.message,
+        });
+        return;
+      }
       if (parent.aborted || this.stopping || this.store.global.run(run.id).status !== 'running') {
         this.store.global.saveTask({ ...task, status: 'pending' });
         return;
@@ -645,6 +685,10 @@ export class GlobalDiscoveryEngine {
     const url = canonicalUrl(String(task.payload.url));
     if (!permittedPage(url)) throw new Error('POLICY_BLOCKED');
     const direct = feedFromUrl(url);
+    if (direct && !this.store.global.companyAllowed(direct)) {
+      this.store.global.saveTask({ ...task, status: 'done', error: 'BOARD_OPTED_OUT' });
+      return;
+    }
     const pageUrl =
       direct && task.payload.archive === true ? `${new URL(url).origin}/${direct.tenant}` : url;
     let company = typeof task.payload.company === 'string' ? task.payload.company : '';
@@ -712,6 +756,7 @@ export class GlobalDiscoveryEngine {
         .safeParse(raw);
       if (!p.success) continue;
       const name = p.data.hiringOrganization.name;
+      if (direct) this.store.global.rememberCompany(direct, name, pageUrl, Date.now());
       const virtual = this.store.globalSource(
         'page-' + sha256(new URL(url).origin).slice(0, 20),
         name,
@@ -758,6 +803,50 @@ export class GlobalDiscoveryEngine {
       for (const feed of inspection.feeds)
         this.enqueue(run, task.sourceId, 'ats', { feed, company: name, pageUrl: url }, 2000);
     }
+    if (direct && !company && !resolved) {
+      // Probe the provider contract without assigning a guessed employer name to any job.
+      // The temporary config carries the tenant as an API routing identifier only; it is never stored.
+      const endpoint = sourceEndpoint({
+        id: randomUUID(),
+        ...direct,
+        company: direct.tenant,
+        enabled: false,
+        intervalMs: 86400000,
+        termsReviewedAt: new Date().toISOString(),
+        timezone: 'UTC',
+        priority: 0,
+        missingGracePolls: 3,
+      });
+      const probe = await read(endpoint);
+      if (probe.status !== 200) throw new DiscoveryHttpError(probe.status);
+      const raw: unknown = JSON.parse(probe.body.toString('utf8'));
+      const data =
+        direct.ats === 'lever'
+          ? raw
+          : raw && typeof raw === 'object'
+            ? (raw as Record<string, unknown>)[
+                direct.ats === 'smartrecruiters' ? 'content' : 'jobs'
+              ]
+            : undefined;
+      z.array(z.record(z.string(), z.unknown())).parse(data);
+      this.store.global.validateCompany(
+        direct,
+        Number(probe.headers['x-rovdo-observed-at']) || Date.now(),
+        {
+          contentHash: createHash('sha256').update(probe.body).digest('hex'),
+          complete: true,
+          nextRefresh: Date.now() + 86400000,
+        },
+      );
+      this.store.global.updateListing(
+        run.id,
+        url,
+        'incomplete',
+        'Verified tenant; employer name awaits independent evidence.',
+      );
+      this.store.global.saveTask({ ...task, status: 'done' });
+      return;
+    }
     if (company)
       for (const feed of inspection.feeds)
         this.enqueue(run, task.sourceId, 'ats', { feed, company, pageUrl: url }, 2000);
@@ -788,6 +877,10 @@ export class GlobalDiscoveryEngine {
       this.store.global.saveTask({ ...task, status: 'done' });
       return;
     }
+    if (!this.store.global.companyAllowed(feed)) {
+      this.store.global.saveTask({ ...task, status: 'done', error: 'BOARD_OPTED_OUT' });
+      return;
+    }
     const company = z.string().min(1).max(200).parse(task.payload.company);
     this.store.global.rememberCompany(feed, company, String(task.payload.pageUrl), Date.now());
     const virtual = this.store.globalSource(
@@ -796,14 +889,19 @@ export class GlobalDiscoveryEngine {
       String(task.payload.pageUrl),
     );
     let observedAt = Date.now();
+    let contentHash: string | undefined;
     const adapter = new AtsAdapter({ ...virtual, ...feed, company }, async (url, options) => {
       const response = await read(url, options?.headers);
       observedAt = Number(response.headers['x-rovdo-observed-at']) || Date.now();
+      contentHash = createHash('sha256').update(response.body).digest('hex');
       return response;
     });
     const state = task.payload.state ? SourceStateSchema.parse(task.payload.state) : initialState();
     const page = await adapter.fetchPage(state, signal);
-    this.store.global.validateCompany(feed, observedAt);
+    this.store.global.validateCompany(feed, observedAt, {
+      ...(contentHash ? { contentHash } : {}),
+      complete: page.nextCursor === null && !page.quarantine?.length,
+    });
     this.assertActive(run, signal);
     const jobs = page.jobs.map((job) => ({
       ...job,
@@ -853,11 +951,6 @@ export class GlobalDiscoveryEngine {
       if (run.status !== 'paused') throw new Error('RUN_NOT_PAUSED');
       await this.work;
       this.controllers.delete(id);
-      // New keyless providers replace retired endpoint tasks without replaying completed pages.
-      for (const sourceId of run.options.sourceIds) {
-        const source = this.providers.find((s) => s.id === sourceId);
-        if (source && source.adapter !== 'ats') this.enqueue(run, sourceId, 'provider', {});
-      }
       this.store.global.saveRun({ ...run, status: 'running', updatedAt: Date.now(), reason: null });
       return;
     }
@@ -889,6 +982,9 @@ export class GlobalDiscoveryEngine {
       coverage: run
         ? this.store.global
             .coverage(run.id)
+            .filter(
+              (s) => this.lane === 'companies' || !['wayback', 'common-crawl'].includes(s.sourceId),
+            )
             .map((s) =>
               run.status === 'completed' && s.status === 'waiting-for-discovered-employers'
                 ? { ...s, status: 'no-employers-discovered', error: 'NO_EMPLOYERS_DISCOVERED' }

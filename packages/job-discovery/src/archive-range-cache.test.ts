@@ -23,6 +23,7 @@ it('uses distinct cached ranges to resume Common Crawl blocks and validate two l
   const data = Buffer.concat(blocks),
     ranges: string[] = [];
   const engine = new GlobalDiscoveryEngine(store, {
+    lane: 'companies',
     sleep: async () => {},
     transport: async (url, options) => {
       if (url.endsWith('/collinfo.json'))

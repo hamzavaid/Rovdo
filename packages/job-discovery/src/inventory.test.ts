@@ -26,7 +26,7 @@ it('reuses an enabled successfully polled employer without waiting for archive d
     const unboundedRead = vi.spyOn(store, 'sources').mockImplementation(() => {
       throw new Error('Global search must not scan every stored source');
     });
-    const id = engine.start({ sourceIds: ['lever', 'wayback'], overrides: {} });
+    const id = engine.start({ sourceIds: ['lever'], overrides: {} });
     unboundedRead.mockRestore();
     expect(store.global.ready(id, Date.now(), 1)[0]).toMatchObject({
       kind: 'ats',
@@ -48,10 +48,10 @@ it('keeps a region-aware persistent inventory independent of saved company grant
     store.global.validateCompany(feed, 300);
     expect(store.global.companyBatch('', 10, true)[0]!.validatedAt).toBe(300);
     const engine = new GlobalDiscoveryEngine(store);
-    const run = engine.start({ sourceIds: ['lever', 'wayback'], overrides: {} });
+    const run = engine.start({ sourceIds: ['lever'], overrides: {} });
     expect(store.global.ready(run, Date.now(), 3)[0]!.kind).toBe('ats');
-    expect(store.directory()).toHaveLength(0);
-    expect(DISCOVERY_SOURCES.some((s) => s.id === 'wayback')).toBe(true);
+    expect(store.directory()).toHaveLength(1);
+    expect(DISCOVERY_SOURCES.some((s) => s.id === 'wayback')).toBe(false);
     expect(
       DISCOVERY_SOURCES.every(
         (s) => !['scraper', 'unsupported', 'configuration'].includes(s.status),

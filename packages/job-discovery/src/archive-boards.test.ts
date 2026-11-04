@@ -10,6 +10,7 @@ it.each(['wayback', 'common-crawl'])(
     const latest = 'https://index.commoncrawl.org/CC-MAIN-2026-43-index';
     const older = 'https://index.commoncrawl.org/CC-MAIN-2026-39-index';
     const engine = new GlobalDiscoveryEngine(store, {
+      lane: 'companies',
       sleep: async () => {},
       transport: async (url) => {
         let data: unknown;
@@ -64,7 +65,7 @@ it.each(['wayback', 'common-crawl'])(
       );
       expect(
         store.global.ready(id, Date.now(), 100).filter((t) => t.sourceId === sourceId),
-      ).toHaveLength(0);
+      ).toHaveLength(sourceId === 'common-crawl' ? 1 : 0);
       vi.setSystemTime(Date.now() + 61000);
       for (let i = 0; i < 12; i++) {
         vi.setSystemTime(Date.now() + 61000);
@@ -88,6 +89,7 @@ it('turns a historical unnamed Greenhouse URL into a named live employer through
   const store = new CareerStore(':memory:');
   const seen: string[] = [];
   const engine = new GlobalDiscoveryEngine(store, {
+    lane: 'companies',
     sleep: async () => {},
     transport: async (url) => {
       seen.push(url);

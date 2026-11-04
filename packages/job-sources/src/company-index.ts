@@ -261,10 +261,7 @@ export async function discoverBoardPage(
           rejected: 0,
           next: { target, ...cursor, index, direct: true },
           warning: 'ARCHIVE_INDEX_UNAVAILABLE',
-          retryAfterMs: Math.max(
-            60000,
-            error instanceof DiscoveryHttpError ? error.retryAfterMs : 0,
-          ),
+          retryAfterMs: 0, // The direct reader uses a different origin; its own persisted cooldown still applies.
         };
       const available = await collections();
       const position = available.indexOf(index);

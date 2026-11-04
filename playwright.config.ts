@@ -4,6 +4,9 @@
  */
 import { defineConfig } from '@playwright/test';
 
+// Fixture apps must never start unmocked archive traffic in the background.
+process.env.ROVDO_OFFLINE_FIXTURES = '1';
+
 export default defineConfig({
   testDir: './tests/e2e',
   fullyParallel: false,

@@ -1,6 +1,6 @@
 /** Additive SQLite queue/cache for incremental global discovery, independent of saved employer grants. */
 import type { DatabaseSync } from 'node:sqlite';
-import { createHash } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import {
   DiscoveryRunSchema,
   DiscoveryTaskSchema,
@@ -12,6 +12,8 @@ import type { CompanyBoard, DiscoveryRun, DiscoveryTask, DiscoveryListing } from
 export class DiscoveryStore {
   constructor(private readonly db: DatabaseSync) {
     db.exec(`
+ CREATE TABLE IF NOT EXISTS company_request_budget(day TEXT NOT NULL,source TEXT NOT NULL,requests INTEGER NOT NULL,PRIMARY KEY(day,source));
+ CREATE TABLE IF NOT EXISTS legacy_archive_run(id TEXT PRIMARY KEY,json TEXT NOT NULL);
  CREATE TABLE IF NOT EXISTS company_board_state(identity TEXT PRIMARY KEY,json TEXT NOT NULL,lease_owner TEXT,lease_until INTEGER NOT NULL DEFAULT 0);
  CREATE TABLE IF NOT EXISTS company_inventory(identity TEXT PRIMARY KEY,ats TEXT NOT NULL,tenant TEXT NOT NULL,region TEXT NOT NULL,company TEXT NOT NULL,page_url TEXT NOT NULL,discovered_at INTEGER NOT NULL,observed_at INTEGER NOT NULL,validated_at INTEGER,UNIQUE(ats,tenant,region));
  CREATE INDEX IF NOT EXISTS inventory_validated ON company_inventory(validated_at,identity);
@@ -148,6 +150,81 @@ export class DiscoveryStore {
       this.db.exec('COMMIT');
     } catch (error) {
       this.db.exec('ROLLBACK');
+      throw error;
+    }
+  }
+  reserveCompanyRequest(source: string, now: number) {
+    const day = new Date(now).toISOString().slice(0, 10),
+      limit = ['wayback', 'common-crawl'].includes(source) ? 24 : 128;
+    const count = Number(
+      this.db
+        .prepare('SELECT requests FROM company_request_budget WHERE day=? AND source=?')
+        .get(day, source)?.requests ?? 0,
+    );
+    if (count >= limit) return false;
+    this.db
+      .prepare(
+        'INSERT INTO company_request_budget VALUES(?,?,1) ON CONFLICT(day,source) DO UPDATE SET requests=requests+1',
+      )
+      .run(day, source);
+    return true;
+  }
+  migrateArchives() {
+    if (this.db.prepare("SELECT value FROM career_setting WHERE key='archive-lanes-v1'").get())
+      return;
+    this.db.exec('SAVEPOINT archive_lanes');
+    try {
+      for (const row of this.db.prepare('SELECT json FROM discovery_run').all()) {
+        const run = DiscoveryRunSchema.parse(JSON.parse(String(row.json)));
+        if (
+          run.lane === 'companies' ||
+          !run.options.sourceIds.some((id) => ['wayback', 'common-crawl'].includes(id)) ||
+          ['completed', 'canceled'].includes(run.status)
+        )
+          continue;
+        this.db
+          .prepare('INSERT OR IGNORE INTO legacy_archive_run VALUES(?,?)')
+          .run(run.id, String(row.json));
+        const companyRun = {
+          ...run,
+          id: randomUUID(),
+          lane: 'companies' as const,
+          options: {
+            ...run.options,
+            sourceIds: [
+              ...new Set([
+                'greenhouse',
+                'lever',
+                'ashby',
+                'smartrecruiters',
+                ...run.options.sourceIds.filter((id) => ['wayback', 'common-crawl'].includes(id)),
+              ]),
+            ],
+          },
+        };
+        this.saveRun(companyRun);
+        for (const taskRow of this.db
+          .prepare(
+            "SELECT json FROM discovery_task WHERE run_id=? AND json_extract(json,'$.sourceId') IN ('wayback','common-crawl')",
+          )
+          .all(run.id)) {
+          const task = DiscoveryTaskSchema.parse(JSON.parse(String(taskRow.json)));
+          this.db
+            .prepare('UPDATE discovery_task SET run_id=?,json=? WHERE id=?')
+            .run(companyRun.id, JSON.stringify({ ...task, runId: companyRun.id }), task.id);
+        }
+        for (const coverage of this.coverage(run.id).filter((c) =>
+          ['wayback', 'common-crawl'].includes(c.sourceId),
+        ))
+          this.db
+            .prepare('INSERT OR IGNORE INTO discovery_coverage VALUES(?,?,?)')
+            .run(companyRun.id, coverage.sourceId, JSON.stringify(coverage));
+        this.saveRun({ ...run, options: migrateDiscoveryOptions(run.options) });
+      }
+      this.db.prepare("INSERT INTO career_setting VALUES('archive-lanes-v1','1')").run();
+      this.db.exec('RELEASE archive_lanes');
+    } catch (error) {
+      this.db.exec('ROLLBACK TO archive_lanes; RELEASE archive_lanes');
       throw error;
     }
   }
@@ -549,7 +626,7 @@ export class DiscoveryStore {
     const old = this.coverage(runId).find((s) => s.sourceId === sourceId);
     const failed = this.db
       .prepare(
-        "SELECT json_extract(json,'$.error') code FROM discovery_task WHERE run_id=? AND json_extract(json,'$.sourceId')=? AND status='blocked' ORDER BY rowid DESC LIMIT 1",
+        "SELECT json_extract(json,'$.error') code FROM discovery_task WHERE run_id=? AND json_extract(json,'$.sourceId')=? AND (status='blocked' OR json_extract(json,'$.error') LIKE 'ARCHIVE_%') ORDER BY rowid DESC LIMIT 1",
       )
       .get(runId, sourceId);
     if (failed && ['ready', 'collecting'].includes(status)) {

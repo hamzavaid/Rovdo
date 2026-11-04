@@ -190,7 +190,10 @@ async function initialize(): Promise<void> {
     },
   );
   globalTimer = setInterval(() => {
-    void careerService?.global.tick().catch(() => {});
+    void careerService?.global
+      .tick()
+      .then(() => careerService?.companies.tick())
+      .catch(() => {});
   }, 2000);
   ipcMain.handle(CAREER_CHANNEL, (event, payload: unknown) =>
     careerService!.command(payload, {

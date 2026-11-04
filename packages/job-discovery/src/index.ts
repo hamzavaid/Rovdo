@@ -245,3 +245,5 @@ export class DiscoveryEngine {
 
 export * from './global-engine';
 export * from './queries';
+
+export * from './company-scheduler';

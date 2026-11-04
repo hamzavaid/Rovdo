@@ -1,4 +1,4 @@
-import { GlobalDiscoveryEngine } from '@rovdo/job-discovery';
+import { GlobalDiscoveryEngine, CompanyDiscoveryScheduler } from '@rovdo/job-discovery';
 import { canonicalUrl } from '@rovdo/job-sources';
 /**
  * Validates career IPC commands and coordinates local profile, job and source operations.
@@ -35,6 +35,9 @@ export function createCareerService(
     throw new Error('OPEN_UNAVAILABLE');
   },
 ) {
+  const companies = new CompanyDiscoveryScheduler(store, {
+    suspended: () => engine.polling || process.env.ROVDO_OFFLINE_FIXTURES === '1',
+  });
   const controller = new AbortController();
   let discovering: Promise<void> | null = null;
   let reviewing = false;
@@ -124,6 +127,7 @@ export function createCareerService(
   }
   return {
     global,
+    companies,
     async command(
       input: unknown,
       sender: { url: string; isMainFrame: boolean; ownsWindow: boolean },
@@ -244,6 +248,7 @@ export function createCareerService(
         pendingReview?.catch(() => {}),
         discovering?.catch(() => {}),
         global.shutdown(),
+        companies.shutdown(),
         viewQueue.catch(() => {}),
       ]);
     },

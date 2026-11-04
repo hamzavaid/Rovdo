@@ -5,6 +5,7 @@ import { GlobalDiscoveryEngine } from './global-engine';
 it('bounds unavailable archive retries, keeps independent feeds running and reports partial completion', async () => {
   const store = new CareerStore(':memory:');
   const engine = new GlobalDiscoveryEngine(store, {
+    lane: 'companies',
     sleep: async () => {},
     transport: async (url) => {
       if (url.includes('remotive.com'))

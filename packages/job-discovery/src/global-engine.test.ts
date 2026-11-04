@@ -19,6 +19,7 @@ it('discovers an unsaved employer via an index, follows a supported ATS and scor
   const store = new CareerStore(':memory:');
   const urls: string[] = [];
   const engine = new GlobalDiscoveryEngine(store, {
+    lane: 'companies',
     sleep: async () => {},
     transport: async (url) => {
       urls.push(url);
@@ -55,7 +56,7 @@ it('discovers an unsaved employer via an index, follows a supported ATS and scor
     expect(store.jobCount()).toBe(1);
     expect(store.jobs()[0]!.company).toBe('Beyond Directory');
     expect(store.jobs()[0]!.discovery?.availability).toBe('verified');
-    expect(store.directory()).toHaveLength(0);
+    expect(store.directory().every((e) => e.policy === 'review')).toBe(true);
     expect(store.global.stats(id).companies).toBe(1);
     expect(urls.some((u) => u.startsWith('https://api.lever.co/'))).toBe(true);
   } finally {
@@ -88,6 +89,7 @@ it('never fetches blocked platform pages and reports schema drift rather than lo
   const store = new CareerStore(':memory:');
   const seen: string[] = [];
   const engine = new GlobalDiscoveryEngine(store, {
+    lane: 'companies',
     sleep: async () => {},
     transport: async (url) => {
       seen.push(url);
@@ -117,6 +119,7 @@ it('obeys robots exclusions and isolates a malformed provider from healthy feeds
   const store = new CareerStore(':memory:');
   const seen: string[] = [];
   const engine = new GlobalDiscoveryEngine(store, {
+    lane: 'companies',
     sleep: async () => {},
     transport: async (url) => {
       seen.push(url);
@@ -211,6 +214,7 @@ it('collects paginated jobs beyond starter employers and reuses cached feeds acr
 it('quarantines a malformed JSON-LD posting without losing valid siblings', async () => {
   const store = new CareerStore(':memory:');
   const engine = new GlobalDiscoveryEngine(store, {
+    lane: 'companies',
     sleep: async () => {},
     transport: async (url) => {
       if (url.includes('web.archive.org'))
@@ -257,6 +261,7 @@ it('does not retry redirects and shares terminal certificate failures across pag
   const store = new CareerStore(':memory:');
   const seen: string[] = [];
   const engine = new GlobalDiscoveryEngine(store, {
+    lane: 'companies',
     sleep: async () => {},
     transport: async (url) => {
       seen.push(url);
@@ -282,7 +287,7 @@ it('does not retry redirects and shares terminal certificate failures across pag
     });
     // Resume the final legacy host page: this test exercises terminal page
     // failures, independently of how many archive partitions discovery enumerates.
-    const archive = store.global.ready(id, Date.now())[0]!;
+    const archive = store.global.ready(id, Date.now(), 100).find((t) => t.sourceId === 'wayback')!;
     store.global.saveTask({ ...archive, payload: { target: 6 } });
     for (let i = 0; i < 20 && store.global.run(id).status === 'running'; i++) await engine.tick();
     expect(seen.filter((u) => u.includes('broken.example'))).toHaveLength(1);
