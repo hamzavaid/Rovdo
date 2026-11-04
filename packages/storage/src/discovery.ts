@@ -101,6 +101,10 @@ export class DiscoveryStore {
         throw error;
       }
     }
+    if (
+      !db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='career_setting'").get()
+    )
+      return;
     this.migrateJobSelections();
     if (
       this.db.prepare("SELECT value FROM career_setting WHERE key='board-directory-v1'").get()
@@ -276,6 +280,36 @@ export class DiscoveryStore {
       )
       .run(parsed.identity, JSON.stringify(parsed));
   }
+  claimBoard(identity: string, owner: string, now: number) {
+    const board = this.board(identity);
+    if (!board) return false;
+    this.saveBoard(board);
+    return !!this.db
+      .prepare(
+        'UPDATE company_board_state SET lease_owner=?,lease_until=? WHERE identity=? AND (lease_owner IS NULL OR lease_owner=? OR lease_until<=?)',
+      )
+      .run(owner, now + 120000, identity, owner, now).changes;
+  }
+  releaseBoard(owner: string) {
+    this.db
+      .prepare('UPDATE company_board_state SET lease_owner=NULL,lease_until=0 WHERE lease_owner=?')
+      .run(owner);
+  }
+  boardAttempt(identity: string, now: number) {
+    const board = this.board(identity);
+    if (board) this.saveBoard({ ...board, lastAttempt: now });
+  }
+  boardFailure(owner: string, reason: string, retryAt: number) {
+    const row = this.db
+      .prepare('SELECT identity FROM company_board_state WHERE lease_owner=?')
+      .get(owner);
+    if (row) {
+      const board = this.board(String(row.identity));
+      if (board)
+        this.saveBoard({ ...board, health: reason, retryAt, failures: board.failures + 1 });
+    }
+    this.releaseBoard(owner);
+  }
   setBoardEnabled(identity: string, enabled: boolean, retired = false) {
     const board = this.board(identity);
     if (!board) throw new Error('BOARD_NOT_FOUND');
@@ -414,10 +448,10 @@ export class DiscoveryStore {
       throw error;
     }
   }
-  companyBatch(after = '', limit = 50, validated = false) {
+  companyBatch(after = '', limit = 50, validated = false, unvalidated = false) {
     return this.db
       .prepare(
-        `SELECT identity,ats,tenant,region,company,page_url pageUrl,validated_at validatedAt FROM company_inventory WHERE identity>? ${validated ? 'AND validated_at IS NOT NULL' : ''} ORDER BY identity LIMIT ?`,
+        `SELECT identity,ats,tenant,region,company,page_url pageUrl,validated_at validatedAt FROM company_inventory WHERE identity>? ${validated ? 'AND validated_at IS NOT NULL' : unvalidated ? 'AND validated_at IS NULL' : ''} ORDER BY identity LIMIT ?`,
       )
       .all(after, Math.max(1, Math.min(100, limit)))
       .map((r) => ({
@@ -575,6 +609,13 @@ export class DiscoveryStore {
       )
       .all(runId, offset)
       .map((r) => DiscoveryListingSchema.parse(JSON.parse(String(r.json))));
+  }
+  linkSnapshot(runId: string, sourceId: string, label: string) {
+    this.db
+      .prepare(
+        'INSERT OR IGNORE INTO discovery_job SELECT ?,job_id,? FROM job_source_snapshot WHERE source_id=?',
+      )
+      .run(runId, label, sourceId);
   }
   link(runId: string, jobId: string, sourceId: string) {
     this.db

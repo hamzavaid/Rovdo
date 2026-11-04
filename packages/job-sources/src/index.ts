@@ -188,18 +188,22 @@ export class AtsAdapter implements JobSourceAdapter {
       url: string,
       options?: ReadOptions,
     ) => Promise<PublicResponse> = readPublic,
+    private readonly options: { lightweight?: boolean } = {},
   ) {
     SourceConfigSchema.parse(source);
   }
   async fetchPage(state: SourceState, signal: AbortSignal): Promise<JobPage> {
     const url = new URL(sourceEndpoint(this.source));
+    const light = this.source.ats === 'greenhouse' && this.options.lightweight === true;
+    if (light) url.searchParams.delete('content');
     if (state.cursor !== null) {
       if (
-        !['lever', 'smartrecruiters'].includes(this.source.ats) ||
+        (!['lever', 'smartrecruiters'].includes(this.source.ats) && !light) ||
         !/^\d{1,6}$/.test(state.cursor)
       )
         throw new SourceError(0, 0, 'INVALID_CURSOR');
-      url.searchParams.set(this.source.ats === 'lever' ? 'skip' : 'offset', state.cursor);
+      if (!light)
+        url.searchParams.set(this.source.ats === 'lever' ? 'skip' : 'offset', state.cursor);
     }
     const headers: Record<string, string> = {};
     if (
@@ -239,6 +243,52 @@ export class AtsAdapter implements JobSourceAdapter {
     const detailObserved = new Map<string, number>();
     const detailQuarantine: Quarantine[] = [];
     let listedCount: number | undefined;
+    let greenhouseNext: string | null | undefined;
+    if (light) {
+      const list = z.object({ jobs: z.array(z.unknown()).max(10000) }).parse(payload).jobs;
+      const offset = Number(state.cursor ?? 0);
+      const slice = list.slice(offset, offset + 8);
+      const details: unknown[] = [];
+      for (const [index, item] of slice.entries()) {
+        const parsed = z.object({ id, content: z.string().optional() }).safeParse(item);
+        if (!parsed.success || parsed.data.content !== undefined) {
+          details.push(item);
+          continue;
+        }
+        const result = await this.read(
+          `https://boards-api.greenhouse.io/v1/boards/${this.source.tenant}/jobs/${encodeURIComponent(String(parsed.data.id))}`,
+          { signal },
+        );
+        if ([404, 410].includes(result.status)) {
+          detailQuarantine.push({
+            hash: sha256(JSON.stringify(item)),
+            code: `DETAIL_UNAVAILABLE_${result.status}`,
+            index: offset + index,
+          });
+          continue;
+        }
+        if (result.status !== 200)
+          throw new SourceError(
+            result.status,
+            retryDelay(result.headers['retry-after']),
+            'DETAIL_UNAVAILABLE',
+          );
+        const observed = Number(result.headers['x-rovdo-observed-at']);
+        detailObserved.set(
+          String(parsed.data.id),
+          Number.isFinite(observed) && observed >= 0 ? observed : Date.now(),
+        );
+        try {
+          details.push(JSON.parse(result.body.toString('utf8')));
+        } catch {
+          details.push({ malformed: true });
+        }
+      }
+      listedCount = slice.length;
+      greenhouseNext = offset + slice.length < list.length ? String(offset + slice.length) : null;
+      payload = { jobs: details };
+    }
+
     if (this.source.ats === 'smartrecruiters') {
       const list = z
         .object({
@@ -285,7 +335,16 @@ export class AtsAdapter implements JobSourceAdapter {
       }
       payload = { content: details, totalFound: list.totalFound };
     }
-    const normalized = await this.normalizeDetailedAsync(payload, signal);
+    const normalized = light
+      ? await (async () => {
+          await yieldTurn();
+          const quarantine: Quarantine[] = [];
+          const jobs = this.records(payload).flatMap((raw, index) =>
+            this.normalizeRecord(raw, index, quarantine),
+          );
+          return { jobs, quarantine };
+        })()
+      : await this.normalizeDetailedAsync(payload, signal);
     const jobs = normalized.jobs;
     for (const job of jobs) {
       this.observed.set(job.sourceJobId, job.activeStatus);
@@ -306,13 +365,15 @@ export class AtsAdapter implements JobSourceAdapter {
           : z.object({ jobs: z.array(z.unknown()) }).parse(payload).jobs.length);
     const next = Number(state.cursor ?? 0) + count;
     const nextCursor =
-      this.source.ats === 'lever' && count === 100
-        ? String(next)
-        : this.source.ats === 'smartrecruiters' &&
-            count &&
-            next < z.object({ totalFound: z.number() }).parse(payload).totalFound
+      greenhouseNext !== undefined
+        ? greenhouseNext
+        : this.source.ats === 'lever' && count === 100
           ? String(next)
-          : null;
+          : this.source.ats === 'smartrecruiters' &&
+              count &&
+              next < z.object({ totalFound: z.number() }).parse(payload).totalFound
+            ? String(next)
+            : null;
     return {
       jobs,
       nextCursor,

@@ -142,19 +142,7 @@ export class GlobalDiscoveryEngine {
       if (savedAfter) this.enqueue(run, 'company-inventory', 'provider', { savedAfter }, 10);
       // Prime the queue synchronously: cached employers must not wait behind slow archive reads.
       const known = this.store.global.companyBatch('', 50, true);
-      for (const row of known)
-        if (row.company)
-          this.enqueue(
-            run,
-            'company-inventory',
-            'ats',
-            {
-              feed: { ats: row.ats, tenant: row.tenant, region: row.region },
-              company: row.company,
-              pageUrl: row.pageUrl,
-            },
-            2000,
-          );
+      for (const row of known) if (row.company) this.queueBoard(run, row);
       this.enqueue(
         run,
         'company-inventory',
@@ -170,7 +158,8 @@ export class GlobalDiscoveryEngine {
         continue;
       }
       if (source.adapter === 'ats') {
-        this.store.global.note(run.id, id, 'waiting-for-discovered-employers');
+        if (!this.store.global.coverage(run.id).some((c) => c.sourceId === id))
+          this.store.global.note(run.id, id, 'waiting-for-discovered-employers');
         continue;
       }
       {
@@ -193,6 +182,55 @@ export class GlobalDiscoveryEngine {
       }
     }
     return run.id;
+  }
+  private reuseBoard(
+    run: DiscoveryRun,
+    feed: { ats: string; tenant: string; region: string },
+    company: string,
+    pageUrl: string,
+  ) {
+    const key = [feed.ats, feed.tenant, feed.region].map((v) => v.toLowerCase()).join(':');
+    const board = this.store.global.board(key);
+    if (!this.store.global.companyAllowed(feed)) return true;
+    if (
+      board &&
+      ((board.complete && board.nextRefresh > Date.now()) || board.retryAt > Date.now())
+    ) {
+      const source = this.store.globalSource(
+        `${feed.ats}-${feed.tenant}-${feed.region}`,
+        company,
+        pageUrl,
+      );
+      this.store.global.linkSnapshot(run.id, source.id, source.tenant);
+      this.store.global.note(
+        run.id,
+        feed.ats,
+        board.retryAt > Date.now() ? 'retry-scheduled' : 'skipped-cached',
+      );
+      return true;
+    }
+    return false;
+  }
+  private queueBoard(
+    run: DiscoveryRun,
+    row: { ats: string; tenant: string; region: string; company: string; pageUrl: string },
+  ) {
+    if (
+      !run.options.sourceIds.includes(row.ats) ||
+      this.reuseBoard(run, row, row.company, row.pageUrl)
+    )
+      return;
+    this.enqueue(
+      run,
+      'company-inventory',
+      'ats',
+      {
+        feed: { ats: row.ats, tenant: row.tenant, region: row.region },
+        company: row.company,
+        pageUrl: row.pageUrl,
+      },
+      2000,
+    );
   }
   /** Keyset batches avoid parsing the entire historical/global source registry at startup. */
   private seedSavedCompanies(run: DiscoveryRun, after: string): string | null {
@@ -218,7 +256,18 @@ export class GlobalDiscoveryEngine {
       const pageUrl = config.pageUrl ?? `https://${host}/${config.tenant}`;
       const feed = { ats: config.ats, tenant: config.tenant, region: config.region };
       this.store.global.rememberCompany(feed, config.company, pageUrl, state.lastSuccessAt);
-      this.store.global.validateCompany(feed, state.lastSuccessAt);
+      const known = this.store.global.board(
+        [feed.ats, feed.tenant, feed.region].join(':').toLowerCase(),
+      );
+      if (!known?.validatedAt || known.validatedAt < state.lastSuccessAt)
+        this.store.global.validateCompany(feed, state.lastSuccessAt, {
+          complete: state.cursor === null,
+          nextRefresh: state.nextPollAt,
+        });
+      if (state.nextPollAt > Date.now() && state.cursor === null) {
+        this.store.global.linkSnapshot(run.id, config.id, config.tenant);
+        continue;
+      }
       this.enqueue(
         run,
         'company-inventory',
@@ -328,6 +377,11 @@ export class GlobalDiscoveryEngine {
           if (failure) throw new DiscoveryPolicyError(failure);
           const blocked = this.store.originBlockedUntil(origin);
           if (blocked > Date.now()) throw new DiscoveryHttpError(429, blocked - Date.now());
+          if (
+            this.lane === 'companies' &&
+            this.store.global.runningRuns().some((r) => (r.lane ?? 'jobs') === 'jobs')
+          )
+            throw new Error('SEARCH_PRIORITY');
           const at = this.store.reserveOrigin(origin, Date.now());
           if (at > Date.now()) await this.sleep(at - Date.now(), signal);
           if (signal.aborted) throw new Error('CANCELED');
@@ -377,9 +431,14 @@ export class GlobalDiscoveryEngine {
             this.store.deferOrigin(origin, Date.now() + ms);
             throw new DiscoveryHttpError(429, ms);
           }
-          if (response.status >= 300 && response.status < 400)
+          if (response.status >= 300 && response.status < 400 && response.status !== 304)
             this.store.global.fail(url, `HTTP_${response.status}`, Date.now() + 3600000);
-          if (response.status >= 300 && response.status !== 404 && response.status !== 410) {
+          if (
+            response.status >= 300 &&
+            response.status !== 304 &&
+            response.status !== 404 &&
+            response.status !== 410
+          ) {
             const retry = response.headers['retry-after'];
             const wait =
               retry && Number.isFinite(Number(retry))
@@ -451,6 +510,7 @@ export class GlobalDiscoveryEngine {
           String(task.payload.after ?? ''),
           50,
           task.payload.validated === true,
+          task.payload.unvalidated === true,
         );
         for (const row of rows) {
           if (task.payload.candidates) {
@@ -462,23 +522,12 @@ export class GlobalDiscoveryEngine {
                 { url: row.pageUrl, company: row.company, archive: true },
                 100,
               );
-          } else if (row.company)
-            this.enqueue(
-              run,
-              'company-inventory',
-              'ats',
-              {
-                feed: { ats: row.ats, tenant: row.tenant, region: row.region },
-                company: row.company,
-                pageUrl: row.pageUrl,
-              },
-              2000,
-            );
+          } else if (row.company) this.queueBoard(run, row);
         }
         const next = rows.length
           ? { ...task.payload, after: rows.at(-1)!.identity }
           : task.payload.validated
-            ? { after: '', validated: false }
+            ? { after: '', validated: false, unvalidated: true }
             : null;
         this.store.global.saveTask({
           ...task,
@@ -576,6 +625,7 @@ export class GlobalDiscoveryEngine {
       else await this.collectAts(run, task, read, signal);
     } catch (error) {
       if (error instanceof Error && ['SEARCH_PRIORITY', 'DAILY_BUDGET'].includes(error.message)) {
+        this.store.global.releaseBoard(task.id);
         this.store.global.saveTask({
           ...task,
           status: 'pending',
@@ -588,6 +638,7 @@ export class GlobalDiscoveryEngine {
         return;
       }
       if (parent.aborted || this.stopping || this.store.global.run(run.id).status !== 'running') {
+        this.store.global.releaseBoard(task.id);
         this.store.global.saveTask({ ...task, status: 'pending' });
         return;
       }
@@ -643,6 +694,7 @@ export class GlobalDiscoveryEngine {
         error instanceof DiscoveryHttpError ? error.retryAfterMs : 0,
         Math.min(3600000, 1000 * 2 ** Math.min(task.attempts + 1, 11)),
       );
+      if (task.kind === 'ats') this.store.global.boardFailure(task.id, safe, Date.now() + backoff);
       this.store.global.saveTask({
         ...task,
         status: blocked ? 'blocked' : 'pending',
@@ -883,6 +935,17 @@ export class GlobalDiscoveryEngine {
     }
     const company = z.string().min(1).max(200).parse(task.payload.company);
     this.store.global.rememberCompany(feed, company, String(task.payload.pageUrl), Date.now());
+    if (this.reuseBoard(run, feed, company, String(task.payload.pageUrl))) {
+      this.store.global.releaseBoard(task.id);
+      this.store.global.saveTask({ ...task, status: 'done' });
+      return;
+    }
+    const boardKey = [feed.ats, feed.tenant, feed.region].join(':').toLowerCase();
+    if (!this.store.global.claimBoard(boardKey, task.id, Date.now())) {
+      this.store.global.saveTask({ ...task, status: 'pending', nextAt: Date.now() + 1000 });
+      return;
+    }
+    this.store.global.boardAttempt(boardKey, Date.now());
     const virtual = this.store.globalSource(
       `${feed.ats}-${feed.tenant}-${feed.region}`,
       company,
@@ -890,17 +953,40 @@ export class GlobalDiscoveryEngine {
     );
     let observedAt = Date.now();
     let contentHash: string | undefined;
-    const adapter = new AtsAdapter({ ...virtual, ...feed, company }, async (url, options) => {
-      const response = await read(url, options?.headers);
-      observedAt = Number(response.headers['x-rovdo-observed-at']) || Date.now();
-      contentHash = createHash('sha256').update(response.body).digest('hex');
-      return response;
-    });
-    const state = task.payload.state ? SourceStateSchema.parse(task.payload.state) : initialState();
+    const adapter = new AtsAdapter(
+      { ...virtual, ...feed, company },
+      async (url, options) => {
+        const response = await read(url, options?.headers);
+        observedAt = Number(response.headers['x-rovdo-observed-at']) || Date.now();
+        contentHash = createHash('sha256').update(response.body).digest('hex');
+        return response;
+      },
+      { lightweight: true },
+    );
+    const priorBoard = this.store.global.board(boardKey);
+    const state = task.payload.state
+      ? SourceStateSchema.parse(task.payload.state)
+      : {
+          ...initialState(),
+          etag: priorBoard?.etag ?? null,
+          lastModified: priorBoard?.lastModified ?? null,
+        };
     const page = await adapter.fetchPage(state, signal);
+    if (page.status === 304) {
+      if (!priorBoard?.complete) throw new Error('SCHEMA_DRIFT');
+      this.store.global.validateCompany(feed, observedAt, { complete: true });
+      this.store.global.linkSnapshot(run.id, virtual.id, virtual.tenant);
+      this.store.global.note(run.id, feed.ats, 'checked-no-new-jobs');
+      this.store.global.releaseBoard(task.id);
+      this.store.global.saveTask({ ...task, status: 'done' });
+      return;
+    }
+
     this.store.global.validateCompany(feed, observedAt, {
       ...(contentHash ? { contentHash } : {}),
-      complete: page.nextCursor === null && !page.quarantine?.length,
+      complete: page.nextCursor === null && !page.quarantine?.length && !task.payload.partial,
+      ...(page.headers.etag ? { etag: page.headers.etag } : {}),
+      ...(page.headers['last-modified'] ? { lastModified: page.headers['last-modified'] } : {}),
     });
     this.assertActive(run, signal);
     const jobs = page.jobs.map((job) => ({
@@ -929,6 +1015,7 @@ export class GlobalDiscoveryEngine {
       jobs.length,
       page.quarantine?.length ?? 0,
     );
+    if (page.nextCursor === null) this.store.global.releaseBoard(task.id);
     this.store.global.updateListing(
       run.id,
       String(task.payload.listingUrl ?? task.payload.pageUrl),
@@ -939,7 +1026,11 @@ export class GlobalDiscoveryEngine {
     this.store.global.saveTask({
       ...task,
       status: page.nextCursor ? 'pending' : 'done',
-      payload: { ...task.payload, state: { ...state, cursor: page.nextCursor } },
+      payload: {
+        ...task.payload,
+        partial: task.payload.partial === true || !!page.quarantine?.length,
+        state: { ...state, cursor: page.nextCursor },
+      },
       nextAt: Date.now(),
       attempts: 0,
       error: null,
