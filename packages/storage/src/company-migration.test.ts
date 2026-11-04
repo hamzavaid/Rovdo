@@ -79,11 +79,7 @@ it('migrates retired settings/searches while preserving jobs, application marker
     expect(store.jobCount()).toBe(1);
     expect(store.savedIds()).toEqual(['fixture:1']);
     expect(store.markers()[0]!.applied).toBe(true);
-    expect(store.savedSearches()[0]!.search.discovery!.sourceIds).toEqual([
-      'lever',
-      'wayback',
-      'common-crawl',
-    ]);
+    expect(store.savedSearches()[0]!.search.discovery!.sourceIds).toEqual(['lever']);
     expect(store.savedSearches()[0]!.search.discovery).not.toHaveProperty('indexUrl');
     expect(store.setting('jobspy-settings')).toBe(null);
     expect(store.global.companyBatch('', 10, true)[0]!.region).toBe('eu');

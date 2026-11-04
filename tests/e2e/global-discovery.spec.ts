@@ -72,12 +72,12 @@ test('globally discovers an unsaved employer, separates scopes, exports and pers
       page.getByRole('option', { name: 'Search All Saved Companies', exact: true }),
     ).toHaveCount(1);
     await page.getByRole('button', { name: 'Sources & Coverage', exact: true }).click();
-    await page.getByRole('button', { name: 'Selected sources (13)', exact: true }).click();
-    await expect(page.locator('.discovery-source')).toHaveCount(13);
+    await page.getByRole('button', { name: 'Selected sources (11)', exact: true }).click();
+    await expect(page.locator('.discovery-source')).toHaveCount(11);
     await page.getByRole('button', { name: 'Show full source list', exact: true }).click();
     await expect(page.locator('.discovery-source-list')).toHaveClass(/expanded/);
     await page.getByRole('button', { name: 'All sources', exact: true }).click();
-    await expect(page.locator('.discovery-source')).toHaveCount(13);
+    await expect(page.locator('.discovery-source')).toHaveCount(11);
     expect(
       await page
         .locator('.discovery-source')
@@ -85,10 +85,23 @@ test('globally discovers an unsaved employer, separates scopes, exports and pers
         .evaluate((e) => e.getBoundingClientRect().height),
     ).toBeLessThan(65);
     await page.getByRole('button', { name: 'Clear source selection', exact: true }).click();
-    await page
-      .getByLabel('Find discovery sources', { exact: true })
-      .fill('Wayback company discovery');
-    await page.getByRole('checkbox', { name: 'Wayback company discovery', exact: true }).check();
+    await page.evaluate(() =>
+      window.rovdo!.careerCommand({ op: 'companyDiscovery', action: 'start' }),
+    );
+    await expect
+      .poll(
+        async () => {
+          const r = await page.evaluate(() =>
+            window.rovdo!.careerCommand({
+              op: 'companyPage',
+              query: { query: '', provider: 'all', status: 'all', offset: 0, limit: 10 },
+            }),
+          );
+          return r.ok ? r.view.companyPage!.verified : 0;
+        },
+        { timeout: 30000 },
+      )
+      .toBeGreaterThan(0);
     await page.getByLabel('Find discovery sources', { exact: true }).fill('Lever');
     await page.getByRole('checkbox', { name: 'Lever', exact: true }).check();
     await page
@@ -102,9 +115,9 @@ test('globally discovers an unsaved employer, separates scopes, exports and pers
     await expect(
       page.getByRole('region', { name: 'Discovery progress', exact: true }),
     ).toContainText('1 unique jobs collected');
-    await page.getByText('Activity details', { exact: true }).click();
-    await page.getByRole('button', { name: 'Pause discovery', exact: true }).click();
-    await expect(page.getByText('Collection paused', { exact: true })).toBeVisible();
+    await page.evaluate(() =>
+      window.rovdo!.careerCommand({ op: 'companyDiscovery', action: 'pause' }),
+    );
     await page.getByRole('button', { name: 'Sources & Coverage', exact: true }).click();
     await page.getByLabel('Search scope', { exact: true }).selectOption('saved-companies');
     await page
@@ -133,14 +146,27 @@ test('globally discovers an unsaved employer, separates scopes, exports and pers
     app = await electron.launch({ args, env });
     page = await app.firstWindow();
     await page.getByRole('button', { name: 'Jobs', exact: true }).click();
-    await expect(page.getByText('Collection paused', { exact: true })).toBeVisible();
+    const restored = await page.evaluate(() =>
+      window.rovdo!.careerCommand({
+        op: 'view',
+        search: {
+          query: '',
+          company: '',
+          workMode: 'all',
+          savedOnly: false,
+          includeExcluded: false,
+        },
+        summary: true,
+      }),
+    );
+    expect(restored.ok && restored.view.companyDiscovery!.run!.status).toBe('paused');
     await expect(page.locator('.job-card')).toHaveCount(1);
   } finally {
     await app.close();
   }
 });
 
-test('recovers an archive-only search through independent recommended feeds', async () => {
+test('keeps independent feeds usable during a background archive outage', async () => {
   const env = Object.fromEntries(
     Object.entries(process.env).filter((e): e is [string, string] => e[1] !== undefined),
   );
@@ -205,37 +231,16 @@ test('recovers an archive-only search through independent recommended feeds', as
     });
     const page = await app.firstWindow();
     await page.getByRole('button', { name: 'Jobs', exact: true }).click();
-    await page.getByRole('button', { name: 'Sources & Coverage', exact: true }).click();
-    await page.getByRole('button', { name: 'Clear source selection', exact: true }).click();
-    await page.getByLabel('Find discovery sources', { exact: true }).fill('Wayback');
-    await page.getByRole('checkbox', { name: 'Wayback company discovery', exact: true }).check();
-    await page
-      .getByRole('navigation', { name: 'Jobs views' })
-      .getByRole('button', { name: 'Find Jobs', exact: true })
-      .click();
-    await page.locator('form').getByRole('button', { name: 'Find Jobs', exact: true }).click();
-    await page.getByRole('button', { name: 'View Collection Health', exact: true }).click();
-    await expect(page.getByRole('region', { name: 'Discovery progress', exact: true })).toHaveCount(
-      0,
+    await page.evaluate(() =>
+      window.rovdo!.careerCommand({ op: 'companyDiscovery', action: 'start' }),
     );
-    await expect(
-      page.getByRole('region', { name: 'Collection health details', exact: true }),
-    ).toBeVisible();
-    await expect(
-      page.getByText(
-        'A Wayback query or index page was unavailable. Continuing with bounded pages or other ATS hosts; coverage is partial.',
-        {
-          exact: true,
-        },
-      ),
-    ).toBeVisible({ timeout: 15000 });
-    await page
-      .getByRole('button', { name: 'Search with recommended sources', exact: true })
-      .click();
-    await page
-      .getByRole('navigation', { name: 'Jobs views' })
-      .getByRole('button', { name: 'Find Jobs', exact: true })
-      .click();
+    await page.evaluate(() =>
+      window.rovdo!.careerCommand({
+        op: 'startDiscovery',
+        consent: true,
+        options: { sourceIds: ['remotive'], overrides: {} },
+      }),
+    );
     await expect(
       page.getByRole('heading', { name: 'Independent Feed Engineer', exact: true }),
     ).toBeVisible({ timeout: 15000 });

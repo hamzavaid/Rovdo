@@ -93,11 +93,13 @@ export class GlobalDiscoveryEngine {
     for (const id of options.sourceIds)
       if (!this.providers.some((s) => s.id === id)) throw new Error('UNKNOWN_SOURCE');
     const profile = this.store.profile();
-    const qualificationQueries = discoveryQueries(
-      profile,
-      this.store.rankings().find((p) => p.id === this.store.defaultRanking())?.minimumEvidence ??
-        0.5,
-    );
+    const qualificationQueries: string[] =
+      JSON.parse(this.store.setting('discovery-query-plan-v1') ?? 'null') ??
+      discoveryQueries(
+        profile,
+        this.store.rankings().find((p) => p.id === this.store.defaultRanking())?.minimumEvidence ??
+          0.5,
+      );
     const keywords = options.filters?.keywords?.trim();
     const queries = keywords
       ? [
@@ -129,6 +131,12 @@ export class GlobalDiscoveryEngine {
       reason: null,
     };
     this.store.global.saveRun(run);
+    this.store.global.event(
+      run.id,
+      this.lane === 'jobs' ? 'prepare' : 'discover',
+      'complete',
+      queries.length,
+    );
     if (this.lane === 'companies')
       this.enqueue(run, 'company-inventory', 'provider', { after: '', candidates: true }, 100);
 
@@ -331,7 +339,14 @@ export class GlobalDiscoveryEngine {
       if (
         this.store.global.run(run.id).status === 'running' &&
         this.store.global.stats(run.id).pending === 0
-      )
+      ) {
+        const partial = this.store.global.coverage(run.id).some((c) => c.error);
+        this.store.global.event(
+          run.id,
+          this.lane === 'jobs' ? 'acquire' : 'discover',
+          partial ? 'partial' : 'complete',
+          this.store.global.stats(run.id).done,
+        );
         this.store.global.saveRun({
           ...run,
           status: 'completed',
@@ -339,7 +354,8 @@ export class GlobalDiscoveryEngine {
           reason:
             'Accessible selected sources completed; blocked, incomplete and unconfigured coverage is reported separately.',
         });
-      if (this.store.global.run(run.id).status !== 'running') this.controllers.delete(run.id);
+        if (this.store.global.run(run.id).status !== 'running') this.controllers.delete(run.id);
+      }
     }
   }
   private reader(run: DiscoveryRun, task: DiscoveryTask, signal: AbortSignal): DiscoveryRead {
@@ -399,13 +415,36 @@ export class GlobalDiscoveryEngine {
           }
           this.store.global.note(run.id, task.sourceId, 'collecting', 0, 0, null, 1);
           let response: PublicResponse;
+          const requestStarted = performance.now();
           try {
             response = await this.transport(url, {
               signal,
               ...(headers ? { headers } : {}),
               ...(task.sourceId === 'wayback' ? { timeoutMs: 30000 } : {}),
             });
+            this.store.global.request({
+              runId: run.id,
+              sourceId: task.sourceId,
+              at: Date.now(),
+              target: url,
+              status: response.status,
+              durationMs: performance.now() - requestStarted,
+              bytes: response.body.length,
+              error: response.status >= 400 ? 'HTTP_' + response.status : null,
+              cached: false,
+            });
           } catch (error) {
+            this.store.global.request({
+              runId: run.id,
+              sourceId: task.sourceId,
+              at: Date.now(),
+              target: url,
+              status: null,
+              durationMs: performance.now() - requestStarted,
+              bytes: 0,
+              error: signal.aborted ? 'CANCELED' : 'NETWORK_ERROR',
+              cached: false,
+            });
             const code =
               typeof error === 'object' && error && 'code' in error ? String(error.code) : '';
             if (/CERT|TLS|SSL|EPROTO/.test(code)) {
@@ -485,6 +524,17 @@ export class GlobalDiscoveryEngine {
   }
   private async process(run: DiscoveryRun, task: DiscoveryTask, parent: AbortSignal) {
     this.store.global.saveTask({ ...task, status: 'running' });
+    const stage =
+      this.lane === 'jobs'
+        ? task.kind === 'provider'
+          ? 'acquire'
+          : 'verify'
+        : task.kind === 'provider'
+          ? 'discover'
+          : task.kind === 'resolve'
+            ? 'identify'
+            : 'validate';
+    this.store.global.event(run.id, stage, 'running', this.store.global.stats(run.id).done);
     const signal = AbortSignal.any([parent, AbortSignal.timeout(60000)]);
     const baseRead = this.reader(run, task, signal);
     let observedAt = Date.now();
@@ -623,6 +673,7 @@ export class GlobalDiscoveryEngine {
         });
       } else if (task.kind === 'resolve') await this.resolve(run, task, read, signal);
       else await this.collectAts(run, task, read, signal);
+      this.store.global.event(run.id, stage, 'complete', this.store.global.stats(run.id).done);
     } catch (error) {
       if (error instanceof Error && ['SEARCH_PRIORITY', 'DAILY_BUDGET'].includes(error.message)) {
         this.store.global.releaseBoard(task.id);
@@ -703,6 +754,7 @@ export class GlobalDiscoveryEngine {
         error: safe,
       });
       this.store.global.note(run.id, task.sourceId, blocked ? 'blocked' : 'retrying', 0, 0, safe);
+      this.store.global.event(run.id, stage, 'partial', 0, safe);
       if (task.kind === 'resolve')
         this.store.global.updateListing(
           run.id,
@@ -849,7 +901,14 @@ export class GlobalDiscoveryEngine {
         },
       }));
       if (jobs.length) {
+        this.store.global.event(run.id, 'publish', 'running', jobs.length);
         await this.store.ingestDiscoveredAsync(run.id, virtual, jobs, signal);
+        this.store.global.event(
+          run.id,
+          'publish',
+          'complete',
+          this.store.global.stats(run.id).jobs,
+        );
         resolved = true;
       }
       for (const feed of inspection.feeds)
@@ -1007,7 +1066,10 @@ export class GlobalDiscoveryEngine {
         exportAllowed: true,
       },
     }));
+    this.store.global.event(run.id, 'publish', 'running', jobs.length);
     await this.store.ingestDiscoveredAsync(run.id, virtual, jobs, signal);
+    this.store.global.event(run.id, 'publish', 'complete', this.store.global.stats(run.id).jobs);
+    if (this.lane === 'companies') this.store.global.event(run.id, 'register', 'complete', 1);
     this.store.global.note(
       run.id,
       registry?.id ?? task.sourceId,
@@ -1039,6 +1101,11 @@ export class GlobalDiscoveryEngine {
   async control(id: string, action: 'pause' | 'resume' | 'cancel') {
     const run = this.store.global.run(id);
     if ((run.lane ?? 'jobs') !== this.lane) throw new Error('WRONG_DISCOVERY_LANE');
+    this.store.global.event(
+      id,
+      this.lane === 'jobs' ? 'acquire' : 'discover',
+      action === 'resume' ? 'running' : action === 'pause' ? 'paused' : 'canceled',
+    );
     if (action === 'resume') {
       if (run.status !== 'paused') throw new Error('RUN_NOT_PAUSED');
       await this.work;
@@ -1063,13 +1130,16 @@ export class GlobalDiscoveryEngine {
       runs[0] ??
       null;
     return DiscoveryViewSchema.parse({
+      events: run ? this.store.global.events(run.id) : [],
       run,
       runs,
-      plan: discoveryQueries(
-        this.store.profile(),
-        this.store.rankings().find((p) => p.id === this.store.defaultRanking())?.minimumEvidence ??
-          0.5,
-      ),
+      plan:
+        JSON.parse(this.store.setting('discovery-query-plan-v1') ?? 'null') ??
+        discoveryQueries(
+          this.store.profile(),
+          this.store.rankings().find((p) => p.id === this.store.defaultRanking())
+            ?.minimumEvidence ?? 0.5,
+        ),
       registry: this.lane === 'companies' ? BOARD_DISCOVERY_PROVIDERS : DISCOVERY_SOURCES,
       coverage: run
         ? this.store.global

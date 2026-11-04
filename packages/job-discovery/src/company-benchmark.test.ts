@@ -1,4 +1,5 @@
 import { writeFile } from 'node:fs/promises';
+import { monitorEventLoopDelay } from 'node:perf_hooks';
 /** Mock-only reproducible throughput baseline: 100 validated employers / 500 unique postings. */
 import { it, expect } from 'vitest';
 import { CareerStore } from '@rovdo/storage';
@@ -45,6 +46,9 @@ it('streams a bounded inventory with no total cap and reuses cached ATS response
     for (let pass = 0; pass < 2; pass++) {
       const before = requests;
       const heap = process.memoryUsage().heapUsed;
+      const cpu = process.cpuUsage();
+      const delay = monitorEventLoopDelay({ resolution: 1 });
+      delay.enable();
       const at = performance.now();
       let peakRss = process.memoryUsage().rss;
       const id = engine.start({ sourceIds: ['lever'], overrides: {} });
@@ -54,6 +58,17 @@ it('streams a bounded inventory with no total cap and reuses cached ATS response
       }
       expect(store.global.run(id).status).toBe('completed');
       expect(store.global.stats(id).jobs).toBe(500);
+      delay.disable();
+      const used = process.cpuUsage(cpu);
+      const queryAt = performance.now();
+      store.searchFiltered({
+        query: '',
+        company: '',
+        workMode: 'all',
+        savedOnly: false,
+        includeExcluded: false,
+      });
+      const cachedQueryMs = performance.now() - queryAt;
       samples.push({
         kind: pass ? 'cached' : 'cold',
         ms: Math.round(performance.now() - at),
@@ -61,6 +76,10 @@ it('streams a bounded inventory with no total cap and reuses cached ATS response
         peakRss,
         heapDelta: process.memoryUsage().heapUsed - heap,
         jobs: store.jobCount(),
+        verifiedJobs: store.jobs().filter((j) => j.discovery?.availability === 'verified').length,
+        cpuMs: (used.user + used.system) / 1000,
+        maxEventLoopDelayMs: delay.max / 1e6,
+        cachedQueryMs,
       });
     }
     expect(samples[1]!.requests).toBe(0);

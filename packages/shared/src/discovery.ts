@@ -40,6 +40,53 @@ export const CompanyBoardSchema = z.strictObject({
   origin: z.string(),
 });
 export type CompanyBoard = z.infer<typeof CompanyBoardSchema>;
+export const PipelineEventSchema = z.strictObject({
+  sequence: z.number().int(),
+  runId: z.uuid(),
+  at: z.number(),
+  stage: z.enum([
+    'prepare',
+    'acquire',
+    'verify',
+    'eligibility',
+    'rank',
+    'publish',
+    'discover',
+    'identify',
+    'validate',
+    'register',
+  ]),
+  status: z.enum(['running', 'complete', 'partial', 'paused', 'canceled', 'failed']),
+  count: z.number().int().nonnegative(),
+  reason: z.string().max(200).nullable(),
+});
+export type PipelineEvent = z.infer<typeof PipelineEventSchema>;
+export const RequestRecordSchema = z.strictObject({
+  sequence: z.number().int(),
+  runId: z.uuid(),
+  sourceId: z.string(),
+  at: z.number(),
+  target: z.string().max(2048),
+  status: z.number().int().nullable(),
+  durationMs: z.number().nonnegative(),
+  bytes: z.number().int().nonnegative(),
+  error: z.string().max(100).nullable(),
+  cached: z.boolean(),
+});
+export const CompanyQuerySchema = z.strictObject({
+  query: z.string().max(200).default(''),
+  provider: z.enum(['all', 'greenhouse', 'lever', 'ashby', 'smartrecruiters']).default('all'),
+  status: z.enum(['all', 'enabled', 'disabled', 'due', 'pending']).default('all'),
+  offset: z.number().int().nonnegative().default(0),
+  limit: z.union([z.literal(10), z.literal(25), z.literal(50)]).default(10),
+});
+export const CompanyPageSchema = z.strictObject({
+  rows: z.array(CompanyBoardSchema),
+  total: z.number().int(),
+  verified: z.number().int(),
+  enabled: z.number().int(),
+  due: z.number().int(),
+});
 export const DiscoveryFiltersSchema = z.strictObject({
   keywords: z.string().max(500).optional(),
   location: z.string().max(200).optional(),
@@ -112,6 +159,7 @@ export const DiscoveryCoverageSchema = z.strictObject({
   updatedAt: z.number(),
 });
 export const DiscoveryViewSchema = z.strictObject({
+  events: z.array(PipelineEventSchema).default([]),
   plan: z.array(z.string()).default([]),
   run: DiscoveryRunSchema.nullable(),
   runs: z.array(DiscoveryRunSchema),

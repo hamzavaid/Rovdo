@@ -94,7 +94,7 @@ export class CareerStore {
     const version = Number(
       this.db.prepare('SELECT COALESCE(MAX(version),0) AS n FROM career_schema').get()!.n,
     );
-    if (version > 7) throw new Error('DATABASE_TOO_NEW');
+    if (version > 8) throw new Error('DATABASE_TOO_NEW');
     if (!version)
       this.transaction(() => {
         this.db.exec(`
@@ -158,6 +158,7 @@ export class CareerStore {
       });
     this.global = new DiscoveryStore(this.db);
     if (version < 7) this.transaction(() => this.db.exec('INSERT INTO career_schema VALUES(7)'));
+    if (version < 8) this.transaction(() => this.db.exec('INSERT INTO career_schema VALUES(8)'));
     this.db.exec(`CREATE INDEX IF NOT EXISTS saved_discovery_sources ON job_source(id)
       WHERE json_extract(config,'$.enabled')=1
       AND coalesce(json_extract(config,'$.collection'),'saved')='saved'
@@ -490,6 +491,12 @@ export class CareerStore {
           JSON.stringify({
             jobId: survivor,
             applied: markers.some((m) => m.applied),
+            notes: [...new Set(markers.map((m) => m.notes).filter(Boolean))]
+              .join('\n\n')
+              .slice(0, 10000),
+            applicationStatus:
+              markers.find((m) => m.applicationStatus !== 'not-applied')?.applicationStatus ??
+              (markers.some((m) => m.applied) ? 'applied' : 'not-applied'),
             seenAt: Math.max(...markers.map((m) => m.seenAt)),
             feedback: feedback.length === 1 ? feedback[0] : 'none',
             ...(feedback.length > 1 ? { feedbackConflicts: feedback } : {}),
@@ -1397,9 +1404,9 @@ export class CareerStore {
     const total = Number(this.db.prepare(`SELECT COUNT(*) AS n ${base}`).get(...params)!.n);
     const page = this.db
       .prepare(
-        `SELECT s.job_id,s.bm25 ${base} ORDER BY r.excluded,${search.sort === 'newest' ? "json_extract(r.json,'$.job.postedAt') DESC," : search.sort === 'salary' ? "COALESCE(json_extract(r.json,'$.job.salary.max'),json_extract(r.json,'$.job.salary.min')) DESC," : search.sort === 'company' ? "json_extract(r.json,'$.job.company')," : ''}r.score DESC,${config.method === 'legacy-v1' ? 's.bm25,' : 'r.confidence DESC,'}s.job_id LIMIT 50 OFFSET ?`,
+        `SELECT s.job_id,s.bm25 ${base} ORDER BY r.excluded,${search.sort === 'newest' ? "json_extract(r.json,'$.job.postedAt') DESC," : search.sort === 'salary' ? "COALESCE(json_extract(r.json,'$.job.salary.max'),json_extract(r.json,'$.job.salary.min')) DESC," : search.sort === 'company' ? "json_extract(r.json,'$.job.company')," : ''}r.score DESC,${config.method === 'legacy-v1' ? 's.bm25,' : 'r.confidence DESC,'}s.job_id LIMIT ? OFFSET ?`,
       )
-      .all(...params, search.offset ?? 0);
+      .all(...params, search.pageSize ?? 50, search.offset ?? 0);
 
     return {
       total,
@@ -1493,6 +1500,12 @@ export class CareerStore {
       );
   }
   saveSearch(name: string, search: JobSearch): SavedSearch {
+    if (
+      this.savedSearches().some(
+        (s) => s.name.toLocaleLowerCase() === name.trim().toLocaleLowerCase(),
+      )
+    )
+      throw new Error('DUPLICATE_SEARCH_NAME');
     const saved = SavedSearchSchema.parse({
       id: randomUUID(),
       name,

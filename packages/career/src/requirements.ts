@@ -127,7 +127,7 @@ export function extractRequirements(text: string, title: string): RequirementSet
       /skills?|technolog|stack|programming|experience (?:with|in)/i.test(`${section} ${line}`);
     // Skip impossible ASCII aliases before invoking hundreds of Unicode boundary regexes.
     // Unicode text retains the full case-folding path (e.g. Kelvin sign/long s).
-    const asciiLine = /^[\x00-\x7f]*$/.test(line) ? line.toLowerCase() : null;
+    const asciiLine = /^[\t -~]*$/.test(line) ? line.toLowerCase() : null;
     const found = aliases.flatMap((alias) => {
       if (alias.context !== 'any' && !context) return [];
       if (asciiLine !== null && !asciiLine.includes(alias.label.toLowerCase())) return [];

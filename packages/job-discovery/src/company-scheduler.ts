@@ -10,7 +10,7 @@ export class CompanyDiscoveryScheduler {
     private readonly store: CareerStore,
     private readonly options: NonNullable<
       ConstructorParameters<typeof GlobalDiscoveryEngine>[1]
-    > & { suspended?: () => boolean } = {},
+    > & { suspended?: () => boolean; automaticStart?: () => boolean } = {},
   ) {
     this.engine = new GlobalDiscoveryEngine(store, { ...options, lane: 'companies' });
   }
@@ -41,6 +41,7 @@ export class CompanyDiscoveryScheduler {
         if (!/Restarted|shutdown/i.test(latest.reason ?? '')) return;
         await this.engine.control(latest.id, 'resume');
       } else if (!runs.some((r) => r.status === 'running')) {
+        if (this.options.automaticStart?.() === false) return;
         if (Number(this.store.setting('company-discovery-next') ?? 0) > Date.now()) return;
         this.start();
       }

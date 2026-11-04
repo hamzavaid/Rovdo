@@ -6,6 +6,7 @@ import type { z } from 'zod';
 
 const view = (status: 'running' | 'paused' | 'completed' | 'canceled') =>
   ({
+    events: [],
     run: {
       id: 'fixture',
       status,

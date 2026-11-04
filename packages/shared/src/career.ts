@@ -1,4 +1,10 @@
-import { DiscoveryOptionsSchema, DiscoveryViewSchema } from './discovery';
+import {
+  DiscoveryOptionsSchema,
+  DiscoveryViewSchema,
+  CompanyQuerySchema,
+  CompanyPageSchema,
+  RequestRecordSchema,
+} from './discovery';
 /**
  * Candidate, employer, source, job and search/management IPC contracts.
  * Legacy facts remain readable alongside structured intelligence and provenance-bearing normalized jobs.
@@ -289,6 +295,7 @@ export const JobMatchSchema = z.strictObject({
 });
 export type JobMatch = z.infer<typeof JobMatchSchema>;
 export const JobSearchSchema = z.strictObject({
+  pageSize: z.union([z.literal(10), z.literal(25), z.literal(50)]).optional(),
   scope: z.enum(['global', 'saved-companies', 'company']).optional(),
   selectedSourceId: z.uuid().optional(),
   discovery: DiscoveryOptionsSchema.optional(),
@@ -342,6 +349,10 @@ export const SavedSearchSchema = z.strictObject({
   search: JobSearchSchema,
 });
 export const JobMarkerSchema = z.strictObject({
+  notes: z.string().max(10000).default(''),
+  applicationStatus: z
+    .enum(['not-applied', 'applied', 'interviewing', 'offer', 'rejected'])
+    .default('not-applied'),
   jobId: z.string().max(300),
   feedback: z.enum(['none', 'relevant', 'irrelevant']),
   feedbackConflicts: z.array(z.enum(['relevant', 'irrelevant'])).optional(),
@@ -351,6 +362,11 @@ export const JobMarkerSchema = z.strictObject({
 export type JobMarker = z.infer<typeof JobMarkerSchema>;
 export type SavedSearch = z.infer<typeof SavedSearchSchema>;
 export const CareerViewSchema = z.strictObject({
+  companyDiscovery: DiscoveryViewSchema.optional(),
+  companyPage: CompanyPageSchema.optional(),
+  automaticCompanyDiscovery: z.boolean().optional(),
+  requests: z.array(RequestRecordSchema).default([]),
+  requestTotal: z.number().int().default(0),
   profile: CandidateProfileSchema.nullable(),
   sources: z.array(SourceViewSchema),
   matches: z.array(JobMatchSchema),
@@ -370,6 +386,33 @@ export const CareerViewSchema = z.strictObject({
   cache: z.object({ hits: z.number(), misses: z.number() }).optional(),
 });
 export const CareerCommandSchema = z.discriminatedUnion('op', [
+  z.strictObject({ op: z.literal('companyPage'), query: CompanyQuerySchema }),
+  z.strictObject({
+    op: z.literal('companyDiscovery'),
+    action: z.enum(['start', 'pause', 'resume', 'cancel', 'automatic']),
+    enabled: z.boolean().optional(),
+  }),
+  z.strictObject({
+    op: z.literal('companyBoard'),
+    identity: z.string().min(1).max(500),
+    action: z.enum(['enable', 'disable', 'retire', 'refresh', 'interval']),
+    intervalMs: z.number().int().min(60000).max(2592000000).optional(),
+  }),
+  z.strictObject({
+    op: z.literal('requestLog'),
+    sourceId: z.string().max(200).optional(),
+    lane: z.enum(['jobs', 'companies']),
+    offset: z.number().int().nonnegative().default(0),
+  }),
+  z.strictObject({
+    op: z.literal('queryPlan'),
+    queries: z.array(z.string().trim().min(1).max(500)).max(8).nullable(),
+  }),
+  z.strictObject({
+    op: z.literal('previewRanking'),
+    jobId: z.string().max(300),
+    config: RankingProfileSchema,
+  }),
   z.strictObject({
     op: z.literal('view'),
     search: JobSearchSchema,
@@ -416,6 +459,10 @@ export const CareerCommandSchema = z.discriminatedUnion('op', [
   }),
   z.strictObject({
     op: z.literal('markJob'),
+    notes: z.string().max(10000).optional(),
+    applicationStatus: z
+      .enum(['not-applied', 'applied', 'interviewing', 'offer', 'rejected'])
+      .optional(),
     jobId: z.string().max(300),
     feedback: z.enum(['none', 'relevant', 'irrelevant']).optional(),
     applied: z.boolean().optional(),

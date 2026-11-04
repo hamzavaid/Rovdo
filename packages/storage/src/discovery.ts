@@ -7,11 +7,18 @@ import {
   DiscoveryListingSchema,
   migrateDiscoveryOptions,
   CompanyBoardSchema,
+  CompanyQuerySchema,
 } from '@rovdo/shared';
 import type { CompanyBoard, DiscoveryRun, DiscoveryTask, DiscoveryListing } from '@rovdo/shared';
-export class DiscoveryStore {
+import { DiscoveryTelemetry } from './discovery-telemetry';
+export class DiscoveryStore extends DiscoveryTelemetry {
   constructor(private readonly db: DatabaseSync) {
+    super(db);
     db.exec(`
+ CREATE TABLE IF NOT EXISTS pipeline_event(sequence INTEGER PRIMARY KEY AUTOINCREMENT,run_id TEXT NOT NULL,json TEXT NOT NULL);
+ CREATE INDEX IF NOT EXISTS pipeline_event_run ON pipeline_event(run_id,sequence);
+ CREATE TABLE IF NOT EXISTS discovery_request(sequence INTEGER PRIMARY KEY AUTOINCREMENT,run_id TEXT NOT NULL,source_id TEXT NOT NULL,json TEXT NOT NULL);
+ CREATE INDEX IF NOT EXISTS discovery_request_run ON discovery_request(run_id,sequence);
  CREATE TABLE IF NOT EXISTS company_request_budget(day TEXT NOT NULL,source TEXT NOT NULL,requests INTEGER NOT NULL,PRIMARY KEY(day,source));
  CREATE TABLE IF NOT EXISTS legacy_archive_run(id TEXT PRIMARY KEY,json TEXT NOT NULL);
  CREATE TABLE IF NOT EXISTS company_board_state(identity TEXT PRIMARY KEY,json TEXT NOT NULL,lease_owner TEXT,lease_until INTEGER NOT NULL DEFAULT 0);
@@ -131,6 +138,7 @@ export class DiscoveryStore {
       }
     }
   }
+
   migrateJobSelections() {
     if (
       this.db.prepare("SELECT value FROM career_setting WHERE key='job-source-taxonomy'").get()
@@ -280,6 +288,66 @@ export class DiscoveryStore {
       )
       .run(parsed.identity, JSON.stringify(parsed));
   }
+  companyPage(input: unknown = {}) {
+    const q = CompanyQuerySchema.parse(input);
+    const base =
+      'FROM company_inventory i LEFT JOIN company_board_state b ON b.identity=i.identity';
+    const enabled =
+      "COALESCE(json_extract(b.json,'$.enabled'),1)=1 AND json_extract(b.json,'$.retiredAt') IS NULL";
+    const due = `${enabled} AND i.validated_at IS NOT NULL AND COALESCE(json_extract(b.json,'$.nextRefresh'),0)<=${Date.now()}`;
+    const clauses = ["(i.company LIKE ? ESCAPE '\\' OR i.tenant LIKE ? ESCAPE '\\')"];
+    const term = '%' + q.query.replace(/[\\%_]/g, '\\$&') + '%';
+    const values: (number | string)[] = [term, term];
+    if (q.provider !== 'all') {
+      clauses.push('i.ats=?');
+      values.push(q.provider);
+    }
+    if (q.status === 'enabled') clauses.push(enabled);
+    if (q.status === 'disabled') clauses.push(`NOT (${enabled})`);
+    if (q.status === 'due') clauses.push(due);
+    if (q.status === 'pending') clauses.push('i.validated_at IS NULL');
+    const where = ' WHERE ' + clauses.join(' AND ');
+    const total = Number(this.db.prepare(`SELECT COUNT(*) n ${base}${where}`).get(...values)!.n);
+    const rows = this.db
+      .prepare(`SELECT i.identity ${base}${where} ORDER BY i.company,i.identity LIMIT ? OFFSET ?`)
+      .all(...values, q.limit, q.offset)
+      .map((r) => this.board(String(r.identity))!);
+    const count = (clause: string) =>
+      Number(this.db.prepare(`SELECT COUNT(*) n ${base} WHERE ${clause}`).get()!.n);
+    return {
+      rows,
+      total,
+      verified: count('i.validated_at IS NOT NULL'),
+      enabled: count(enabled + ' AND i.validated_at IS NOT NULL'),
+      due: count(due),
+    };
+  }
+  configureBoard(
+    identity: string,
+    action: 'enable' | 'disable' | 'retire' | 'refresh' | 'interval',
+    intervalMs?: number,
+  ) {
+    const board = this.board(identity);
+    if (!board) throw new Error('BOARD_NOT_FOUND');
+    if (action === 'enable' || action === 'disable' || action === 'retire')
+      this.setBoardEnabled(identity, action === 'enable', action === 'retire');
+    else if (action === 'refresh') this.saveBoard({ ...board, nextRefresh: 0, retryAt: 0 });
+    else {
+      if (!intervalMs || intervalMs < 60000 || intervalMs > 2592000000)
+        throw new Error('INVALID_INTERVAL');
+      this.db
+        .prepare('INSERT OR REPLACE INTO career_setting VALUES(?,?)')
+        .run('board-interval:' + identity, String(intervalMs));
+      this.saveBoard({ ...board, nextRefresh: (board.lastSuccess ?? Date.now()) + intervalMs });
+    }
+  }
+  refreshInterval(identity: string) {
+    return Number(
+      this.db
+        .prepare('SELECT value FROM career_setting WHERE key=?')
+        .get('board-interval:' + identity)?.value ?? 3600000,
+    );
+  }
   claimBoard(identity: string, owner: string, now: number) {
     const board = this.board(identity);
     if (!board) return false;
@@ -397,7 +465,7 @@ export class DiscoveryStore {
         validatedAt: at,
         lastAttempt: at,
         lastSuccess: at,
-        nextRefresh: details.nextRefresh ?? at + 3600000,
+        nextRefresh: details.nextRefresh ?? at + this.refreshInterval(key),
         retryAt: 0,
         failures: 0,
         health: 'healthy',

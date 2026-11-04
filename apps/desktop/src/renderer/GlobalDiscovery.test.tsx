@@ -13,7 +13,8 @@ it('offers only supported zero-configuration discovery', () => {
   );
   expect(html).not.toContain('SearXNG');
   expect(html).not.toContain('Python');
-  expect(defaultDiscovery.sourceIds).toContain('wayback');
+  expect(defaultDiscovery.sourceIds).toHaveLength(11);
+  expect(defaultDiscovery.sourceIds).not.toContain('wayback');
 });
 it('warns when selected ATS adapters depend only on archive indexes and offers recovery', () => {
   const html = renderToStaticMarkup(

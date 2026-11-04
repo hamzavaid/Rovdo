@@ -12,6 +12,36 @@ import { sampleCandidate } from '../../../../tests/fixtures/ranking-v2';
 import { EMPLOYERS } from '@rovdo/job-sources';
 
 const sender = { url: 'rovdo://app/index.html', isMainFrame: true, ownsWindow: true };
+it('validates company controls and private bounded query plans through the owning frame', async () => {
+  const store = new CareerStore(':memory:');
+  const engine = new DiscoveryEngine(store);
+  const service = createCareerService(store, engine, async () => {});
+  try {
+    expect(
+      await service.command(
+        { op: 'companyDiscovery', action: 'automatic', enabled: false },
+        { ...sender, ownsWindow: false },
+      ),
+    ).toEqual({ ok: false, code: 'IPC_FORBIDDEN' });
+    expect(
+      (await service.command({ op: 'queryPlan', queries: Array(9).fill('engineer') }, sender)).ok,
+    ).toBe(false);
+    const r = await service.command(
+      { op: 'companyDiscovery', action: 'automatic', enabled: false },
+      sender,
+    );
+    expect(r.ok && r.view.automaticCompanyDiscovery).toBe(false);
+    expect((await service.command({ op: 'companyPage', query: { limit: 1000 } }, sender)).ok).toBe(
+      false,
+    );
+    const page = await service.command({ op: 'companyPage', query: {} }, sender);
+    expect(page.ok && page.view.companyPage?.total).toBe(0);
+  } finally {
+    await service.shutdown();
+    await engine.shutdown();
+    store.close();
+  }
+});
 it('rejects retired scraping commands even for the trusted renderer', async () => {
   const store = new CareerStore(':memory:');
   const engine = new DiscoveryEngine(store);

@@ -36,7 +36,8 @@ export function createCareerService(
   },
 ) {
   const companies = new CompanyDiscoveryScheduler(store, {
-    suspended: () => engine.polling || process.env.ROVDO_OFFLINE_FIXTURES === '1',
+    suspended: () => engine.polling,
+    automaticStart: () => process.env.ROVDO_OFFLINE_FIXTURES !== '1',
   });
   const controller = new AbortController();
   let discovering: Promise<void> | null = null;
@@ -54,6 +55,11 @@ export function createCareerService(
     if (!config) throw new Error('RANKING_NOT_FOUND');
     const candidate = profile ?? emptyProfile();
     const asOf = new Date().toISOString().slice(0, 10);
+    const jobRun = global.view().run;
+    if (!summary && jobRun) {
+      store.global.event(jobRun.id, 'eligibility', 'running');
+      store.global.event(jobRun.id, 'rank', 'running');
+    }
     if (!summary) await store.refreshSearchMetadata();
     const page = summary
       ? { matches: [], total: 0, pending: 0 }
@@ -67,9 +73,23 @@ export function createCareerService(
           true,
         );
     const visible = page.matches;
+    if (!summary && jobRun) {
+      store.global.event(
+        jobRun.id,
+        'eligibility',
+        page.pending ? 'partial' : 'complete',
+        page.total,
+      );
+      store.global.event(jobRun.id, 'rank', page.pending ? 'partial' : 'complete', page.total);
+    }
     const totalJobs = store.jobCount();
     const discovery = global.view();
     return {
+      companyDiscovery: companies.engine.view(),
+      companyPage: store.global.companyPage(),
+      automaticCompanyDiscovery: store.setting('automatic-company-discovery') !== 'false',
+      requests: [] as ReturnType<typeof store.global.requests>['rows'],
+      requestTotal: 0,
       profile,
       sources,
       matches: visible,
@@ -138,6 +158,23 @@ export function createCareerService(
       if (!parsed.success) return CareerResultSchema.parse({ ok: false, code: 'VALIDATION_ERROR' });
       const cmd = parsed.data;
       try {
+        if (cmd.op === 'companyDiscovery') {
+          if (cmd.action === 'automatic') {
+            if (cmd.enabled === undefined) throw new Error('ENABLED_REQUIRED');
+            store.setting('automatic-company-discovery', String(cmd.enabled));
+          } else if (cmd.action === 'start') {
+            companies.start();
+            void companies.engine.tick().catch(() => {});
+          } else {
+            const run = companies.engine.view().run;
+            if (!run) throw new Error('RUN_NOT_FOUND');
+            await companies.control(run.id, cmd.action);
+          }
+        }
+        if (cmd.op === 'companyBoard')
+          store.global.configureBoard(cmd.identity, cmd.action, cmd.intervalMs);
+        if (cmd.op === 'queryPlan')
+          store.setting('discovery-query-plan-v1', JSON.stringify(cmd.queries));
         if (cmd.op === 'openJob') {
           const job = store.job(cmd.jobId);
           const url = job.canonicalUrl;
@@ -200,6 +237,13 @@ export function createCareerService(
         if (cmd.op === 'deleteSearch') store.deleteSearch(cmd.id);
         if (cmd.op === 'markJob')
           store.markJob(cmd.jobId, {
+            ...(cmd.notes !== undefined ? { notes: cmd.notes } : {}),
+            ...(cmd.applicationStatus !== undefined
+              ? {
+                  applicationStatus: cmd.applicationStatus,
+                  applied: cmd.applicationStatus !== 'not-applied',
+                }
+              : {}),
             ...(cmd.applied !== undefined ? { applied: cmd.applied } : {}),
             ...(cmd.feedback ? { feedback: cmd.feedback } : {}),
             ...(cmd.seen ? { seenAt: Date.now() } : {}),
@@ -221,6 +265,21 @@ export function createCareerService(
           cmd.op === 'view' ? cmd.search : defaultSearch,
           cmd.op !== 'view' || cmd.summary === true,
         );
+        if (cmd.op === 'companyPage') current.companyPage = store.global.companyPage(cmd.query);
+        if (cmd.op === 'requestLog') {
+          const log = store.global.requests(cmd.lane, cmd.sourceId, cmd.offset);
+          current.requests = log.rows;
+          current.requestTotal = log.total;
+        }
+        if (cmd.op === 'previewRanking')
+          current.comparisons = [
+            store.cachedRanking(
+              { job: store.job(cmd.jobId), bm25Raw: 0 },
+              store.profile() ?? emptyProfile(),
+              cmd.config,
+              new Date().toISOString().slice(0, 10),
+            ),
+          ];
         if (cmd.op === 'compare') {
           const job = store.job(cmd.jobId);
           current.comparisons = cmd.rankingIds.map((id) => {
