@@ -17,6 +17,7 @@ import {
   AtsAdapter,
   BOARD_REGISTRY,
   DISCOVERY_SOURCES,
+  BOARD_DISCOVERY_PROVIDERS,
   fetchDiscoveryPage,
   feedFromUrl,
   inspectCareerPage,
@@ -55,6 +56,12 @@ const initialState = () =>
     parserVersion: 'ats-v1',
   });
 export class GlobalDiscoveryEngine {
+  private readonly lane: 'jobs' | 'companies';
+  private get providers() {
+    return this.lane === 'companies'
+      ? [...DISCOVERY_SOURCES, ...BOARD_DISCOVERY_PROVIDERS]
+      : DISCOVERY_SOURCES;
+  }
   private work: Promise<void> | null = null;
   private stopping = false;
   private controllers = new Map<string, AbortController>();
@@ -64,23 +71,25 @@ export class GlobalDiscoveryEngine {
   constructor(
     private readonly store: CareerStore,
     options: {
+      lane?: 'jobs' | 'companies';
       transport?: (url: string, options?: ReadOptions) => Promise<PublicResponse>;
       sleep?: (ms: number, signal?: AbortSignal) => Promise<void>;
     } = {},
   ) {
+    this.lane = options.lane ?? 'jobs';
     this.transport = options.transport ?? readPublic;
     this.sleep =
       options.sleep ??
       (async (ms, signal) => {
         await delay(ms, undefined, signal ? { signal } : {});
       });
-    store.global.recover();
+    store.global.recover(this.lane);
   }
   start(input: DiscoveryOptions): string {
     const options = DiscoveryOptionsSchema.parse(input);
     if (!options.sourceIds.length) throw new Error('SELECT_SOURCES');
     for (const id of options.sourceIds)
-      if (!DISCOVERY_SOURCES.some((s) => s.id === id)) throw new Error('UNKNOWN_SOURCE');
+      if (!this.providers.some((s) => s.id === id)) throw new Error('UNKNOWN_SOURCE');
     const profile = this.store.profile();
     const qualificationQueries = discoveryQueries(
       profile,
@@ -100,6 +109,7 @@ export class GlobalDiscoveryEngine {
       .runningRuns()
       .find(
         (r) =>
+          (r.lane ?? 'jobs') === this.lane &&
           r.profileVersion === (profile?.version ?? null) &&
           stable(r.options) === stable(options) &&
           stable(r.queries) === stable(queries),
@@ -107,6 +117,7 @@ export class GlobalDiscoveryEngine {
     if (duplicate) return duplicate.id;
     const run: DiscoveryRun = {
       id: randomUUID(),
+      lane: this.lane,
       status: 'running',
       createdAt: Date.now(),
       updatedAt: Date.now(),
@@ -117,6 +128,7 @@ export class GlobalDiscoveryEngine {
     };
     this.store.global.saveRun(run);
     if (
+      this.lane === 'jobs' &&
       options.sourceIds.some((id) =>
         ['greenhouse', 'lever', 'ashby', 'smartrecruiters'].includes(id),
       )
@@ -147,7 +159,7 @@ export class GlobalDiscoveryEngine {
       );
     }
     for (const id of [...new Set(options.sourceIds)]) {
-      const source = DISCOVERY_SOURCES.find((s) => s.id === id)!;
+      const source = this.providers.find((s) => s.id === id)!;
       if (['blocked', 'unsupported'].includes(source.status)) {
         this.store.global.note(run.id, id, source.status, 0, 0, source.limitation);
         continue;
@@ -251,7 +263,9 @@ export class GlobalDiscoveryEngine {
   }
   private async cycle() {
     this.store.global.cleanupExpired(Date.now());
-    for (const run of this.store.global.runningRuns()) {
+    for (const run of this.store.global
+      .runningRuns()
+      .filter((r) => (r.lane ?? 'jobs') === this.lane)) {
       if (this.stopping) break;
       const controller = this.controllers.get(run.id) ?? new AbortController();
       this.controllers.set(run.id, controller);
@@ -465,7 +479,7 @@ export class GlobalDiscoveryEngine {
           this.store.global.note(run.id, task.sourceId, 'partial', 0, 0, page.warning);
           return;
         }
-        const source = DISCOVERY_SOURCES.find((s) => s.id === task.sourceId)!;
+        const source = this.providers.find((s) => s.id === task.sourceId)!;
         const config = this.store.globalSource(source.id, source.name, source.url);
         const jobs: Job[] = [];
         let parsed = 0;
@@ -841,7 +855,7 @@ export class GlobalDiscoveryEngine {
       this.controllers.delete(id);
       // New keyless providers replace retired endpoint tasks without replaying completed pages.
       for (const sourceId of run.options.sourceIds) {
-        const source = DISCOVERY_SOURCES.find((s) => s.id === sourceId);
+        const source = this.providers.find((s) => s.id === sourceId);
         if (source && source.adapter !== 'ats') this.enqueue(run, sourceId, 'provider', {});
       }
       this.store.global.saveRun({ ...run, status: 'running', updatedAt: Date.now(), reason: null });
@@ -858,8 +872,11 @@ export class GlobalDiscoveryEngine {
     this.controllers.delete(id);
   }
   view() {
-    const runs = this.store.global.runs();
-    const run = this.store.global.runningRuns()[0] ?? runs[0] ?? null;
+    const runs = this.store.global.runs().filter((r) => (r.lane ?? 'jobs') === this.lane);
+    const run =
+      this.store.global.runningRuns().find((r) => (r.lane ?? 'jobs') === this.lane) ??
+      runs[0] ??
+      null;
     return DiscoveryViewSchema.parse({
       run,
       runs,
@@ -868,7 +885,7 @@ export class GlobalDiscoveryEngine {
         this.store.rankings().find((p) => p.id === this.store.defaultRanking())?.minimumEvidence ??
           0.5,
       ),
-      registry: DISCOVERY_SOURCES,
+      registry: this.lane === 'companies' ? BOARD_DISCOVERY_PROVIDERS : DISCOVERY_SOURCES,
       coverage: run
         ? this.store.global
             .coverage(run.id)
@@ -889,7 +906,9 @@ export class GlobalDiscoveryEngine {
     this.stopping = true;
     for (const controller of this.controllers.values()) controller.abort();
     await this.work;
-    for (const run of this.store.global.runningRuns())
+    for (const run of this.store.global
+      .runningRuns()
+      .filter((r) => (r.lane ?? 'jobs') === this.lane))
       this.store.global.saveRun({
         ...run,
         status: 'paused',

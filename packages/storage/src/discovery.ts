@@ -42,7 +42,7 @@ export class DiscoveryStore {
         // Migrate disposable source configuration, retaining every run, task, job and user marker.
         for (const row of db.prepare('SELECT id,json FROM discovery_run').all()) {
           const raw = JSON.parse(String(row.json));
-          raw.options = migrateDiscoveryOptions(raw.options);
+          raw.options = migrateDiscoveryOptions(raw.options, true);
           db.prepare('UPDATE discovery_run SET json=? WHERE id=?').run(
             JSON.stringify(raw),
             String(row.id),
@@ -96,6 +96,33 @@ export class DiscoveryStore {
         db.exec('ROLLBACK');
         throw error;
       }
+    }
+    this.migrateJobSelections();
+  }
+  migrateJobSelections() {
+    if (
+      this.db.prepare("SELECT value FROM career_setting WHERE key='job-source-taxonomy'").get()
+        ?.value === '3'
+    )
+      return;
+    this.db.exec('BEGIN IMMEDIATE');
+    try {
+      for (const row of this.db.prepare('SELECT id,json FROM saved_search').all()) {
+        const raw = JSON.parse(String(row.json));
+        if (raw.search?.discovery) {
+          raw.search.discovery = migrateDiscoveryOptions(raw.search.discovery);
+          this.db
+            .prepare('UPDATE saved_search SET json=? WHERE id=?')
+            .run(JSON.stringify(raw), String(row.id));
+        }
+      }
+      this.db
+        .prepare("INSERT OR REPLACE INTO career_setting VALUES('job-source-taxonomy','3')")
+        .run();
+      this.db.exec('COMMIT');
+    } catch (error) {
+      this.db.exec('ROLLBACK');
+      throw error;
     }
   }
   rememberCompany(
@@ -230,15 +257,17 @@ export class DiscoveryStore {
       .all()
       .map((r) => DiscoveryRunSchema.parse(JSON.parse(String(r.json))));
   }
-  recover() {
+  recover(lane: 'jobs' | 'companies' = 'jobs') {
     for (const row of this.db
       .prepare("SELECT json FROM discovery_task WHERE status='running'")
       .all()) {
       const t = DiscoveryTaskSchema.parse(JSON.parse(String(row.json)));
+      if ((this.run(t.runId).lane ?? 'jobs') !== lane) continue;
       this.saveTask({ ...t, status: 'pending' });
     }
     for (const row of this.db.prepare('SELECT json FROM discovery_run').all()) {
       const r = DiscoveryRunSchema.parse(JSON.parse(String(row.json)));
+      if ((r.lane ?? 'jobs') !== lane) continue;
       if (r.status === 'running')
         this.saveRun({
           ...r,

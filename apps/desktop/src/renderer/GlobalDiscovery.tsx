@@ -1,5 +1,6 @@
 /** Progressive global-search configuration, precise coverage and resumable collection controls. */
 import { useState } from 'react';
+import { JOB_SOURCE_IDS } from '@rovdo/shared';
 import { discoveryOptionsForSearch } from './discovery-search';
 import type {
   CareerCommand,
@@ -35,21 +36,7 @@ function sourceReason(code: string | null): string {
   );
 }
 export const defaultDiscovery: DiscoveryOptions = {
-  sourceIds: [
-    'greenhouse',
-    'lever',
-    'ashby',
-    'smartrecruiters',
-    'remotive',
-    'himalayas',
-    'we-work-remotely',
-    'simplify-new-grad-positions',
-    'simplify-pitt-csc-summer-2027-internships',
-    'vansh-new-grad-2027',
-    'vansh-summer-2027-internships',
-    'wayback',
-    'common-crawl',
-  ],
+  sourceIds: [...JOB_SOURCE_IDS],
   overrides: {},
 };
 export function GlobalDiscovery({

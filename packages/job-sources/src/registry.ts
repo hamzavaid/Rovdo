@@ -26,8 +26,7 @@ export const BOARD_REGISTRY = boards.map((board) =>
       'Public source. Source policies, availability, TTLs and collection health apply; employer postings are verified separately.',
   }),
 );
-export const DISCOVERY_SOURCES = [
-  ...BOARD_REGISTRY,
+export const BOARD_DISCOVERY_PROVIDERS = [
   ...[
     {
       id: 'wayback',
@@ -52,4 +51,5 @@ export const DISCOVERY_SOURCES = [
     }),
   ),
 ];
+export const DISCOVERY_SOURCES = BOARD_REGISTRY;
 export const GLOBAL_DEFAULT_SOURCES = DISCOVERY_SOURCES.map((s) => s.id);

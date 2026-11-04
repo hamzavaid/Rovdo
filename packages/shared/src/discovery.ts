@@ -1,5 +1,19 @@
 /** Durable, provider-independent global discovery contracts. No AI or candidate contacts cross this API. */
 import { z } from 'zod';
+export const JOB_SOURCE_IDS = [
+  'greenhouse',
+  'lever',
+  'ashby',
+  'smartrecruiters',
+  'remotive',
+  'himalayas',
+  'we-work-remotely',
+  'simplify-new-grad-positions',
+  'simplify-pitt-csc-summer-2027-internships',
+  'vansh-new-grad-2027',
+  'vansh-summer-2027-internships',
+] as const;
+export const BOARD_FINDER_IDS = ['wayback', 'common-crawl'] as const;
 export const DiscoveryFiltersSchema = z.strictObject({
   keywords: z.string().max(500).optional(),
   location: z.string().max(200).optional(),
@@ -26,6 +40,7 @@ export const RegistryEntrySchema = z.strictObject({
 export const DiscoveryRunSchema = z.strictObject({
   id: z.uuid(),
   status: z.enum(['running', 'paused', 'completed', 'canceled']),
+  lane: z.enum(['jobs', 'companies']).optional(),
   createdAt: z.number(),
   updatedAt: z.number(),
   profileVersion: z.number().nullable(),
@@ -86,29 +101,17 @@ export const DiscoveryViewSchema = z.strictObject({
 });
 
 /** Storage-only migration. IPC remains strict and rejects retired endpoint configuration. */
-export function migrateDiscoveryOptions(input: Record<string, unknown>) {
-  const allowed = new Set([
-    'greenhouse',
-    'lever',
-    'ashby',
-    'smartrecruiters',
-    'remotive',
-    'himalayas',
-    'we-work-remotely',
-    'simplify-new-grad-positions',
-    'simplify-pitt-csc-summer-2027-internships',
-    'vansh-new-grad-2027',
-    'vansh-summer-2027-internships',
-    'wayback',
-    'common-crawl',
-  ]);
+export function migrateDiscoveryOptions(input: Record<string, unknown>, historical = false) {
+  const allowed = new Set<string>(
+    historical ? [...JOB_SOURCE_IDS, ...BOARD_FINDER_IDS] : JOB_SOURCE_IDS,
+  );
   const { indexUrl: retired, ...rest } = input;
   void retired;
   const ids = Array.isArray(input.sourceIds)
     ? input.sourceIds.filter((id): id is string => typeof id === 'string')
     : [];
   const sourceIds = ids.filter((id) => allowed.has(id));
-  if (ids.some((id) => !allowed.has(id))) sourceIds.push('wayback', 'common-crawl');
+  if (!historical && ids.length && !sourceIds.length) sourceIds.push(...JOB_SOURCE_IDS);
   return DiscoveryOptionsSchema.parse({
     ...rest,
     sourceIds: [...new Set(sourceIds)],
