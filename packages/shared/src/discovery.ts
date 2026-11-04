@@ -14,6 +14,32 @@ export const JOB_SOURCE_IDS = [
   'vansh-summer-2027-internships',
 ] as const;
 export const BOARD_FINDER_IDS = ['wayback', 'common-crawl'] as const;
+export const CompanyBoardSchema = z.strictObject({
+  identity: z.string(),
+  ats: z.enum(['greenhouse', 'lever', 'ashby', 'smartrecruiters']),
+  tenant: z.string(),
+  region: z.enum(['global', 'eu']),
+  company: z.string(),
+  pageUrl: z.string().url(),
+  nameStatus: z.enum(['known', 'pending', 'conflict']),
+  enabled: z.boolean(),
+  retiredAt: z.number().nullable(),
+  discoveredAt: z.number(),
+  observedAt: z.number(),
+  validatedAt: z.number().nullable(),
+  lastAttempt: z.number().nullable(),
+  lastSuccess: z.number().nullable(),
+  nextRefresh: z.number(),
+  retryAt: z.number(),
+  failures: z.number(),
+  health: z.string(),
+  complete: z.boolean(),
+  contentHash: z.string().nullable(),
+  etag: z.string().nullable(),
+  lastModified: z.string().nullable(),
+  origin: z.string(),
+});
+export type CompanyBoard = z.infer<typeof CompanyBoardSchema>;
 export const DiscoveryFiltersSchema = z.strictObject({
   keywords: z.string().max(500).optional(),
   location: z.string().max(200).optional(),

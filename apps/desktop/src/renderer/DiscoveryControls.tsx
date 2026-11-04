@@ -371,7 +371,7 @@ export function DiscoveryControls({
                   <small className="directory-provenance">
                     Policy reference: {e.policyReference}
                     {' · response hash '}
-                    {e.responseHash.slice(0, 16)}
+                    {e.responseHash?.slice(0, 16) ?? 'not retained'}
                   </small>
                 </article>
               );

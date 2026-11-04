@@ -94,7 +94,7 @@ export class CareerStore {
     const version = Number(
       this.db.prepare('SELECT COALESCE(MAX(version),0) AS n FROM career_schema').get()!.n,
     );
-    if (version > 6) throw new Error('DATABASE_TOO_NEW');
+    if (version > 7) throw new Error('DATABASE_TOO_NEW');
     if (!version)
       this.transaction(() => {
         this.db.exec(`
@@ -157,6 +157,7 @@ export class CareerStore {
       DELETE FROM rank_cache; INSERT INTO career_schema VALUES(6);`);
       });
     this.global = new DiscoveryStore(this.db);
+    if (version < 7) this.transaction(() => this.db.exec('INSERT INTO career_schema VALUES(7)'));
     this.db.exec(`CREATE INDEX IF NOT EXISTS saved_discovery_sources ON job_source(id)
       WHERE json_extract(config,'$.enabled')=1
       AND coalesce(json_extract(config,'$.collection'),'saved')='saved'

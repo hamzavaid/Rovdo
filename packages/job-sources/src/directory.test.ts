@@ -39,7 +39,7 @@ it('ships provenance-bearing verified finite sources and only resolves exact pub
     EMPLOYERS.every(
       (e) =>
         e.policy === 'approved' &&
-        e.responseHash.length === 64 &&
+        e.responseHash?.length === 64 &&
         e.reference.startsWith('https://'),
     ),
   ).toBe(true);

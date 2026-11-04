@@ -73,21 +73,30 @@ export const CandidateProfileSchema = z
 export type CandidateProfile = z.infer<typeof CandidateProfileSchema>;
 export type ProfileFact = z.infer<typeof ProfileFactSchema>;
 export const AtsKindSchema = z.enum(['greenhouse', 'lever', 'ashby', 'smartrecruiters', 'jsonld']);
-export const EmployerSchema = z.strictObject({
-  id: z.string().max(200),
-  company: z.string().min(1).max(200),
-  aliases: z.array(z.string().max(200)).max(20),
-  ats: AtsKindSchema,
-  tenant: z.string().max(120),
-  region: z.enum(['global', 'eu']),
-  reference: z.string().url().max(2048),
-  policyReference: z.string().url().max(2048),
-  policy: z.enum(['approved', 'review', 'blocked']),
-  verifiedAt: z.iso.datetime(),
-  refreshAfter: z.iso.datetime(),
-  responseHash: z.string().regex(/^[a-f0-9]{64}$/),
-  pageUrl: z.string().url().max(2048).optional(),
-});
+export const EmployerSchema = z
+  .strictObject({
+    id: z.string().max(200),
+    company: z.string().max(200),
+    nameStatus: z.enum(['known', 'pending', 'conflict']).optional(),
+    aliases: z.array(z.string().max(200)).max(20),
+    ats: AtsKindSchema,
+    tenant: z.string().max(120),
+    region: z.enum(['global', 'eu']),
+    reference: z.string().url().max(2048),
+    policyReference: z.string().url().max(2048),
+    policy: z.enum(['approved', 'review', 'blocked']),
+    verifiedAt: z.iso.datetime(),
+    refreshAfter: z.iso.datetime(),
+    responseHash: z
+      .string()
+      .regex(/^[a-f0-9]{64}$/)
+      .nullable(),
+    pageUrl: z.string().url().max(2048).optional(),
+  })
+  .refine((e) => !!e.company.trim() || e.nameStatus === 'pending', {
+    message: 'An unresolved employer must be marked pending',
+    path: ['company'],
+  });
 export type Employer = z.infer<typeof EmployerSchema>;
 export const SourceConfigSchema = z.strictObject({
   id: z.uuid(),

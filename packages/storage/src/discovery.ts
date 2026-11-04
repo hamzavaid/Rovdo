@@ -6,11 +6,13 @@ import {
   DiscoveryTaskSchema,
   DiscoveryListingSchema,
   migrateDiscoveryOptions,
+  CompanyBoardSchema,
 } from '@rovdo/shared';
-import type { DiscoveryRun, DiscoveryTask, DiscoveryListing } from '@rovdo/shared';
+import type { CompanyBoard, DiscoveryRun, DiscoveryTask, DiscoveryListing } from '@rovdo/shared';
 export class DiscoveryStore {
   constructor(private readonly db: DatabaseSync) {
     db.exec(`
+ CREATE TABLE IF NOT EXISTS company_board_state(identity TEXT PRIMARY KEY,json TEXT NOT NULL,lease_owner TEXT,lease_until INTEGER NOT NULL DEFAULT 0);
  CREATE TABLE IF NOT EXISTS company_inventory(identity TEXT PRIMARY KEY,ats TEXT NOT NULL,tenant TEXT NOT NULL,region TEXT NOT NULL,company TEXT NOT NULL,page_url TEXT NOT NULL,discovered_at INTEGER NOT NULL,observed_at INTEGER NOT NULL,validated_at INTEGER,UNIQUE(ats,tenant,region));
  CREATE INDEX IF NOT EXISTS inventory_validated ON company_inventory(validated_at,identity);
  CREATE TABLE IF NOT EXISTS discovery_run(id TEXT PRIMARY KEY,json TEXT NOT NULL);
@@ -98,6 +100,30 @@ export class DiscoveryStore {
       }
     }
     this.migrateJobSelections();
+    if (
+      this.db.prepare("SELECT value FROM career_setting WHERE key='board-directory-v1'").get()
+        ?.value !== '1'
+    ) {
+      this.db.exec('SAVEPOINT board_projection_backfill');
+      try {
+        for (const row of this.db
+          .prepare(
+            'SELECT ats,tenant,region,validated_at FROM company_inventory WHERE validated_at IS NOT NULL',
+          )
+          .all())
+          this.validateCompany(
+            { ats: String(row.ats), tenant: String(row.tenant), region: String(row.region) },
+            Number(row.validated_at),
+          );
+        this.db
+          .prepare("INSERT OR REPLACE INTO career_setting VALUES('board-directory-v1','1')")
+          .run();
+        this.db.exec('RELEASE board_projection_backfill');
+      } catch (error) {
+        this.db.exec('ROLLBACK TO board_projection_backfill; RELEASE board_projection_backfill');
+        throw error;
+      }
+    }
   }
   migrateJobSelections() {
     if (
@@ -125,23 +151,191 @@ export class DiscoveryStore {
       throw error;
     }
   }
+  private boardKey(feed: { ats: string; tenant: string; region: string }) {
+    return [feed.ats, feed.tenant, feed.region].map((s) => s.toLowerCase()).join(':');
+  }
+  board(identity: string): CompanyBoard | null {
+    const row = this.db
+      .prepare(
+        "SELECT * FROM company_inventory WHERE lower(ats)||':'||lower(tenant)||':'||lower(region)=? ORDER BY identity LIMIT 1",
+      )
+      .get(identity.toLowerCase());
+    if (!row) return null;
+    const state = this.db
+      .prepare('SELECT json FROM company_board_state WHERE identity=?')
+      .get(identity.toLowerCase());
+    return CompanyBoardSchema.parse({
+      identity: identity.toLowerCase(),
+      ats: row.ats,
+      tenant: row.tenant,
+      region: row.region,
+      company: row.company,
+      pageUrl: row.page_url,
+      nameStatus: row.company ? 'known' : 'pending',
+      enabled: true,
+      retiredAt: null,
+      discoveredAt: row.discovered_at,
+      lastAttempt: null,
+      lastSuccess: null,
+      nextRefresh: 0,
+      retryAt: 0,
+      failures: 0,
+      health: 'pending',
+      complete: false,
+      contentHash: null,
+      etag: null,
+      lastModified: null,
+      origin: 'discovery',
+      ...(state ? JSON.parse(String(state.json)) : {}),
+      observedAt: row.observed_at,
+      validatedAt: row.validated_at,
+    });
+  }
+  private saveBoard(board: CompanyBoard) {
+    const parsed = CompanyBoardSchema.parse(board);
+    this.db
+      .prepare(
+        'INSERT INTO company_board_state(identity,json) VALUES(?,?) ON CONFLICT(identity) DO UPDATE SET json=excluded.json',
+      )
+      .run(parsed.identity, JSON.stringify(parsed));
+  }
+  setBoardEnabled(identity: string, enabled: boolean, retired = false) {
+    const board = this.board(identity);
+    if (!board) throw new Error('BOARD_NOT_FOUND');
+    this.saveBoard({ ...board, enabled, retiredAt: retired ? Date.now() : null });
+  }
+  companyAllowed(feed: { ats: string; tenant: string; region: string }) {
+    const key = this.boardKey(feed),
+      board = this.board(key);
+    if (board && (!board.enabled || board.retiredAt !== null)) return false;
+    if (
+      this.db
+        .prepare("SELECT 1 FROM career_setting WHERE key=? COLLATE NOCASE AND value='true'")
+        .get(`source-removed:${feed.ats}:${feed.region}:${feed.tenant}`)
+    )
+      return false;
+    return !this.db
+      .prepare(
+        "SELECT 1 FROM job_source WHERE lower(json_extract(config,'$.ats'))=? AND lower(json_extract(config,'$.tenant'))=? AND json_extract(config,'$.region')=? AND json_extract(config,'$.enabled')=0 LIMIT 1",
+      )
+      .get(feed.ats.toLowerCase(), feed.tenant.toLowerCase(), feed.region);
+  }
   rememberCompany(
     feed: { ats: string; tenant: string; region: string },
     company: string,
     pageUrl: string,
     at: number,
   ) {
-    const key = [feed.ats, feed.tenant, feed.region].join(':');
+    const key = this.boardKey(feed);
+    const existing = this.board(key);
     this.db
       .prepare(
-        `INSERT INTO company_inventory VALUES(?,?,?,?,?,?,?,?,NULL) ON CONFLICT(identity) DO UPDATE SET observed_at=MAX(observed_at,excluded.observed_at), company=CASE WHEN company_inventory.company='' THEN excluded.company ELSE company_inventory.company END`,
+        `INSERT INTO company_inventory VALUES(?,?,?,?,?,?,?,?,NULL) ON CONFLICT(identity) DO UPDATE SET observed_at=MAX(observed_at,excluded.observed_at),company=CASE WHEN company_inventory.company='' THEN excluded.company ELSE company_inventory.company END`,
       )
-      .run(key, feed.ats, feed.tenant, feed.region, company, pageUrl, at, at);
+      .run(
+        key,
+        feed.ats.toLowerCase(),
+        feed.tenant.toLowerCase(),
+        feed.region,
+        company,
+        pageUrl,
+        at,
+        at,
+      );
+    if (existing) {
+      const conflict =
+        !!company &&
+        !!existing.company &&
+        company.trim().toLowerCase() !== existing.company.trim().toLowerCase();
+      this.saveBoard({
+        ...existing,
+        nameStatus:
+          conflict || existing.nameStatus === 'conflict'
+            ? 'conflict'
+            : company
+              ? 'known'
+              : existing.nameStatus,
+        company: existing.company || company,
+        observedAt: at,
+      });
+    }
   }
-  validateCompany(feed: { ats: string; tenant: string; region: string }, at: number) {
-    this.db
-      .prepare('UPDATE company_inventory SET validated_at=? WHERE identity=?')
-      .run(at, [feed.ats, feed.tenant, feed.region].join(':'));
+  validateCompany(
+    feed: { ats: string; tenant: string; region: string },
+    at: number,
+    details: {
+      contentHash?: string;
+      complete?: boolean;
+      etag?: string;
+      lastModified?: string;
+      nextRefresh?: number;
+    } = {},
+  ) {
+    const key = this.boardKey(feed),
+      prior = this.board(key);
+    if (!prior) throw new Error('BOARD_NOT_FOUND');
+    this.db.exec('SAVEPOINT verified_board');
+    try {
+      this.db
+        .prepare(
+          "UPDATE company_inventory SET validated_at=? WHERE lower(ats)||':'||lower(tenant)||':'||lower(region)=?",
+        )
+        .run(at, key);
+      const board: CompanyBoard = {
+        ...prior,
+        validatedAt: at,
+        lastAttempt: at,
+        lastSuccess: at,
+        nextRefresh: details.nextRefresh ?? at + 3600000,
+        retryAt: 0,
+        failures: 0,
+        health: 'healthy',
+        complete: details.complete ?? false,
+        contentHash: details.contentHash ?? prior.contentHash,
+        etag: details.etag ?? prior.etag,
+        lastModified: details.lastModified ?? prior.lastModified,
+      };
+      this.saveBoard(board);
+      const existing = this.db
+        .prepare(
+          "SELECT id,json FROM employer_directory WHERE lower(json_extract(json,'$.ats'))=? AND lower(json_extract(json,'$.tenant'))=? AND json_extract(json,'$.region')=? ORDER BY id LIMIT 1",
+        )
+        .get(board.ats, board.tenant, board.region);
+      const old = existing ? JSON.parse(String(existing.json)) : null;
+      const entry = {
+        id: old?.id ?? `board:${key}`,
+        company: board.company,
+        nameStatus: board.nameStatus,
+        aliases: old?.aliases ?? [],
+        ats: board.ats,
+        tenant: board.tenant,
+        region: board.region,
+        reference: board.pageUrl,
+        policyReference: old?.policyReference ?? board.pageUrl,
+        policy: old?.policy ?? 'review',
+        verifiedAt: new Date(at).toISOString(),
+        refreshAfter: new Date(at + 7 * 86400000).toISOString(),
+        responseHash: board.contentHash,
+        pageUrl: old?.pageUrl ?? board.pageUrl,
+      };
+      this.db
+        .prepare(
+          'INSERT INTO employer_directory VALUES(?,?) ON CONFLICT(id) DO UPDATE SET json=excluded.json',
+        )
+        .run(entry.id, JSON.stringify(entry));
+      if (entry.company && entry.nameStatus === 'known')
+        this.db.prepare('INSERT INTO employer_alias VALUES(?,?) ON CONFLICT DO NOTHING').run(
+          entry.company
+            .toLowerCase()
+            .replace(/[^a-z0-9]+/g, ' ')
+            .trim(),
+          entry.id,
+        );
+      this.db.exec('RELEASE verified_board');
+    } catch (error) {
+      this.db.exec('ROLLBACK TO verified_board; RELEASE verified_board');
+      throw error;
+    }
   }
   companyBatch(after = '', limit = 50, validated = false) {
     return this.db
