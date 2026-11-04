@@ -2,6 +2,28 @@ import { expect, it, vi } from 'vitest';
 import { CareerStore } from '@rovdo/storage';
 import { GlobalDiscoveryEngine } from './global-engine';
 
+it('reuses a verified empty pending-name tenant without creating a fake employer source', async () => {
+  const store = new CareerStore(':memory:');
+  const engine = new GlobalDiscoveryEngine(store, {
+    transport: async () => {
+      throw new Error('Fresh empty tenant must not fetch');
+    },
+  });
+  try {
+    const feed = { ats: 'lever', tenant: 'pending', region: 'global' };
+    store.global.rememberCompany(feed, '', 'https://jobs.lever.co/pending', Date.now());
+    store.global.validateCompany(feed, Date.now(), { complete: true });
+    const id = engine.start({ sourceIds: ['lever'], overrides: {} });
+    for (let n = 0; n < 5 && store.global.run(id).status === 'running'; n++) await engine.tick();
+    expect(store.jobCount()).toBe(0);
+    expect(store.sources()).toHaveLength(0);
+    expect(store.global.run(id).status).toBe('completed');
+  } finally {
+    await engine.shutdown();
+    store.close();
+  }
+});
+
 it('reuses a due unchanged snapshot after a real conditional 304 response', async () => {
   vi.useFakeTimers({ toFake: ['Date'] });
   const store = new CareerStore(':memory:');
