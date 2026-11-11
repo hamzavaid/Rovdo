@@ -1,6 +1,6 @@
 # Contributing to Rovdo
 
-Rovdo has completed its foundation and Desktop + BYOK implementation. Keep changes focused on an agreed milestone and preserve the separation between Electron main, preload, renderer, and shared contracts.
+Rovdo v0.3.8 is in pre-Phase 4 stabilization; deterministic discovery, profile imports, ranking, optional model/CLI chat and scoped browser tasks are available. Keep changes focused on an agreed milestone and preserve the separation between Electron main, preload, renderer, and shared contracts.
 
 ## Setup
 
@@ -8,10 +8,11 @@ Use Node.js 24 LTS and npm 11, clone the repository, then run:
 
 ```sh
 npm ci
+npx playwright install chromium
 npm run dev
 ```
 
-The root is an npm workspace. Run checks from the repository root. Do not install separate dependency trees in individual workspaces. Pin direct dependency versions and include lockfile updates when dependencies change.
+The root is an npm workspace. Run checks from the repository root. On Windows, use `npm.cmd` / `npx.cmd` if PowerShell blocks the corresponding script shims; do not change execution policy for setup. Do not install separate dependency trees in individual workspaces. Pin direct dependency versions and include lockfile updates when dependencies change.
 
 ## Changes and tests
 
@@ -21,9 +22,9 @@ The root is an npm workspace. Run checks from the repository root. Do not instal
 4. Run `npm run check` and `npm audit --audit-level=high` before submitting a change.
 5. Describe the problem, resulting behavior, test evidence, and material limitations in the pull request. Use descriptive commits for independently working stages.
 
-Unit tests live next to source files. Desktop E2E tests live in `tests/e2e` and run against compiled bundles. Linux needs Electron system libraries and a graphical session or `xvfb-run`; see the README. Automated tests must never submit real applications, send outreach, delete mail, or create third-party accounts.
+Unit tests live next to source files. Desktop E2E tests live in `tests/e2e` and run against compiled bundles. Linux needs Electron system libraries and a graphical session or `xvfb-run`; see the platform setup below. Automated tests must never submit real applications, send outreach, delete mail, or create third-party accounts.
 
-Provider tests use injected fetch fixtures with the official SDKs. The desktop acceptance flow uses an explicit loopback server and a unique synthetic OS-vault entry, verifies restart persistence, and removes the credential. Never add a renderer read-key method or a test-only authentication bypass to the production app. Linux E2E needs an isolated D-Bus session and unlocked Secret Service vault as shown in the README/CI.
+Provider tests use injected fetch fixtures with the official SDKs. The desktop acceptance flow uses an explicit loopback server and a unique synthetic OS-vault entry, verifies restart persistence, and removes the credential. Never add a renderer read-key method or a test-only authentication bypass to the production app. Linux E2E needs an isolated D-Bus session and unlocked Secret Service vault as shown in the platform setup below and CI.
 
 ## Architecture boundaries
 
@@ -53,9 +54,9 @@ Follow an end-to-end workflow through these modules:
 
 | Workflow | UI and orchestration | Business rules and IO |
 | --- | --- | --- |
-| Jobs | `CareerWorkspace` -> `career-service` | `job-discovery` schedules `job-sources` reads; `CareerStore` persists/searches; `career` ranks deterministically |
+| Jobs | `JobsWorkspace` / `JobsScope` / `JobsCollection` -> `career-service` | `job-discovery` schedules `job-sources` reads; `CareerStore` persists/searches; `career` ranks deterministically |
 | Profile import | `ProfileIntelligence` -> `intelligence-service` -> `profile-file`/`profile-worker` | `profile-import` decodes and proposes records; `ImportReview` obtains approval before an atomic profile merge |
-| Ranking | `RankingEditor` -> intelligence commands | `candidate.ts` reconciles history, `requirements.ts` parses postings, and `scorer-v2.ts` applies the selected immutable or custom configuration |
+| Ranking | `JobsRanking` / `RankingEditor` -> intelligence and career commands | `candidate.ts` reconciles history, `requirements.ts` parses postings, and `scorer-v2.ts` applies the selected immutable or custom configuration |
 | Models/chat | `Models`/`Chat` -> `byok-ipc` -> `ByokService` | `providers` normalizes streams/tools/usage; network policy and the OS vault stay in privileged code |
 | Browser | `BrowserRun` -> `browser-service` | `BrowserRuntime` persists the policy/approval loop; `BrowserWorker` executes scoped semantic DOM actions |
 | Appearance | `appearance.ts` -> intelligence appearance command | `tokens.css` supplies semantic values; base/feature styles precede `workspace.css` refinements |
@@ -75,3 +76,54 @@ npx --yes prettier@3.6.2 --check "apps/desktop/src/**/*.{ts,tsx,css}" "packages/
 Replace `--check` with `--write` to format. The formatter must be cached or downloaded on first use; `--offline` can be passed through npm exec when cached. Generated bundles, dependencies, private `/docs`, lockfiles, artifacts and the separate roadmap file are excluded. Keep JSON manifests valid; explain their design rationale in contributor guidance instead of adding unsupported JSON comments. Preserve JSX text spacing when reformatting and run the regression gate after broad formatting changes.
 
 The automated source/workflow formatting gate is `npm run format:check` and is included in `npm run check` and CI. CI helper TypeScript files and their tests are covered by the normal static/unit gates. Run `npm run benchmark:matching` to regenerate the synthetic matching report; see [QUALITY.md](QUALITY.md) for rubric, baseline provenance, metrics and limitations. Never recapture the frozen baseline to accommodate a failing regression.
+
+## Development commands and platform setup
+
+| Command              | Purpose                                                                                    |
+| -------------------- | ------------------------------------------------------------------------------------------ |
+| `npm run dev`        | Build and open the desktop application                                                     |
+| `npm run build`      | Compile renderer, main process, preload and bounded import worker into `apps/desktop/dist` |
+| `npm run lint`       | Lint source and configuration with zero warnings allowed                                   |
+| `npm run typecheck`  | Check strict TypeScript contracts                                                          |
+| `npm test`           | Run Vitest unit and boundary tests                                                         |
+| `npm run test:watch` | Run unit tests in watch mode                                                               |
+| `npm run test:e2e`   | Verify Electron isolation, native-vault use, settings restart, and mock-provider chat      |
+| `npm run check`      | Run formatting, lint, typecheck, unit/integration tests, build, and Electron E2Es                                  |
+
+Build before running E2E tests directly. Playwright drives Electron and isolated Chromium fixtures; install Chromium with `npx playwright install chromium`. Tests use synthetic credentials in the real OS vault and remove them afterward. Provider HTTP responses are mocked or served by an explicit loopback fixture; no paid provider requests are made. On headless Linux, install system libraries and run an isolated D-Bus/keyring session with a virtual display:
+
+```sh
+npx playwright install-deps chromium
+sudo apt-get install gnome-keyring zenity dbus-x11 libdbus-1-3
+dbus-run-session -- sh -c 'printf "rovdo-ci-fixture\n" | gnome-keyring-daemon --unlock --components=secrets; xvfb-run --auto-servernum npm run check'
+```
+
+CI is configured for Windows, macOS and Linux, plus a dependency audit. A configured matrix is not evidence of a successful hosted run; verify actual results before release.
+
+
+## Project structure
+
+```text
+apps/desktop/         Electron main, sandboxed preload, React renderer
+packages/shared/      Zod contracts, shared types, error codes
+packages/agent-core/  Policy, approvals, bounded browser loop, safe diagnostics
+packages/browser-worker/ Disposable Chromium sessions and semantic DOM tools
+packages/career/      Versioned requirements, eligibility, taxonomy and pure ranking
+packages/profile-import/ Bounded document, LinkedIn archive and public GitHub imports
+packages/job-sources/ ATS/API/feed/list/index adapters and source capability registry
+packages/job-discovery/ Saved polling, qualification queries and resumable global collection
+packages/providers/   Provider-independent gateway and official SDK adapters
+packages/storage/     SQLite WAL settings, run checkpoints, jobs and FTS5
+tests/e2e/            Electron, vault, browser and career checks with synthetic data
+scripts/              Build and launch helpers
+.github/workflows/    Cross-platform CI
+```
+
+The stack is Electron, React, TypeScript, Vite, Zod, Vitest, and Playwright Test. Runtime and tooling versions are pinned in the workspace manifests and lockfile. Additional modules will be introduced with their development milestones.
+
+
+## Documentation maintenance
+
+[README.md](README.md) is the short public entry point; [USER_GUIDE.md](USER_GUIDE.md) owns usage instructions. [QUALITY.md](QUALITY.md) owns benchmark methods and limitations; [MISMATCH.md](MISMATCH.md) records implementation discrepancies and verification scope. Use the [glossary](GLOSSARY.md) consistently.
+
+Keep internal architecture, specification, research, audit logs and historical evidence in Gitignored `docs/`. Public build/setup instructions must stand alone. Never publish private material through source comments or tracked documentation. Preserve original evidence before removing historical documentation; do not treat old test counts as current verification.

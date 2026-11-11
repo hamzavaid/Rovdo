@@ -150,6 +150,7 @@ vite.config.ts.timestamp-*
 
 # Internal Docs
 docs/
+.planning/
 
 # Local test artifacts and desktop runtime data
 test-results/
