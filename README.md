@@ -9,7 +9,7 @@
 
 Rovdo is a local-first, open-source desktop workspace for job discovery, verified candidate profiles, and optional AI-assisted chat and browser tasks.
 
-**Status: v0.3.8, pre-Phase 4 stabilization.** Job collection, filtering and deterministic qualification matching work without an AI key. Bring your own API provider or a supported installed CLI for optional model assistance. Document generation and application submission are planned.
+**Status: v0.3.8, pre-Phase 4 stabilization.** Job collection, filtering and deterministic qualification matching work without an AI key. Bring your own API provider or a supported installed CLI for optional model assistance. Document generation and application submission are planned. Currently testing job discovery pipeline.
 
 ## Quick start
 
