@@ -91,7 +91,13 @@ export interface DesktopApi extends ByokApi, BrowserApi, CareerApi, Intelligence
 // No arbitrary messages, Error values, URLs or nested payloads are loggable.
 export const DiagnosticEventSchema = z.strictObject({
   level: z.enum(['info', 'warn', 'error']),
-  event: z.enum(['app.started', 'app.stopped', 'ipc.rejected', 'diagnostics.rejected']),
+  event: z.enum([
+    'app.started',
+    'app.stopped',
+    'ipc.rejected',
+    'diagnostics.rejected',
+    'discovery.directory-install-failed',
+  ]),
   component: z.enum(['main', 'agent-core']),
   errorCode: ErrorCodeSchema.optional(),
   runId: z.uuid().optional(),

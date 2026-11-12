@@ -81,6 +81,12 @@ test('Search All Saved Companies collects fixture feeds without employer identif
       };
     });
     const page = await app.firstWindow();
+    await page.evaluate(() =>
+      window.rovdo!.careerCommand({
+        op: 'saveCollectionScope',
+        scope: { version: 1, countries: ['US'], origin: 'user' },
+      }),
+    );
     await page.getByRole('button', { name: 'Jobs', exact: true }).click();
     await page.getByRole('button', { name: 'Scope & Collection', exact: true }).click();
     await page.getByLabel('Search scope', { exact: true }).selectOption('saved-companies');
@@ -103,7 +109,8 @@ test('Search All Saved Companies collects fixture feeds without employer identif
       page.getByRole('heading', { name: 'Verified Source Directory', exact: true }),
     ).toBeVisible();
     const inventory = page.getByRole('region', { name: 'Verified Source Directory', exact: true });
-    await expect(inventory.locator('.company-directory-card:visible')).toHaveCount(4);
+    // The reviewed starter release contains eight ATS boards and two explicit coverage gaps.
+    await expect(inventory.locator('.company-directory-card:visible')).toHaveCount(8);
     const entry = inventory.locator('.company-directory-card:visible').first();
     const heading = entry.locator('h3'),
       toggle = entry.getByRole('button', { name: 'Disable', exact: true });

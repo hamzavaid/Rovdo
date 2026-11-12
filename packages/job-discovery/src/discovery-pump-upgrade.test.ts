@@ -95,6 +95,7 @@ function boardTask(
 
 it('refills a freed slot and publishes healthy jobs before a slow unrelated board completes', async () => {
   const store = new CareerStore(':memory:');
+  store.saveCollectionScope({ version: 1, countries: ['US', 'CA', 'GB', 'DE'], origin: 'user' });
   const fixture = heldTransport();
   const engine = new GlobalDiscoveryEngine(store, {
     transport: fixture.transport,
@@ -159,6 +160,7 @@ it('refills a freed slot and publishes healthy jobs before a slow unrelated boar
 
 it('serializes two boards on one origin while another origin continues', async () => {
   const store = new CareerStore(':memory:');
+  store.saveCollectionScope({ version: 1, countries: ['US', 'CA', 'GB', 'DE'], origin: 'user' });
   const fixture = heldTransport();
   const engine = new GlobalDiscoveryEngine(store, {
     transport: fixture.transport,
@@ -191,6 +193,7 @@ it('shares same-origin serialization and reservations with the saved-company pol
   let now = Date.parse('2026-11-11T12:00:00Z');
   const clock = vi.spyOn(Date, 'now').mockImplementation(() => now);
   const store = new CareerStore(':memory:');
+  store.saveCollectionScope({ version: 1, countries: ['US', 'CA', 'GB', 'DE'], origin: 'user' });
   const fixture = heldTransport();
   const sleepers: (() => void)[] = [];
   const sleep = (_ms: number, signal?: AbortSignal) =>
@@ -259,6 +262,7 @@ it.each(['pause', 'shutdown'] as const)(
   'aborts active IO and preserves the cursor on %s',
   async (action) => {
     const store = new CareerStore(':memory:');
+    store.saveCollectionScope({ version: 1, countries: ['US', 'CA', 'GB', 'DE'], origin: 'user' });
     const fixture = heldTransport();
     const engine = new GlobalDiscoveryEngine(store, {
       transport: fixture.transport,
@@ -302,6 +306,7 @@ it.each(['pause', 'shutdown'] as const)(
 
 it('advances bounded automatic company work while a foreground run is still active', async () => {
   const store = new CareerStore(':memory:');
+  store.saveCollectionScope({ version: 1, countries: ['US', 'CA', 'GB', 'DE'], origin: 'user' });
   const jobs = new GlobalDiscoveryEngine(store);
   const fixture = heldTransport();
   const companies = new CompanyDiscoveryScheduler(store, {

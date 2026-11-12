@@ -9,6 +9,7 @@ import type {
 import type { z } from 'zod';
 import { ProfileDialog } from './ProfileDialog';
 import { dateLabel } from './jobs-state';
+import { StarterEmployerDirectory } from './StarterEmployerDirectory';
 import { ManualJobSource } from './ManualJobSource';
 type View = z.infer<typeof CareerViewSchema>;
 type Discovery = z.infer<typeof DiscoveryViewSchema>;
@@ -595,6 +596,7 @@ export function CompaniesWorkspace({
           onChange={(offset) => setQuery({ ...query, offset })}
         />
       </section>
+      <StarterEmployerDirectory initial={view?.starterDirectoryPage} />
       <SavedEmployerDirectory entries={view?.directory ?? []} />
       <section className="surface-card" aria-labelledby="advanced-source-title">
         <h2 id="advanced-source-title">Advanced Source Management</h2>

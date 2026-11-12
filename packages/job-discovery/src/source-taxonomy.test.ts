@@ -9,6 +9,7 @@ it('keeps exactly eleven job adapters and excludes archive finders from foregrou
   expect(GLOBAL_DEFAULT_SOURCES).not.toContain('wayback');
   expect(GLOBAL_DEFAULT_SOURCES).not.toContain('common-crawl');
   const store = new CareerStore(':memory:');
+  store.saveCollectionScope({ version: 1, countries: ['US', 'CA', 'GB', 'DE'], origin: 'user' });
   const engine = new GlobalDiscoveryEngine(store, {
     transport: async () => {
       throw new Error('Unexpected network');

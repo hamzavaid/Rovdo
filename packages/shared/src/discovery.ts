@@ -1,5 +1,120 @@
 /** Durable, provider-independent global discovery contracts. No AI or candidate contacts cross this API. */
 import { z } from 'zod';
+/** ISO 3166-1 assigned alpha-2 codes; no guessed or device-derived geography. */
+export const COLLECTION_COUNTRIES =
+  'AD AE AF AG AI AL AM AO AQ AR AS AT AU AW AX AZ BA BB BD BE BF BG BH BI BJ BL BM BN BO BQ BR BS BT BV BW BY BZ CA CC CD CF CG CH CI CK CL CM CN CO CR CU CV CW CX CY CZ DE DJ DK DM DO DZ EC EE EG EH ER ES ET FI FJ FK FM FO FR GA GB GD GE GF GG GH GI GL GM GN GP GQ GR GS GT GU GW GY HK HM HN HR HT HU ID IE IL IM IN IO IQ IR IS IT JE JM JO JP KE KG KH KI KM KN KP KR KW KY KZ LA LB LC LI LK LR LS LT LU LV LY MA MC MD ME MF MG MH MK ML MM MN MO MP MQ MR MS MT MU MV MW MX MY MZ NA NC NE NF NG NI NL NO NP NR NU NZ OM PA PE PF PG PH PK PL PM PN PR PS PT PW PY QA RE RO RS RU RW SA SB SC SD SE SG SH SI SJ SK SL SM SN SO SR SS ST SV SX SY SZ TC TD TF TG TH TJ TK TL TM TN TO TR TT TV TW TZ UA UG UM US UY UZ VA VC VE VG VI VN VU WF WS YE YT ZA ZM ZW'.split(
+    ' ',
+  );
+export const CollectionScopeSchema = z.strictObject({
+  version: z.literal(1),
+  countries: z
+    .array(z.string().refine((v) => COLLECTION_COUNTRIES.includes(v)))
+    .min(1)
+    .refine((v) => new Set(v).size === v.length),
+  origin: z.enum(['profile', 'user']),
+});
+export type CollectionScope = z.infer<typeof CollectionScopeSchema>;
+export const StoredCollectionScopeSchema = z.strictObject({
+  scope: CollectionScopeSchema,
+  revision: z.number().int().positive(),
+});
+const directoryText = z.string().trim().min(1).max(500);
+const directoryHttps = z
+  .string()
+  .url()
+  .refine((v) => {
+    if (!URL.canParse(v)) return false;
+    const url = new URL(v);
+    return url.protocol === 'https:' && !url.username && !url.password && !url.port && !url.hash;
+  });
+export function canonicalBoardUrl(raw: string): string {
+  if (!URL.canParse(raw)) return raw;
+  const url = new URL(raw);
+  url.hostname = url.hostname
+    .toLowerCase()
+    .replace(/^boards\.greenhouse\.io$/, 'job-boards.greenhouse.io')
+    .replace(/^jobs\.smartrecruiters\.com$/, 'careers.smartrecruiters.com');
+  if (
+    [
+      'job-boards.greenhouse.io',
+      'jobs.lever.co',
+      'jobs.eu.lever.co',
+      'jobs.ashbyhq.com',
+      'careers.smartrecruiters.com',
+    ].includes(url.hostname)
+  ) {
+    // These providers route every tenant path to the same case-insensitive board identity.
+    const tenant = url.pathname.split('/')[1];
+    if (tenant) {
+      url.pathname = '/' + tenant.toLowerCase();
+      url.search = '';
+    }
+  }
+  url.pathname = url.pathname.replace(/\/+$/, '') || '/';
+  return url.href;
+}
+export const StarterEmployerSchema = z.strictObject({
+  id: z.string().regex(/^[a-z0-9][a-z0-9:._-]{0,199}$/),
+  name: directoryText,
+  aliases: z.array(directoryText),
+  categories: z.array(directoryText),
+  referenceSets: z
+    .array(
+      z.strictObject({
+        id: z.enum(['fortune-500', 'nasdaq-100', 'forbes-global-2000', 'broader']),
+        edition: directoryText,
+      }),
+    )
+    .min(1),
+  boards: z
+    .array(
+      z.strictObject({
+        url: directoryHttps,
+        adapter: z.enum([
+          'greenhouse',
+          'lever',
+          'ashby',
+          'smartrecruiters',
+          'jsonld',
+          'workday',
+          'unsupported',
+        ]),
+      }),
+    )
+    .min(1),
+  provenance: z.array(z.strictObject({ url: directoryHttps, checkedAt: z.iso.datetime() })).min(1),
+});
+export const StarterDirectoryManifestSchema = z
+  .strictObject({
+    version: z.literal(1),
+    releasedAt: z.iso.datetime(),
+    employers: z.array(StarterEmployerSchema),
+  })
+  .superRefine((manifest, ctx) => {
+    const ids = new Set<string>(),
+      urls = new Set<string>();
+    for (const employer of manifest.employers) {
+      if (ids.has(employer.id))
+        ctx.addIssue({ code: 'custom', message: 'Duplicate employer identity' });
+      ids.add(employer.id);
+      for (const board of employer.boards) {
+        const url = canonicalBoardUrl(board.url);
+        if (urls.has(url))
+          ctx.addIssue({ code: 'custom', message: 'Duplicate canonical board URL' });
+        urls.add(url);
+      }
+    }
+  });
+export type StarterEmployer = z.infer<typeof StarterEmployerSchema>;
+export type StarterDirectoryManifest = z.infer<typeof StarterDirectoryManifestSchema>;
+export const StarterDirectoryQuerySchema = z.strictObject({
+  query: z.string().max(200).default(''),
+  offset: z.number().int().nonnegative().default(0),
+});
+export const StarterDirectoryPageSchema = z.strictObject({
+  rows: z.array(StarterEmployerSchema),
+  total: z.number().int().nonnegative(),
+});
 export const JOB_SOURCE_IDS = [
   'greenhouse',
   'lever',
@@ -118,6 +233,8 @@ export const DiscoveryRunSchema = z.strictObject({
   createdAt: z.number(),
   updatedAt: z.number(),
   profileVersion: z.number().nullable(),
+  collectionScope: StoredCollectionScopeSchema.nullable().optional(),
+  scopeIdentity: z.string().optional(),
   queries: z.array(z.string().max(500)),
   options: DiscoveryOptionsSchema,
   reason: z.string().max(200).nullable(),

@@ -7,6 +7,7 @@ it.each(['wayback', 'common-crawl'])(
   'retains failed %s checkpoints and still collects from a succeeding archive scope',
   async (sourceId) => {
     const store = new CareerStore(':memory:');
+    store.saveCollectionScope({ version: 1, countries: ['US', 'CA', 'GB', 'DE'], origin: 'user' });
     const latest = 'https://index.commoncrawl.org/CC-MAIN-2026-43-index';
     const older = 'https://index.commoncrawl.org/CC-MAIN-2026-39-index';
     const engine = new GlobalDiscoveryEngine(store, {
@@ -87,6 +88,7 @@ it.each(['wayback', 'common-crawl'])(
 
 it('turns a historical unnamed Greenhouse URL into a named live employer through board metadata', async () => {
   const store = new CareerStore(':memory:');
+  store.saveCollectionScope({ version: 1, countries: ['US', 'CA', 'GB', 'DE'], origin: 'user' });
   const seen: string[] = [];
   const engine = new GlobalDiscoveryEngine(store, {
     lane: 'companies',

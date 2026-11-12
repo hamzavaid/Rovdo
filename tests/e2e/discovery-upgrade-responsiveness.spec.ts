@@ -11,6 +11,7 @@ test('keeps cached results, input, navigation, scrolling and cancellation respon
   const dir = test.info().outputPath('discovery-upgrade-data');
   await mkdir(dir, { recursive: true });
   const store = new CareerStore(resolve(dir, 'rovdo.sqlite'));
+  store.saveCollectionScope({ version: 1, countries: ['US'], origin: 'user' });
   const source = store.globalSource(
     'upgrade-cache',
     'Synthetic Cached Employer',
@@ -161,7 +162,7 @@ test('keeps cached results, input, navigation, scrolling and cancellation respon
       delay.enable();
       (
         globalThis as typeof globalThis & {
-          discoveryUpgradeDelay: import('node:perf_hooks').IntervalHistogram;
+          discoveryUpgradeDelay: ReturnType<typeof import('node:perf_hooks').monitorEventLoopDelay>;
         }
       ).discoveryUpgradeDelay = delay;
     });
@@ -316,7 +317,7 @@ test('keeps cached results, input, navigation, scrolling and cancellation respon
     const mainLoop = await app.evaluate(() => {
       const delay = (
         globalThis as typeof globalThis & {
-          discoveryUpgradeDelay: import('node:perf_hooks').IntervalHistogram;
+          discoveryUpgradeDelay: ReturnType<typeof import('node:perf_hooks').monitorEventLoopDelay>;
         }
       ).discoveryUpgradeDelay;
       delay.disable();

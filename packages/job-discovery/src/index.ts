@@ -7,6 +7,7 @@ import { setTimeout as delay } from 'node:timers/promises';
 import { AtsAdapter, SourceError, sourceEndpoint } from '@rovdo/job-sources';
 import type { JobSourceAdapter } from '@rovdo/job-sources';
 import type { SourceConfig } from '@rovdo/shared';
+import { collectionDecision, inferCollectionScope } from './collection-scope';
 import type { CareerStore } from '@rovdo/storage';
 export { EMPLOYERS } from '@rovdo/job-sources';
 export { discoverEmployers, refreshEmployers } from './employers';
@@ -101,7 +102,12 @@ export class DiscoveryEngine {
   }
   private async pollSource(id: string): Promise<void> {
     const source = this.store.sources().find((s) => s.config.id === id);
-    if (!source || !source.config.enabled || source.state.nextPollAt > this.now()) return;
+    let scope = this.store.collectionScope();
+    const inferred = inferCollectionScope(this.store.profile());
+    if (!scope && inferred) scope = this.store.saveCollectionScope(inferred);
+    if (!scope || !source || !source.config.enabled) return;
+    const replay = this.store.setting('saved-poll-scope:' + id) !== String(scope.revision);
+    if (!replay && source.state.nextPollAt > this.now()) return;
     const config = source.config;
     const boardIdentity = `${config.ats}:${config.tenant.toLowerCase()}:${config.region.toLowerCase()}`;
     const leaseOwner = `saved:${id}`;
@@ -117,7 +123,13 @@ export class DiscoveryEngine {
     const signal = AbortSignal.any([this.controller.signal, AbortSignal.timeout(120000)]);
     const origin = new URL(sourceEndpoint(config)).origin;
     const start = this.now();
-    let state = { ...source.state };
+    this.store.setting('saved-poll-scope:' + id, String(scope.revision));
+    let state = replay
+      ? { ...source.state, cursor: null, pollId: null, etag: null, lastModified: null }
+      : { ...source.state };
+    let scopeExcluded =
+      !replay && !!state.cursor && this.store.setting('poll-scope-excluded:' + id) === 'true';
+    if (!state.cursor) this.store.setting('poll-scope-excluded:' + id, 'false');
     if (!state.cursor)
       state = {
         ...state,
@@ -183,6 +195,9 @@ export class DiscoveryEngine {
         state.returned += page.returned;
         state.rejected += page.quarantine?.length ?? 0;
         state.parsed += page.jobs.length;
+        const jobs = page.jobs.filter((job) => collectionDecision(job, scope!.scope).include);
+        scopeExcluded ||= jobs.length !== page.jobs.length;
+        if (scopeExcluded) this.store.setting('poll-scope-excluded:' + id, 'true');
         state.cursor = page.nextCursor;
         const complete = page.nextCursor === null;
         if (complete) {
@@ -206,19 +221,23 @@ export class DiscoveryEngine {
         try {
           await this.store.batchAsync(
             config,
-            page.jobs,
+            jobs,
             state,
             state.pollId!,
-            complete && page.status !== 304 && state.rejected === 0,
+            complete && page.status !== 304 && state.rejected === 0 && !scopeExcluded,
             this.now(),
             signal,
-            () => this.store.sources().some((s) => s.config.id === id && s.config.enabled),
+            () =>
+              this.store.collectionScope()?.revision === scope.revision &&
+              this.store.sources().some((s) => s.config.id === id && s.config.enabled),
+            (job) => collectionDecision(job, scope.scope).include,
           );
         } catch (error) {
           Object.assign(state, checkpoint);
           throw error;
         }
         if (complete) {
+          if (state.rejected === 0) this.store.setting('saved-scope:' + id, String(scope.revision));
           if (['greenhouse', 'lever', 'ashby', 'smartrecruiters'].includes(config.ats)) {
             const feed = { ats: config.ats, tenant: config.tenant, region: config.region };
             const pageUrl =
@@ -279,3 +298,5 @@ export * from './global-engine';
 export * from './queries';
 
 export * from './company-scheduler';
+
+export * from './collection-scope';

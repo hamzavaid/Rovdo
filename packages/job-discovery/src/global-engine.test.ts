@@ -17,6 +17,7 @@ const response = (raw: unknown, status = 200): PublicResponse => ({
 });
 it('discovers an unsaved employer via an index, follows a supported ATS and scores without AI', async () => {
   const store = new CareerStore(':memory:');
+  store.saveCollectionScope({ version: 1, countries: ['US', 'CA', 'GB', 'DE'], origin: 'user' });
   const urls: string[] = [];
   const engine = new GlobalDiscoveryEngine(store, {
     lane: 'companies',
@@ -66,6 +67,7 @@ it('discovers an unsaved employer via an index, follows a supported ATS and scor
 });
 it('isolates rate limits, refuses restricted pages, and recovers persisted paused runs', async () => {
   const store = new CareerStore(':memory:');
+  store.saveCollectionScope({ version: 1, countries: ['US', 'CA', 'GB', 'DE'], origin: 'user' });
   const engine = new GlobalDiscoveryEngine(store, {
     sleep: async () => {},
     transport: async () => response({}, 429),
@@ -87,6 +89,7 @@ it('isolates rate limits, refuses restricted pages, and recovers persisted pause
 
 it('never fetches blocked platform pages and reports schema drift rather than looping indefinitely', async () => {
   const store = new CareerStore(':memory:');
+  store.saveCollectionScope({ version: 1, countries: ['US', 'CA', 'GB', 'DE'], origin: 'user' });
   const seen: string[] = [];
   const engine = new GlobalDiscoveryEngine(store, {
     lane: 'companies',
@@ -117,6 +120,7 @@ it('never fetches blocked platform pages and reports schema drift rather than lo
 
 it('obeys robots exclusions and isolates a malformed provider from healthy feeds', async () => {
   const store = new CareerStore(':memory:');
+  store.saveCollectionScope({ version: 1, countries: ['US', 'CA', 'GB', 'DE'], origin: 'user' });
   const seen: string[] = [];
   const engine = new GlobalDiscoveryEngine(store, {
     lane: 'companies',
@@ -151,6 +155,7 @@ it('obeys robots exclusions and isolates a malformed provider from healthy feeds
 
 it('bounds transient retries and leaves source recovery available through a new search', async () => {
   const store = new CareerStore(':memory:');
+  store.saveCollectionScope({ version: 1, countries: ['US', 'CA', 'GB', 'DE'], origin: 'user' });
   const engine = new GlobalDiscoveryEngine(store, {
     sleep: async () => {},
     transport: async () => {
@@ -174,6 +179,7 @@ it('bounds transient retries and leaves source recovery available through a new 
 
 it('collects paginated jobs beyond starter employers and reuses cached feeds across idempotent searches', async () => {
   const store = new CareerStore(':memory:');
+  store.saveCollectionScope({ version: 1, countries: ['US', 'CA', 'GB', 'DE'], origin: 'user' });
   let requests = 0;
   const engine = new GlobalDiscoveryEngine(store, {
     sleep: async () => {},
@@ -213,6 +219,7 @@ it('collects paginated jobs beyond starter employers and reuses cached feeds acr
 
 it('quarantines a malformed JSON-LD posting without losing valid siblings', async () => {
   const store = new CareerStore(':memory:');
+  store.saveCollectionScope({ version: 1, countries: ['US', 'CA', 'GB', 'DE'], origin: 'user' });
   const engine = new GlobalDiscoveryEngine(store, {
     lane: 'companies',
     sleep: async () => {},
@@ -259,6 +266,7 @@ it('quarantines a malformed JSON-LD posting without losing valid siblings', asyn
 
 it('does not retry redirects and shares terminal certificate failures across pages on an origin', async () => {
   const store = new CareerStore(':memory:');
+  store.saveCollectionScope({ version: 1, countries: ['US', 'CA', 'GB', 'DE'], origin: 'user' });
   const seen: string[] = [];
   const engine = new GlobalDiscoveryEngine(store, {
     lane: 'companies',

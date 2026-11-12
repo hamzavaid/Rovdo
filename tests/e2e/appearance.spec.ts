@@ -13,6 +13,12 @@ test('persists Light/Dark/System appearance, follows OS changes and keeps contro
   });
   try {
     let page = await app.firstWindow();
+    await page.evaluate(() =>
+      window.rovdo!.careerCommand({
+        op: 'saveCollectionScope',
+        scope: { version: 1, countries: ['US'], origin: 'user' },
+      }),
+    );
     await expect(page.getByLabel('Appearance', { exact: true })).toHaveValue('system');
     for (const theme of ['light', 'dark'] as const) {
       await page.getByLabel('Appearance', { exact: true }).selectOption(theme);

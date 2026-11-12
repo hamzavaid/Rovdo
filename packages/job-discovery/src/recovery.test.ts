@@ -44,6 +44,7 @@ afterEach(() => {
 describe('durable source recovery and quotas', () => {
   it('honors a Retry-After imposed by another collector while a quota ticket is waiting', async () => {
     const store = new CareerStore(':memory:');
+    store.saveCollectionScope({ version: 1, countries: ['US', 'CA', 'GB', 'DE'], origin: 'user' });
     let time = 1000000000000;
     let calls = 0;
     const origin = 'https://api.lever.co';
@@ -79,6 +80,7 @@ describe('durable source recovery and quotas', () => {
     const path = join(dir, 'state.sqlite');
     let time = 1000000000000;
     let store = new CareerStore(path);
+    store.saveCollectionScope({ version: 1, countries: ['US', 'CA', 'GB', 'DE'], origin: 'user' });
     store.saveSource(config);
     const first = new DiscoveryEngine(
       store,
@@ -133,6 +135,7 @@ describe('durable source recovery and quotas', () => {
   });
   it('enforces Retry-After across employers on the same origin and source opt-out during fetch', async () => {
     const store = new CareerStore(':memory:');
+    store.saveCollectionScope({ version: 1, countries: ['US', 'CA', 'GB', 'DE'], origin: 'user' });
     let time = 1000000000000;
     let calls = 0;
     const other = { ...config, id: '00000000-0000-4000-8000-000000000002', tenant: 'other' };
@@ -163,6 +166,11 @@ describe('durable source recovery and quotas', () => {
       store.close();
     }
     const revoked = new CareerStore(':memory:');
+    revoked.saveCollectionScope({
+      version: 1,
+      countries: ['US', 'CA', 'GB', 'DE'],
+      origin: 'user',
+    });
     revoked.saveSource(config);
     const worker = new DiscoveryEngine(
       revoked,
@@ -183,6 +191,7 @@ describe('durable source recovery and quotas', () => {
   });
   it('discards a response when its source was deleted while the request was in flight', async () => {
     const store = new CareerStore(':memory:');
+    store.saveCollectionScope({ version: 1, countries: ['US', 'CA', 'GB', 'DE'], origin: 'user' });
     store.saveSource(config);
     const worker = new DiscoveryEngine(
       store,
@@ -207,6 +216,7 @@ describe('durable source recovery and quotas', () => {
     );
     expect(() => canonicalUrl('javascript:alert(1)')).toThrow();
     const store = new CareerStore(':memory:');
+    store.saveCollectionScope({ version: 1, countries: ['US', 'CA', 'GB', 'DE'], origin: 'user' });
     store.saveSource(config);
     const state = store.sources()[0]!.state;
     const jobs = new AtsAdapter(config).normalize([posting(1)]);

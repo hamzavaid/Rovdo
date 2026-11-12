@@ -5,6 +5,7 @@ import type { SourceConfig } from '@rovdo/shared';
 import { DiscoveryEngine } from './index';
 it('polls different origins concurrently within a bound and isolates failures', async () => {
   const store = new CareerStore(':memory:');
+  store.saveCollectionScope({ version: 1, countries: ['US', 'CA', 'GB', 'DE'], origin: 'user' });
   let active = 0;
   let maximum = 0;
   const release: (() => void)[] = [];

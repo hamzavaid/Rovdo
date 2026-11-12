@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import type { CareerCommand, CareerViewSchema, DiscoveryOptions, JobSearch } from '@rovdo/shared';
 import type { z } from 'zod';
+import { CollectionCountries } from './CollectionCountries';
 import { ProfileDialog } from './ProfileDialog';
 import { HealthTable, RequestLog } from './JobsCollection';
 export function JobsScope({
@@ -18,8 +19,7 @@ export function JobsScope({
 }) {
   const [picker, setPicker] = useState(false),
     [term, setTerm] = useState(''),
-    [dialog, setDialog] = useState<'queries' | 'help' | 'log' | null>(null),
-    [queries, setQueries] = useState('');
+    [dialog, setDialog] = useState<'help' | 'log' | null>(null);
   const options = search.discovery!;
   const update = (discovery: DiscoveryOptions) => onChange({ ...search, discovery });
   const registry = view?.discovery?.registry ?? [];
@@ -31,16 +31,15 @@ export function JobsScope({
           <h1>Scope &amp; Collection</h1>
           <p>Choose future collection sources. These controls do not filter cached results.</p>
         </div>
-        <button
-          onClick={() => {
-            setQueries(view?.discovery?.plan.join('\n') ?? '');
-            setDialog('queries');
-          }}
-        >
-          Profile-guided queries
-        </button>
       </div>
       <section className="surface-card">
+        <h2>Collection geography</h2>
+        <CollectionCountries
+          key={view?.collectionScope?.revision ?? 0}
+          initial={view?.collectionScope?.scope.countries ?? []}
+          busy={busy}
+          command={command}
+        />
         <h2>Search scope</h2>
         <label>
           Search scope
@@ -133,36 +132,6 @@ export function JobsScope({
             <button onClick={() => update({ ...options, sourceIds: [] })}>Clear selection</button>
           </div>
         </div>
-        <details>
-          <summary>Per-source collection preferences</summary>
-          <p className="help-text">
-            Prioritize retrieval, separately from qualification scoring and cached-result filters.
-          </p>
-          {registry
-            .filter((s) => options.sourceIds.includes(s.id))
-            .map((s) => (
-              <details key={s.id}>
-                <summary>{s.name}</summary>
-                {(['keywords', 'location'] as const).map((key) => (
-                  <label key={key}>
-                    {s.name} {key}
-                    <input
-                      value={options.overrides[s.id]?.[key] ?? ''}
-                      onChange={(e) =>
-                        update({
-                          ...options,
-                          overrides: {
-                            ...options.overrides,
-                            [s.id]: { ...options.overrides[s.id], [key]: e.target.value },
-                          },
-                        })
-                      }
-                    />
-                  </label>
-                ))}
-              </details>
-            ))}
-        </details>
       </section>
       <section className="surface-card" aria-label="Collection health details">
         <div className="jobs-row">
@@ -209,52 +178,6 @@ export function JobsScope({
               Some records/pages were unavailable. Valid siblings and saved jobs are retained.
             </dd>
           </dl>
-        </ProfileDialog>
-      )}
-      {dialog === 'queries' && (
-        <ProfileDialog title="Profile-guided queries" onClose={() => setDialog(null)}>
-          <p>
-            Deterministic, evidence-based discovery priorities. These do not replace eligibility or
-            scoring. Up to eight lines, saved locally.
-          </p>
-          <label>
-            Discovery query plan
-            <textarea
-              rows={8}
-              maxLength={4000}
-              value={queries}
-              onChange={(e) => setQueries(e.target.value)}
-            />
-          </label>
-          <div className="dialog-actions">
-            <button
-              disabled={busy}
-              onClick={() =>
-                void command({ op: 'queryPlan', queries: null }, () => setDialog(null))
-              }
-            >
-              Reset to profile
-            </button>
-            <button
-              disabled={
-                busy || !queries.trim() || queries.split('\n').filter((s) => s.trim()).length > 8
-              }
-              onClick={() =>
-                void command(
-                  {
-                    op: 'queryPlan',
-                    queries: queries
-                      .split('\n')
-                      .map((s) => s.trim())
-                      .filter(Boolean),
-                  },
-                  () => setDialog(null),
-                )
-              }
-            >
-              Save query plan
-            </button>
-          </div>
         </ProfileDialog>
       )}
     </section>

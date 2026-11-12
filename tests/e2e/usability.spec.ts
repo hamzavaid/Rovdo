@@ -22,6 +22,7 @@ test('uses real dashboard data, edits verified qualifications and previews balan
     missingGracePolls: 3,
   };
   const store = new CareerStore(resolve(dir, 'rovdo.sqlite'));
+  store.saveCollectionScope({ version: 1, countries: ['US'], origin: 'user' });
   store.saveSource(source);
   store.saveProfile(sampleCandidate());
   const jobs = new AtsAdapter(source).normalize({

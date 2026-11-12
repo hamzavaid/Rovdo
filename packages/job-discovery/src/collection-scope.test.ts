@@ -144,3 +144,24 @@ describe('broad geographic collection policy', () => {
     }
   });
 });
+
+it('does not reinterpret the ambiguous US state Georgia as the country', () => {
+  expect(inferCollectionScope(profile(['Atlanta, Georgia']))).toBeNull();
+  expect(collectionDecision(posting('Atlanta, Georgia'), usScope)).toEqual({
+    include: true,
+    reason: 'unknown',
+  });
+  expect(inferCollectionScope(profile(['Tbilisi, Georgia']))?.countries).toEqual(['GE']);
+});
+
+it('does not treat anywhere within a foreign country as worldwide permission', () => {
+  expect(collectionDecision(posting('Anywhere in Germany'), usScope)).toEqual({
+    include: false,
+    reason: 'incompatible',
+  });
+});
+it('uses explicit remote jurisdictions instead of treating a generic Remote label as uncertainty', () => {
+  const job = posting('Remote');
+  job.details = { ...job.details!, remoteJurisdiction: ['Germany'] };
+  expect(collectionDecision(job, usScope)).toEqual({ include: false, reason: 'incompatible' });
+});

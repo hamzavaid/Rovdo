@@ -5,6 +5,7 @@ import { DISCOVERY_SOURCES } from '@rovdo/job-sources';
 import { randomUUID } from 'node:crypto';
 it('reuses an enabled successfully polled employer without waiting for archive discovery', () => {
   const store = new CareerStore(':memory:');
+  store.saveCollectionScope({ version: 1, countries: ['US', 'CA', 'GB', 'DE'], origin: 'user' });
   try {
     store.saveSource({
       id: randomUUID(),
@@ -39,6 +40,7 @@ it('reuses an enabled successfully polled employer without waiting for archive d
 });
 it('keeps a region-aware persistent inventory independent of saved company grants', () => {
   const store = new CareerStore(':memory:');
+  store.saveCollectionScope({ version: 1, countries: ['US', 'CA', 'GB', 'DE'], origin: 'user' });
   try {
     const feed = { ats: 'lever', tenant: 'example', region: 'eu' };
     store.global.rememberCompany(feed, 'Example', 'https://jobs.eu.lever.co/example', 100);
@@ -63,6 +65,7 @@ it('keeps a region-aware persistent inventory independent of saved company grant
 });
 it('continues successful employer backfill across bounded batches and excludes disabled feeds', async () => {
   const store = new CareerStore(':memory:');
+  store.saveCollectionScope({ version: 1, countries: ['US', 'CA', 'GB', 'DE'], origin: 'user' });
   const engine = new GlobalDiscoveryEngine(store, {
     sleep: async () => {},
     transport: async () => ({ status: 200, headers: {}, body: Buffer.from('[]') }),

@@ -1,4 +1,8 @@
 import {
+  StarterDirectoryPageSchema,
+  StarterDirectoryQuerySchema,
+  CollectionScopeSchema,
+  StoredCollectionScopeSchema,
   DiscoveryOptionsSchema,
   DiscoveryViewSchema,
   CompanyQuerySchema,
@@ -369,6 +373,9 @@ export const JobMarkerSchema = z.strictObject({
 export type JobMarker = z.infer<typeof JobMarkerSchema>;
 export type SavedSearch = z.infer<typeof SavedSearchSchema>;
 export const CareerViewSchema = z.strictObject({
+  starterDirectoryPage: StarterDirectoryPageSchema.optional(),
+  collectionScopePromptDismissed: z.boolean().optional(),
+  collectionScope: StoredCollectionScopeSchema.nullable().optional(),
   rankingJobs: z
     .array(z.strictObject({ id: z.string(), company: z.string(), title: z.string() }))
     .optional(),
@@ -403,6 +410,8 @@ export const CareerViewSchema = z.strictObject({
   cache: z.object({ hits: z.number(), misses: z.number() }).optional(),
 });
 export const CareerCommandSchema = z.discriminatedUnion('op', [
+  z.strictObject({ op: z.literal('dismissCollectionScopePrompt') }),
+  z.strictObject({ op: z.literal('saveCollectionScope'), scope: CollectionScopeSchema }),
   z.strictObject({
     op: z.literal('rankingJobs'),
     query: z.string().max(200),
@@ -414,6 +423,7 @@ export const CareerCommandSchema = z.discriminatedUnion('op', [
     options: DiscoveryOptionsSchema,
   }),
   z.strictObject({ op: z.literal('companyPage'), query: CompanyQuerySchema }),
+  z.strictObject({ op: z.literal('starterDirectoryPage'), query: StarterDirectoryQuerySchema }),
   z.strictObject({
     op: z.literal('companyDiscovery'),
     action: z.enum(['start', 'pause', 'resume', 'cancel', 'automatic']),

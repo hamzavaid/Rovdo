@@ -4,6 +4,7 @@ import { CareerStore } from '@rovdo/storage';
 import { GlobalDiscoveryEngine } from './global-engine';
 it('uses distinct cached ranges to resume Common Crawl blocks and validate two live employers', async () => {
   const store = new CareerStore(':memory:');
+  store.saveCollectionScope({ version: 1, countries: ['US', 'CA', 'GB', 'DE'], origin: 'user' });
   let offset = 0;
   const blocks: Buffer[] = [];
   const directory = Buffer.from(

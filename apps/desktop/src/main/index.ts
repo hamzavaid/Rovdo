@@ -22,6 +22,7 @@ import { INTELLIGENCE_CHANNEL } from '@rovdo/shared';
 import { createLogger } from '@rovdo/agent-core';
 import { APP_INFO_CHANNEL, BYOK_CHANNELS, BROWSER_CHANNEL, CAREER_CHANNEL } from '@rovdo/shared';
 import { SettingsStore, RuntimeStore, CareerStore } from '@rovdo/storage';
+import { installStarterDirectory, STARTER_DIRECTORY } from '@rovdo/job-sources';
 import { DiscoveryEngine, EMPLOYERS } from '@rovdo/job-discovery';
 import { createCareerService } from './career-service';
 import { reviewShortlist } from './career-reviewer';
@@ -57,6 +58,9 @@ let intelligenceService: ReturnType<typeof createIntelligenceService> | null = n
 let discoveryTimer: ReturnType<typeof setInterval> | null = null;
 let globalTimer: ReturnType<typeof setInterval> | null = null;
 const reviewController = new AbortController();
+const directoryController = new AbortController();
+let directoryInstall: Promise<void> | null = null;
+let directoryReady = false;
 let shutdownComplete = false;
 let shutdownStarted = false;
 
@@ -167,6 +171,21 @@ async function initialize(): Promise<void> {
     }),
   );
   careerStore.seedDirectory(EMPLOYERS);
+  directoryInstall = installStarterDirectory(STARTER_DIRECTORY, careerStore, {
+    signal: directoryController.signal,
+  })
+    .then(() => {
+      directoryReady = true;
+    })
+    .catch(() => {
+      if (!directoryController.signal.aborted)
+        log({
+          level: 'error',
+          event: 'discovery.directory-install-failed',
+          component: 'main',
+          errorCode: 'INTERNAL_ERROR',
+        });
+    });
   discovery = new DiscoveryEngine(careerStore);
   careerService = createCareerService(
     careerStore,
@@ -190,10 +209,8 @@ async function initialize(): Promise<void> {
     },
   );
   globalTimer = setInterval(() => {
-    void careerService?.global
-      .tick()
-      .then(() => careerService?.companies.tick())
-      .catch(() => {});
+    if (!directoryReady) return;
+    void careerService?.tick().catch(() => {});
   }, 2000);
   ipcMain.handle(CAREER_CHANNEL, (event, payload: unknown) =>
     careerService!.command(payload, {
@@ -305,7 +322,9 @@ app.on('before-quit', (event) => {
   if (discoveryTimer) clearInterval(discoveryTimer);
   if (globalTimer) clearInterval(globalTimer);
   reviewController.abort();
+  directoryController.abort();
   void Promise.all([
+    directoryInstall,
     service?.shutdown(),
     browserService?.runtime.shutdown(),
     discovery?.shutdown(),

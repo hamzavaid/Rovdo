@@ -7,6 +7,7 @@ test('filters and pages cached jobs, saves searches, tracks feedback and compare
   const dir = test.info().outputPath('search-data');
   await mkdir(dir, { recursive: true });
   const store = new CareerStore(resolve(dir, 'rovdo.sqlite'));
+  store.saveCollectionScope({ version: 1, countries: ['US'], origin: 'user' });
   const src = {
     id: '00000000-0000-4000-8000-000000000001',
     ats: 'greenhouse' as const,
@@ -200,7 +201,8 @@ test('filters and pages cached jobs, saves searches, tracks feedback and compare
     const inventory = page.getByRole('region', { name: 'Verified Source Directory' });
     await expect(inventory.locator('.company-directory-card')).toHaveCount(25);
     await inventory.getByRole('button', { name: 'Next', exact: true }).click();
-    await expect(inventory.locator('.company-directory-card')).toHaveCount(7);
+    // Thirty-two fixture boards plus eight starter boards span pages of 25 and 15.
+    await expect(inventory.locator('.company-directory-card')).toHaveCount(15);
     await expect(
       page.getByRole('heading', { name: 'Saved employer directory', exact: true }),
     ).toBeVisible();

@@ -1,6 +1,6 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { CareerStore, SettingsStore } from '@rovdo/storage';
-import { DiscoveryEngine } from '@rovdo/job-discovery';
+import { DiscoveryEngine, GlobalDiscoveryEngine } from '@rovdo/job-discovery';
 import { emptyProfile, reviewPayload, reviewRequestHash } from '@rovdo/career';
 import { createCareerService } from './career-service';
 import { reviewShortlist } from './career-reviewer';
@@ -9,11 +9,12 @@ import { createAdapter } from '@rovdo/providers';
 import { completion } from '../../../../packages/providers/src/fixtures';
 import type { ProviderConfig, SourceConfig } from '@rovdo/shared';
 import { sampleCandidate } from '../../../../tests/fixtures/ranking-v2';
-import { EMPLOYERS } from '@rovdo/job-sources';
+import { EMPLOYERS, installStarterDirectory } from '@rovdo/job-sources';
 
 const sender = { url: 'rovdo://app/index.html', isMainFrame: true, ownsWindow: true };
 it('validates company controls and private bounded query plans through the owning frame', async () => {
   const store = new CareerStore(':memory:');
+  store.saveCollectionScope({ version: 1, countries: ['US', 'CA', 'GB', 'DE'], origin: 'user' });
   const engine = new DiscoveryEngine(store);
   const service = createCareerService(store, engine, async () => {});
   try {
@@ -68,6 +69,7 @@ it('validates company controls and private bounded query plans through the ownin
 });
 it('rejects retired scraping commands even for the trusted renderer', async () => {
   const store = new CareerStore(':memory:');
+  store.saveCollectionScope({ version: 1, countries: ['US', 'CA', 'GB', 'DE'], origin: 'user' });
   const engine = new DiscoveryEngine(store);
   const service = createCareerService(store, engine, async () => {});
   try {
@@ -88,6 +90,7 @@ it('rejects retired scraping commands even for the trusted renderer', async () =
 describe('career IPC and optional inference', () => {
   it('validates source deletion and only permits the owning trusted renderer', async () => {
     const store = new CareerStore(':memory:');
+    store.saveCollectionScope({ version: 1, countries: ['US', 'CA', 'GB', 'DE'], origin: 'user' });
     store.seedDirectory(EMPLOYERS);
     store.enableDirectory();
     const engine = new DiscoveryEngine(store);
@@ -117,6 +120,7 @@ describe('career IPC and optional inference', () => {
   });
   it('searches the verified directory without tenant entry and compares cached methods without AI', async () => {
     const store = new CareerStore(':memory:');
+    store.saveCollectionScope({ version: 1, countries: ['US', 'CA', 'GB', 'DE'], origin: 'user' });
     store.seedDirectory(EMPLOYERS);
     const engine = new DiscoveryEngine(
       store,
@@ -188,6 +192,7 @@ describe('career IPC and optional inference', () => {
   });
   it('uses the persisted ranking selection without AI and records immutable v2 explanations', async () => {
     const store = new CareerStore(':memory:');
+    store.saveCollectionScope({ version: 1, countries: ['US', 'CA', 'GB', 'DE'], origin: 'user' });
     const engine = new DiscoveryEngine(store);
     const source: SourceConfig = {
       id: '00000000-0000-4000-8000-000000000001',
@@ -249,6 +254,7 @@ describe('career IPC and optional inference', () => {
   });
   it('supports discovery views without a model and rejects forged/invalid IPC', async () => {
     const store = new CareerStore(':memory:');
+    store.saveCollectionScope({ version: 1, countries: ['US', 'CA', 'GB', 'DE'], origin: 'user' });
     const engine = new DiscoveryEngine(store);
     let aiCalls = 0;
     const service = createCareerService(store, engine, async () => {
@@ -288,6 +294,7 @@ describe('career IPC and optional inference', () => {
   });
   it('does not invoke AI for unsaved or hard-excluded jobs', async () => {
     const store = new CareerStore(':memory:');
+    store.saveCollectionScope({ version: 1, countries: ['US', 'CA', 'GB', 'DE'], origin: 'user' });
     const settings = new SettingsStore(':memory:');
     try {
       store.saveProfile(emptyProfile());
@@ -316,6 +323,7 @@ describe('career IPC and optional inference', () => {
   });
   it('caches advisory reviews by content/profile/model and excludes contact data from the payload', async () => {
     const store = new CareerStore(':memory:');
+    store.saveCollectionScope({ version: 1, countries: ['US', 'CA', 'GB', 'DE'], origin: 'user' });
     const settings = new SettingsStore(':memory:');
     let calls = 0;
     const source: SourceConfig = {
@@ -469,6 +477,7 @@ describe('career IPC and optional inference', () => {
 
 it('exports only stored result-page jobs through the native save capability, never renderer paths or candidate contacts', async () => {
   const store = new CareerStore(':memory:');
+  store.saveCollectionScope({ version: 1, countries: ['US', 'CA', 'GB', 'DE'], origin: 'user' });
   const engine = new DiscoveryEngine(store);
   let content = '';
   const service = createCareerService(
@@ -533,6 +542,7 @@ it('exports only stored result-page jobs through the native save capability, nev
 
 it('polls only the selected saved company and keeps global source grants independent', async () => {
   const store = new CareerStore(':memory:');
+  store.saveCollectionScope({ version: 1, countries: ['US', 'CA', 'GB', 'DE'], origin: 'user' });
   store.seedDirectory(EMPLOYERS);
   store.enableDirectory();
   const seen: string[] = [];
@@ -591,6 +601,7 @@ it('polls only the selected saved company and keeps global source grants indepen
 
 it('loads overview statistics without scanning jobs or preparing any rankings', async () => {
   const store = new CareerStore(':memory:');
+  store.saveCollectionScope({ version: 1, countries: ['US', 'CA', 'GB', 'DE'], origin: 'user' });
   const engine = new DiscoveryEngine(store);
   const service = createCareerService(store, engine, async () => {});
   const iterate = store.iterateFiltered;
@@ -624,6 +635,7 @@ it('loads overview statistics without scanning jobs or preparing any rankings', 
 
 it('opens only a stored job application URL through the native capability', async () => {
   const store = new CareerStore(':memory:');
+  store.saveCollectionScope({ version: 1, countries: ['US', 'CA', 'GB', 'DE'], origin: 'user' });
   const engine = new DiscoveryEngine(store);
   let opened = '';
   const service = createCareerService(
@@ -670,5 +682,104 @@ it('opens only a stored job application URL through the native capability', asyn
     await service.shutdown();
     await engine.shutdown();
     store.close();
+  }
+});
+
+it('continues explicitly started fixture collection when automatic startup is disabled', async () => {
+  vi.stubEnv('ROVDO_OFFLINE_FIXTURES', '1');
+  const store = new CareerStore(':memory:');
+  store.saveCollectionScope({ version: 1, countries: ['US'], origin: 'user' });
+  store.setting('automatic-company-discovery', 'false');
+  const engine = new DiscoveryEngine(store);
+  const global = new GlobalDiscoveryEngine(store);
+  const service = createCareerService(store, engine, async () => {}, global);
+  try {
+    const id = global.start({ sourceIds: ['greenhouse'], overrides: {} });
+    for (let i = 0; i < 5; i++) await service.tick();
+    expect(store.global.run(id).status).toBe('completed');
+  } finally {
+    await service.shutdown();
+    await engine.shutdown();
+    store.close();
+    vi.unstubAllEnvs();
+  }
+});
+
+it('automatically collects installed boards after inferring profile countries without role narrowing', async () => {
+  vi.stubEnv('ROVDO_OFFLINE_FIXTURES', '0');
+  const store = new CareerStore(':memory:');
+  const profile = emptyProfile();
+  profile.preferences.locations = ['United States'];
+  profile.preferences.roles = ['Software Engineer'];
+  store.saveProfile(profile);
+  store.setting('automatic-company-discovery', 'false');
+  store.setting(
+    'job-collection-defaults-v1',
+    JSON.stringify({ scope: 'global', options: { sourceIds: ['greenhouse'], overrides: {} } }),
+  );
+  await installStarterDirectory(
+    {
+      version: 1,
+      releasedAt: '2026-11-11T00:00:00Z',
+      employers: [
+        {
+          id: 'fixture-museum',
+          name: 'Synthetic Museum',
+          aliases: [],
+          categories: ['arts'],
+          referenceSets: [{ id: 'broader', edition: '2026-11' }],
+          boards: [
+            { url: 'https://job-boards.greenhouse.io/fixture-museum', adapter: 'greenhouse' },
+          ],
+          provenance: [
+            { url: 'https://museum.example/careers', checkedAt: '2026-11-11T00:00:00Z' },
+          ],
+        },
+      ],
+    },
+    store,
+  );
+  const engine = new DiscoveryEngine(store);
+  let requests = 0;
+  const global = new GlobalDiscoveryEngine(store, {
+    sleep: async () => {},
+    transport: async () => {
+      requests++;
+      return {
+        status: 200,
+        headers: {},
+        body: Buffer.from(
+          JSON.stringify({
+            jobs: [
+              {
+                id: 1,
+                title: 'Museum Conservator',
+                location: { name: 'United States' },
+                absolute_url: 'https://museum.example/jobs/1',
+                content: 'Conservation experience required.',
+              },
+            ],
+          }),
+        ),
+      };
+    },
+  });
+  const service = createCareerService(store, engine, async () => {}, global);
+  try {
+    expect(global.view().run).toBeNull();
+    for (let i = 0; i < 8; i++) await service.tick();
+    expect(requests).toBe(1);
+    expect(store.collectionScope()?.scope).toEqual({
+      version: 1,
+      countries: ['US'],
+      origin: 'profile',
+    });
+    expect(store.jobs().map((j) => j.title)).toEqual(['Museum Conservator']);
+    expect(store.global.board('greenhouse:fixture-museum:global')?.lastSuccess).not.toBeNull();
+  } finally {
+    await service.shutdown();
+    await engine.shutdown();
+    store.close();
+    vi.unstubAllEnvs();
   }
 });

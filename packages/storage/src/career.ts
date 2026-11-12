@@ -1,4 +1,8 @@
-import { migrateDiscoveryOptions } from '@rovdo/shared';
+import {
+  CollectionScopeSchema,
+  StoredCollectionScopeSchema,
+  migrateDiscoveryOptions,
+} from '@rovdo/shared';
 import { setImmediate as yieldTurn } from 'node:timers/promises';
 import { DiscoveryStore } from './discovery';
 /**
@@ -14,6 +18,8 @@ import {
   JobSchema,
   SourceConfigSchema,
   SourceStateSchema,
+  StarterEmployerSchema,
+  StarterDirectoryQuerySchema,
 } from '@rovdo/shared';
 import type {
   AiReview,
@@ -24,6 +30,7 @@ import type {
   SourceConfig,
   SourceState,
   SourceView,
+  StarterEmployer,
 } from '@rovdo/shared';
 import { RankingProfileSchema } from '@rovdo/shared';
 import type { RankingProfile } from '@rovdo/shared';
@@ -157,6 +164,11 @@ export class CareerStore {
       DELETE FROM rank_cache; INSERT INTO career_schema VALUES(6);`);
       });
     this.global = new DiscoveryStore(this.db);
+    this.db.exec(`
+      CREATE TABLE IF NOT EXISTS starter_directory_release(release TEXT PRIMARY KEY, hash TEXT NOT NULL, after_id TEXT NOT NULL, complete INTEGER NOT NULL);
+      CREATE TABLE IF NOT EXISTS starter_employer(id TEXT PRIMARY KEY, release TEXT NOT NULL, json TEXT NOT NULL);
+      CREATE TABLE IF NOT EXISTS starter_employer_history(release TEXT NOT NULL,id TEXT NOT NULL,json TEXT NOT NULL,PRIMARY KEY(release,id));
+    `);
     if (version < 7) this.transaction(() => this.db.exec('INSERT INTO career_schema VALUES(7)'));
     if (version < 8) this.transaction(() => this.db.exec('INSERT INTO career_schema VALUES(8)'));
     if (version < 9) this.transaction(() => this.db.exec('INSERT INTO career_schema VALUES(9)'));
@@ -607,6 +619,7 @@ export class CareerStore {
     pollId: string,
     complete: boolean,
     now: number,
+    canMarkMissing?: (job: Job) => boolean,
   ): void {
     this.transaction(() => {
       for (const raw of jobs) {
@@ -702,17 +715,33 @@ export class CareerStore {
         if (peers && job.duplicateGroup !== group) this.writeJob({ ...job, duplicateGroup: group });
       }
       if (complete) {
-        this.db
-          .prepare(
-            'UPDATE job_source_snapshot SET missing=missing+1 WHERE source_id=? AND poll_id<>?',
-          )
-          .run(source.id, pollId);
+        if (canMarkMissing) {
+          const absent = this.db
+            .prepare(
+              'SELECT ss.source_key,j.json FROM job_source_snapshot ss JOIN career_job j ON j.id=ss.job_id WHERE ss.source_id=? AND ss.poll_id<>?',
+            )
+            .all(source.id, pollId);
+          for (const row of absent)
+            if (canMarkMissing(this.readJob(String(row.json))))
+              this.db
+                .prepare(
+                  'UPDATE job_source_snapshot SET missing=missing+1 WHERE source_id=? AND source_key=?',
+                )
+                .run(source.id, String(row.source_key));
+        } else {
+          this.db
+            .prepare(
+              'UPDATE job_source_snapshot SET missing=missing+1 WHERE source_id=? AND poll_id<>?',
+            )
+            .run(source.id, pollId);
+        }
         const missing = this.db
           .prepare(
             'SELECT DISTINCT job_id FROM job_source_snapshot WHERE source_id=? AND missing>=?',
           )
           .all(source.id, source.missingGracePolls);
         for (const r of missing) {
+          if (canMarkMissing && !canMarkMissing(this.job(String(r.job_id)))) continue;
           const active = this.db
             .prepare(
               'SELECT COUNT(*) AS n FROM job_source_snapshot ss JOIN job_source s ON ss.source_id=s.id WHERE ss.job_id=? AND ss.missing<?',
@@ -737,6 +766,7 @@ export class CareerStore {
     now: number,
     signal?: AbortSignal,
     allowed: () => boolean = () => true,
+    canMarkMissing?: (job: Job) => boolean,
   ): Promise<void> {
     const before = this.sources().find((s) => s.config.id === source.id)?.state ?? initialState();
     for (let offset = 0; offset < jobs.length; offset += 8) {
@@ -758,18 +788,20 @@ export class CareerStore {
     }
     signal?.throwIfAborted();
     if (!allowed()) throw new Error('SOURCE_REVOKED');
-    this.batch(source, [], state, pollId, complete, now);
+    this.batch(source, [], state, pollId, complete, now, canMarkMissing);
   }
   async ingestDiscoveredAsync(
     runId: string,
     source: SourceConfig,
     jobs: Job[],
     signal?: AbortSignal,
+    allowed: () => boolean = () => true,
   ): Promise<void> {
     // Membership is committed with each chunk so partial results and run counts advance together.
     for (let offset = 0; offset < jobs.length; offset += 8) {
       await yieldTurn();
       signal?.throwIfAborted();
+      if (!allowed()) throw new Error('CANCELED');
       this.ingestDiscovered(runId, source, jobs.slice(offset, offset + 8));
     }
   }
@@ -898,6 +930,93 @@ export class CareerStore {
       .prepare('SELECT json FROM job_ai_review ORDER BY rowid DESC LIMIT 100')
       .all()
       .map((r) => AiReviewSchema.parse(JSON.parse(String(r.json))));
+  }
+  starterDirectoryState(release: string, hash: string) {
+    const row = this.db
+      .prepare('SELECT * FROM starter_directory_release WHERE release=?')
+      .get(release);
+    if (row && row.hash !== hash) throw new Error('DIRECTORY_RELEASE_IMMUTABLE');
+    return { after: String(row?.after_id ?? ''), complete: row?.complete === 1 };
+  }
+  installStarterDirectoryBatch(
+    release: string,
+    hash: string,
+    rows: StarterEmployer[],
+    complete: boolean,
+    boards: { employerId: string; ats: string; tenant: string; region: string; pageUrl: string }[],
+  ) {
+    if (rows.length > 50) throw new Error('DIRECTORY_BATCH_LIMIT');
+    this.transaction(() => {
+      const state = this.starterDirectoryState(release, hash);
+      if (state.complete) return;
+      let after = state.after;
+      for (const input of rows) {
+        const entry = StarterEmployerSchema.parse(input);
+        if (entry.id <= after) throw new Error('DIRECTORY_KEYSET_ORDER');
+        this.db
+          .prepare('INSERT OR IGNORE INTO starter_employer_history VALUES(?,?,?)')
+          .run(release, entry.id, JSON.stringify(entry));
+        // Older releases remain available for rollback, but never replace newer imported metadata.
+        this.db
+          .prepare(
+            'INSERT INTO starter_employer VALUES(?,?,?) ON CONFLICT(id) DO UPDATE SET release=excluded.release,json=excluded.json WHERE excluded.release>starter_employer.release',
+          )
+          .run(entry.id, release, JSON.stringify(entry));
+        for (const alias of [entry.name, ...entry.aliases])
+          this.db
+            .prepare('INSERT OR IGNORE INTO employer_alias VALUES(?,?)')
+            .run(normalized(alias), entry.id);
+        for (const board of boards.filter((b) => b.employerId === entry.id)) {
+          const feed = { ats: board.ats, tenant: board.tenant, region: board.region };
+          // Inclusion never validates a live feed or resets its disabled/retired state.
+          if (!this.global.board(`${board.ats}:${board.tenant}:${board.region}`.toLowerCase()))
+            this.global.rememberCompany(
+              feed,
+              entry.name,
+              board.pageUrl,
+              Date.parse(release.slice(2)),
+            );
+        }
+        after = entry.id;
+      }
+      this.db
+        .prepare(
+          'INSERT INTO starter_directory_release VALUES(?,?,?,?) ON CONFLICT(release) DO UPDATE SET after_id=excluded.after_id,complete=excluded.complete',
+        )
+        .run(release, hash, after, Number(complete));
+    });
+  }
+  starterDirectoryPage(input: unknown) {
+    const q = StarterDirectoryQuerySchema.parse(input);
+    const term = '%' + q.query.replace(/[\\%_]/g, '\\$&') + '%';
+    const where = " WHERE json_extract(json,'$.name') LIKE ? ESCAPE '\\'";
+    const rows = this.db
+      .prepare('SELECT json FROM starter_employer' + where + ' ORDER BY id LIMIT 25 OFFSET ?')
+      .all(term, q.offset ?? 0)
+      .map((r) => StarterEmployerSchema.parse(JSON.parse(String(r.json))));
+    const total = Number(
+      this.db.prepare('SELECT COUNT(*) n FROM starter_employer' + where).get(term)!.n,
+    );
+    return { rows, total };
+  }
+  collectionScope() {
+    const raw = this.setting('collection-scope-v1');
+    return raw ? StoredCollectionScopeSchema.parse(JSON.parse(raw)) : null;
+  }
+  saveCollectionScope(input: unknown) {
+    const scope = CollectionScopeSchema.parse(input);
+    return this.transaction(() => {
+      const previous = this.collectionScope();
+      const identical =
+        previous &&
+        [...previous.scope.countries].sort().join(',') === [...scope.countries].sort().join(',');
+      const saved = {
+        scope,
+        revision: identical ? previous.revision : (previous?.revision ?? 0) + 1,
+      };
+      this.setting('collection-scope-v1', JSON.stringify(saved));
+      return saved;
+    });
   }
   setting(key: string, value?: string): string | null {
     if (value !== undefined)

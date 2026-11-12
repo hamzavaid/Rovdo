@@ -113,3 +113,18 @@ describe('release starter directory manifest', () => {
     expect(StarterDirectoryManifestSchema.safeParse(input).success).toBe(false);
   });
 });
+
+it.each([
+  ['https://jobs.lever.co/Fixture', 'https://jobs.lever.co/fixture'],
+  ['https://jobs.smartrecruiters.com/Fixture', 'https://careers.smartrecruiters.com/fixture'],
+  ['https://boards.greenhouse.io/Fixture', 'https://job-boards.greenhouse.io/fixture/'],
+])('rejects aliases of the same ATS board identity: %s and %s', (first, second) => {
+  const input = manifest();
+  input.employers[0]!.boards = [{ url: first, adapter: 'lever' }];
+  input.employers.push({
+    ...input.employers[0]!,
+    id: 'other-employer',
+    boards: [{ url: second, adapter: 'lever' }],
+  });
+  expect(StarterDirectoryManifestSchema.safeParse(input).success).toBe(false);
+});

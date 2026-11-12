@@ -16,6 +16,7 @@ it('separates versions from durations and uses minimum experience range bounds w
 });
 it('honors explicit JSON-LD expiration while preserving the record', () => {
   const store = new CareerStore(':memory:');
+  store.saveCollectionScope({ version: 1, countries: ['US', 'CA', 'GB', 'DE'], origin: 'user' });
   try {
     const s = {
       ...store.globalSource('expiry', 'Fixture', 'https://jobs.example.com'),
@@ -62,6 +63,7 @@ it('treats Himalayas pubDate as an update', async () => {
 });
 it('preserves cached observation timestamps and rechecks cooldowns established during quota waits', async () => {
   const store = new CareerStore(':memory:');
+  store.saveCollectionScope({ version: 1, countries: ['US', 'CA', 'GB', 'DE'], origin: 'user' });
   const captured = Date.parse('2026-01-01T00:00:00Z');
   let calls = 0;
   store.global.putCache(
@@ -101,6 +103,7 @@ it('preserves cached observation timestamps and rechecks cooldowns established d
     store.close();
   }
   const other = new CareerStore(':memory:');
+  other.saveCollectionScope({ version: 1, countries: ['US', 'CA', 'GB', 'DE'], origin: 'user' });
   other.reserveOrigin('https://remotive.com', Date.now() + 1000);
   const waiting = new GlobalDiscoveryEngine(other, {
     sleep: async () => {
@@ -122,6 +125,7 @@ it('preserves cached observation timestamps and rechecks cooldowns established d
 });
 it('advances rejected pages to later valid records and detects a real cursor cycle', async () => {
   const store = new CareerStore(':memory:');
+  store.saveCollectionScope({ version: 1, countries: ['US', 'CA', 'GB', 'DE'], origin: 'user' });
   let final = false;
   const engine = new GlobalDiscoveryEngine(store, {
     sleep: async () => {},
@@ -165,6 +169,7 @@ it('advances rejected pages to later valid records and detects a real cursor cyc
 });
 it('retains valid SmartRecruiters siblings when individual details are permanently unavailable', async () => {
   const store = new CareerStore(':memory:');
+  store.saveCollectionScope({ version: 1, countries: ['US', 'CA', 'GB', 'DE'], origin: 'user' });
   try {
     const s = {
       ...store.globalSource('detail', 'Fixture', 'https://jobs.example.com'),
@@ -200,6 +205,7 @@ it.each(['invalid', 'date'])(
   'keeps SmartRecruiters transient detail retry metadata finite: %s',
   async (kind) => {
     const store = new CareerStore(':memory:');
+    store.saveCollectionScope({ version: 1, countries: ['US', 'CA', 'GB', 'DE'], origin: 'user' });
     try {
       const source = {
         ...store.globalSource('retry-detail', 'Fixture', 'https://jobs.example.com'),
@@ -235,6 +241,7 @@ it('inherits documented continuation employers and never treats URL substrings a
 });
 it('blocks actual repeated/alternating cursors even when all pages contain zero accepted jobs', async () => {
   const store = new CareerStore(':memory:');
+  store.saveCollectionScope({ version: 1, countries: ['US', 'CA', 'GB', 'DE'], origin: 'user' });
   const engine = new GlobalDiscoveryEngine(store, {
     sleep: async () => {},
     transport: async (url) => {

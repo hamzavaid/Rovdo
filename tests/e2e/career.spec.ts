@@ -9,6 +9,7 @@ test('edits a verified profile and discovers, filters and saves fixture jobs wit
   const dir = test.info().outputPath('career-data');
   await mkdir(dir, { recursive: true });
   const store = new CareerStore(resolve(dir, 'rovdo.sqlite'));
+  store.saveCollectionScope({ version: 1, countries: ['US'], origin: 'user' });
   const config = {
     id: '00000000-0000-4000-8000-000000000001',
     ats: 'greenhouse' as const,

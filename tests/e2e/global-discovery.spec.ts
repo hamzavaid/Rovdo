@@ -65,6 +65,12 @@ test('globally discovers an unsaved employer, separates scopes, exports and pers
       };
     });
     let page = await app.firstWindow();
+    await page.evaluate(() =>
+      window.rovdo!.careerCommand({
+        op: 'saveCollectionScope',
+        scope: { version: 1, countries: ['US'], origin: 'user' },
+      }),
+    );
     await page.getByRole('button', { name: 'Jobs', exact: true }).click();
     await page.getByRole('button', { name: 'Scope & Collection', exact: true }).click();
     await expect(page.getByLabel('Search scope', { exact: true })).toHaveValue('global');
@@ -229,6 +235,12 @@ test('keeps independent feeds usable during a background archive outage', async 
         });
     });
     const page = await app.firstWindow();
+    await page.evaluate(() =>
+      window.rovdo!.careerCommand({
+        op: 'saveCollectionScope',
+        scope: { version: 1, countries: ['US'], origin: 'user' },
+      }),
+    );
     await page.getByRole('button', { name: 'Jobs', exact: true }).click();
     await page.evaluate(() =>
       window.rovdo!.careerCommand({ op: 'companyDiscovery', action: 'start' }),

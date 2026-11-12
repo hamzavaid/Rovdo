@@ -4,6 +4,7 @@ import { GlobalDiscoveryEngine } from './global-engine';
 
 it('reuses a verified empty pending-name tenant without creating a fake employer source', async () => {
   const store = new CareerStore(':memory:');
+  store.saveCollectionScope({ version: 1, countries: ['US', 'CA', 'GB', 'DE'], origin: 'user' });
   const engine = new GlobalDiscoveryEngine(store, {
     transport: async () => {
       throw new Error('Fresh empty tenant must not fetch');
@@ -27,6 +28,7 @@ it('reuses a verified empty pending-name tenant without creating a fake employer
 it('reuses a due unchanged snapshot after a real conditional 304 response', async () => {
   vi.useFakeTimers({ toFake: ['Date'] });
   const store = new CareerStore(':memory:');
+  store.saveCollectionScope({ version: 1, countries: ['US', 'CA', 'GB', 'DE'], origin: 'user' });
   let conditional = false;
   const engine = new GlobalDiscoveryEngine(store, {
     sleep: async () => {},
@@ -82,6 +84,7 @@ it('reuses a due unchanged snapshot after a real conditional 304 response', asyn
 
 it('reuses a fresh complete board snapshot without refetching, reparsing or reingesting it', async () => {
   const store = new CareerStore(':memory:');
+  store.saveCollectionScope({ version: 1, countries: ['US', 'CA', 'GB', 'DE'], origin: 'user' });
   let requests = 0;
   const engine = new GlobalDiscoveryEngine(store, {
     sleep: async () => {},
@@ -136,6 +139,7 @@ it('reuses a fresh complete board snapshot without refetching, reparsing or rein
 
 it('does not let foreground controls cancel the independent company lane', async () => {
   const store = new CareerStore(':memory:');
+  store.saveCollectionScope({ version: 1, countries: ['US', 'CA', 'GB', 'DE'], origin: 'user' });
   const companies = new GlobalDiscoveryEngine(store, { lane: 'companies' });
   const jobs = new GlobalDiscoveryEngine(store);
   try {

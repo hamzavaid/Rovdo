@@ -1,6 +1,6 @@
 import { expect, it } from 'vitest';
 import { discoveryOptionsForSearch } from './discovery-search';
-it('uses the existing search fields without requesting separate JobSpy keywords', () => {
+it('retains source selection independently of view criteria', () => {
   expect(
     discoveryOptionsForSearch(
       {
@@ -15,13 +15,5 @@ it('uses the existing search fields without requesting separate JobSpy keywords'
       },
       { sourceIds: ['linkedin-jobs'], overrides: {} },
     ),
-  ).toMatchObject({
-    filters: {
-      keywords: 'Firmware engineer',
-      location: 'Los Angeles',
-      workMode: 'remote',
-      employmentType: 'internship',
-      freshnessDays: 7,
-    },
-  });
+  ).toEqual({ sourceIds: ['linkedin-jobs'], overrides: {} });
 });

@@ -9,6 +9,7 @@ test('retires scraping settings and edits typed project proposals in a cancelabl
   const dir = test.info().outputPath('data');
   await mkdir(dir, { recursive: true });
   const store = new CareerStore(resolve(dir, 'rovdo.sqlite'));
+  store.saveCollectionScope({ version: 1, countries: ['US'], origin: 'user' });
   store.saveProfile(sampleCandidate());
   const runId = '00000000-0000-4000-8000-000000000001';
   store.global.saveRun({

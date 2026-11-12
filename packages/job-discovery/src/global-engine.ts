@@ -34,6 +34,7 @@ import {
 import type { DiscoveryRead, DiscoveryRecord } from '@rovdo/job-sources';
 import { stable } from '@rovdo/career';
 import { discoveryQueries } from './queries';
+import { collectionDecision, inferCollectionScope } from './collection-scope';
 const initialState = () =>
   SourceStateSchema.parse({
     status: 'POLLING',
@@ -88,33 +89,26 @@ export class GlobalDiscoveryEngine {
     store.global.recover(this.lane);
   }
   start(input: DiscoveryOptions): string {
-    const options = DiscoveryOptionsSchema.parse(input);
+    const parsed = DiscoveryOptionsSchema.parse(input);
+    const options: DiscoveryOptions = { sourceIds: parsed.sourceIds, overrides: {} };
     if (!options.sourceIds.length) throw new Error('SELECT_SOURCES');
     for (const id of options.sourceIds)
       if (!this.providers.some((s) => s.id === id)) throw new Error('UNKNOWN_SOURCE');
     const profile = this.store.profile();
-    const qualificationQueries: string[] =
-      JSON.parse(this.store.setting('discovery-query-plan-v1') ?? 'null') ??
-      discoveryQueries(
-        profile,
-        this.store.rankings().find((p) => p.id === this.store.defaultRanking())?.minimumEvidence ??
-          0.5,
-      );
-    const keywords = options.filters?.keywords?.trim();
-    const queries = keywords
-      ? [
-          ...new Set([
-            keywords,
-            ...qualificationQueries.map((q) => `${keywords} ${q}`.slice(0, 500)),
-          ]),
-        ]
-      : qualificationQueries;
+    let collectionScope = this.store.collectionScope();
+    const inferred = inferCollectionScope(profile);
+    if (!collectionScope && inferred) collectionScope = this.store.saveCollectionScope(inferred);
+    if (this.lane === 'jobs' && !collectionScope) throw new Error('COLLECTION_COUNTRY_REQUIRED');
+    const scopeIdentity = collectionScope
+      ? `scope-v1:${collectionScope.revision}`
+      : 'historical-unscoped';
+    const queries: string[] = [];
     const duplicate = this.store.global
       .runningRuns()
       .find(
         (r) =>
           (r.lane ?? 'jobs') === this.lane &&
-          r.profileVersion === (profile?.version ?? null) &&
+          r.scopeIdentity === scopeIdentity &&
           stable(r.options) === stable(options) &&
           stable(r.queries) === stable(queries),
       );
@@ -126,6 +120,8 @@ export class GlobalDiscoveryEngine {
       createdAt: Date.now(),
       updatedAt: Date.now(),
       profileVersion: profile?.version ?? null,
+      collectionScope,
+      scopeIdentity,
       queries,
       options,
       reason: null,
@@ -232,6 +228,11 @@ export class GlobalDiscoveryEngine {
   ) {
     const key = [feed.ats, feed.tenant, feed.region].map((v) => v.toLowerCase()).join(':');
     const board = this.store.global.board(key);
+    if (
+      run.collectionScope &&
+      this.store.setting('board-scope:' + key) !== String(run.collectionScope.revision)
+    )
+      return false;
     if (!this.store.global.companyAllowed(feed)) return true;
     if (
       board &&
@@ -242,7 +243,7 @@ export class GlobalDiscoveryEngine {
         company,
         pageUrl,
       );
-      this.store.global.linkSnapshot(run.id, source.id, source.tenant);
+      this.linkSnapshot(run, source.id, source.tenant);
       this.store.global.count(run.id, 'cacheHits');
       this.store.global.note(
         run.id,
@@ -306,8 +307,13 @@ export class GlobalDiscoveryEngine {
           complete: state.cursor === null,
           nextRefresh: state.nextPollAt,
         });
-      if (state.nextPollAt > Date.now() && state.cursor === null) {
-        this.store.global.linkSnapshot(run.id, config.id, config.tenant);
+      if (
+        state.nextPollAt > Date.now() &&
+        state.cursor === null &&
+        (!run.collectionScope ||
+          this.store.setting('saved-scope:' + config.id) === String(run.collectionScope.revision))
+      ) {
+        this.linkSnapshot(run, config.id, config.tenant);
         continue;
       }
       this.enqueue(
@@ -359,6 +365,23 @@ export class GlobalDiscoveryEngine {
   }
   private async cycle() {
     this.store.global.cleanupExpired(Date.now());
+    for (const run of this.store.global
+      .runningRuns()
+      .filter((r) => (r.lane ?? 'jobs') === this.lane)) {
+      if (
+        (run.collectionScope &&
+          run.collectionScope.revision !== this.store.collectionScope()?.revision) ||
+        (!run.collectionScope && this.store.collectionScope())
+      ) {
+        this.store.global.saveRun({
+          ...run,
+          status: 'paused',
+          reason: 'Collection scope changed',
+          updatedAt: Date.now(),
+        });
+        this.start(run.options);
+      }
+    }
     for (const run of this.store.global
       .runningRuns()
       .filter((r) => (r.lane ?? 'jobs') === this.lane)) {
@@ -562,6 +585,11 @@ export class GlobalDiscoveryEngine {
   private assertActive(run: DiscoveryRun, signal: AbortSignal) {
     if (signal.aborted || this.stopping || this.store.global.run(run.id).status !== 'running')
       throw new Error('CANCELED');
+    if (
+      run.collectionScope &&
+      this.store.collectionScope()?.revision !== run.collectionScope.revision
+    )
+      throw new Error('CANCELED');
   }
   private async process(run: DiscoveryRun, task: DiscoveryTask, parent: AbortSignal) {
     this.store.global.saveTask({ ...task, status: 'running' });
@@ -727,7 +755,16 @@ export class GlobalDiscoveryEngine {
             jobs.length,
           );
         this.store.global.event(run.id, 'publish', 'running', jobs.length);
-        if (jobs.length) await this.store.ingestDiscoveredAsync(run.id, config, jobs, signal);
+        if (jobs.length)
+          await this.store.ingestDiscoveredAsync(
+            run.id,
+            config,
+            this.scopedJobs(run, jobs),
+            signal,
+            () =>
+              !run.collectionScope ||
+              this.store.collectionScope()?.revision === run.collectionScope.revision,
+          );
         this.store.global.event(
           run.id,
           'publish',
@@ -860,6 +897,19 @@ export class GlobalDiscoveryEngine {
           safe,
         );
     }
+  }
+  private linkSnapshot(run: DiscoveryRun, sourceId: string, label: string) {
+    this.store.global.linkSnapshot(
+      run.id,
+      sourceId,
+      label,
+      (job) => this.scopedJobs(run, [job]).length > 0,
+    );
+  }
+  private scopedJobs(run: DiscoveryRun, jobs: Job[]) {
+    return run.collectionScope
+      ? jobs.filter((job) => collectionDecision(job, run.collectionScope!.scope).include)
+      : [];
   }
   private priority(run: DiscoveryRun, record: DiscoveryRecord) {
     const text = (record.title + ' ' + record.description + ' ' + record.location).toLowerCase();
@@ -1005,7 +1055,15 @@ export class GlobalDiscoveryEngine {
       }));
       if (jobs.length) {
         this.store.global.event(run.id, 'publish', 'running', jobs.length);
-        await this.store.ingestDiscoveredAsync(run.id, virtual, jobs, signal);
+        await this.store.ingestDiscoveredAsync(
+          run.id,
+          virtual,
+          this.scopedJobs(run, jobs),
+          signal,
+          () =>
+            !run.collectionScope ||
+            this.store.collectionScope()?.revision === run.collectionScope.revision,
+        );
         this.store.global.event(
           run.id,
           'publish',
@@ -1136,8 +1194,16 @@ export class GlobalDiscoveryEngine {
       ? SourceStateSchema.parse(task.payload.state)
       : {
           ...initialState(),
-          etag: priorBoard?.etag ?? null,
-          lastModified: priorBoard?.lastModified ?? null,
+          etag:
+            run.collectionScope &&
+            this.store.setting('board-scope:' + boardKey) !== String(run.collectionScope.revision)
+              ? null
+              : (priorBoard?.etag ?? null),
+          lastModified:
+            run.collectionScope &&
+            this.store.setting('board-scope:' + boardKey) !== String(run.collectionScope.revision)
+              ? null
+              : (priorBoard?.lastModified ?? null),
         };
     const page = await adapter.fetchPage(state, signal);
     this.store.global.boardEvent(run.id, boardKey, 'checked');
@@ -1146,7 +1212,7 @@ export class GlobalDiscoveryEngine {
       this.store.global.validateCompany(feed, observedAt, { complete: true });
       this.store.global.boardEvent(run.id, boardKey, 'verified');
       this.store.global.recordFinderBoard(task.sourceId, boardKey);
-      this.store.global.linkSnapshot(run.id, virtual.id, virtual.tenant);
+      this.linkSnapshot(run, virtual.id, virtual.tenant);
       this.store.global.note(run.id, feed.ats, 'checked-no-new-jobs');
       this.store.global.releaseBoard(task.id);
       this.store.global.saveTask({ ...task, status: 'done' });
@@ -1182,7 +1248,15 @@ export class GlobalDiscoveryEngine {
       },
     }));
     this.store.global.event(run.id, 'publish', 'running', jobs.length);
-    await this.store.ingestDiscoveredAsync(run.id, virtual, jobs, signal);
+    await this.store.ingestDiscoveredAsync(
+      run.id,
+      virtual,
+      this.scopedJobs(run, jobs),
+      signal,
+      () =>
+        !run.collectionScope ||
+        this.store.collectionScope()?.revision === run.collectionScope.revision,
+    );
     this.store.global.event(run.id, 'publish', 'complete', this.store.global.stats(run.id).jobs);
     if (this.lane === 'companies') this.store.global.event(run.id, 'register', 'complete', 1);
     this.store.global.note(
@@ -1192,7 +1266,11 @@ export class GlobalDiscoveryEngine {
       jobs.length,
       page.quarantine?.length ?? 0,
     );
-    if (page.nextCursor === null) this.store.global.releaseBoard(task.id);
+    if (page.nextCursor === null) {
+      if (run.collectionScope && !page.quarantine?.length && !task.payload.partial)
+        this.store.setting('board-scope:' + boardKey, String(run.collectionScope.revision));
+      this.store.global.releaseBoard(task.id);
+    }
     this.store.global.updateListing(
       run.id,
       String(task.payload.listingUrl ?? task.payload.pageUrl),
@@ -1224,6 +1302,10 @@ export class GlobalDiscoveryEngine {
     if (action === 'resume') {
       if (run.status !== 'paused') throw new Error('RUN_NOT_PAUSED');
       await this.work;
+      if (!run.collectionScope && this.lane === 'jobs') {
+        this.start(run.options);
+        return;
+      }
       this.controllers.delete(id);
       this.store.global.saveRun({ ...run, status: 'running', updatedAt: Date.now(), reason: null });
       return;

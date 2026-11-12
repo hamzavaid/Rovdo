@@ -3,6 +3,7 @@ import { CareerStore } from './career';
 import { GlobalDiscoveryEngine } from '@rovdo/job-discovery';
 it('pages company inventory, persists opt-outs and does not mutate collected jobs', async () => {
   const store = new CareerStore(':memory:');
+  store.saveCollectionScope({ version: 1, countries: ['US'], origin: 'user' });
   try {
     for (let n = 0; n < 12; n++) {
       const feed = { ats: 'lever', tenant: `fixture${n}`, region: 'global' };
@@ -27,6 +28,7 @@ it('pages company inventory, persists opt-outs and does not mutate collected job
 });
 it('records real stage events and redacted request history by lane', async () => {
   const store = new CareerStore(':memory:');
+  store.saveCollectionScope({ version: 1, countries: ['US'], origin: 'user' });
   const engine = new GlobalDiscoveryEngine(store, {
     sleep: async () => {},
     transport: async () => ({ status: 200, headers: {}, body: Buffer.from('{"jobs":[]}') }),

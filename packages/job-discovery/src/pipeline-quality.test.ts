@@ -16,6 +16,7 @@ it('quarantines siblings, preserves unknown dates/provenance, deduplicates and s
   const directory = mkdtempSync(join(tmpdir(), 'rovdo-pipeline-'));
   const path = join(directory, 'career.sqlite');
   let store = new CareerStore(path);
+  store.saveCollectionScope({ version: 1, countries: ['US', 'CA', 'GB', 'DE'], origin: 'user' });
   let time = Date.parse(AS_OF + 'T12:00:00Z'),
     fail = false;
   const configs: SourceConfig[] = (['greenhouse', 'lever'] as const).map((ats, i) => ({

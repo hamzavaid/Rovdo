@@ -1,4 +1,8 @@
-import { GlobalDiscoveryEngine, CompanyDiscoveryScheduler } from '@rovdo/job-discovery';
+import {
+  GlobalDiscoveryEngine,
+  CompanyDiscoveryScheduler,
+  inferCollectionScope,
+} from '@rovdo/job-discovery';
 import { canonicalUrl } from '@rovdo/job-sources';
 /**
  * Validates career IPC commands and coordinates local profile, job and source operations.
@@ -51,6 +55,8 @@ export function createCareerService(
   async function readView(input: JobSearch = defaultSearch, summary = false) {
     const search = JobSearchSchema.parse(input);
     const profile = store.profile();
+    const inferred = inferCollectionScope(profile);
+    if (!store.collectionScope() && inferred) store.saveCollectionScope(inferred);
     const saved = store.savedIds();
     const sources = store.sources().filter((s) => s.config.collection !== 'global');
 
@@ -99,6 +105,9 @@ export function createCareerService(
     const discovery = global.view();
     const choices = store.rankingJobChoices();
     return {
+      collectionScope: store.collectionScope(),
+      collectionScopePromptDismissed:
+        store.setting('collection-country-prompt-dismissed') === 'true',
       rankingJobs: choices.rows,
       rankingJobTotal: choices.total,
       ...(store.setting('job-collection-defaults-v1')
@@ -106,6 +115,7 @@ export function createCareerService(
         : {}),
       companyDiscovery: companies.engine.view(),
       companyPage: store.global.companyPage(),
+      starterDirectoryPage: store.starterDirectoryPage({}),
       automaticCompanyDiscovery: store.setting('automatic-company-discovery') !== 'false',
       requests: [] as ReturnType<typeof store.global.requests>['rows'],
       requestTotal: 0,
@@ -167,6 +177,28 @@ export function createCareerService(
   return {
     global,
     companies,
+    async tick() {
+      const inferred = inferCollectionScope(store.profile());
+      if (!store.collectionScope() && inferred) store.saveCollectionScope(inferred);
+      const scope = store.collectionScope();
+      if (scope && process.env.ROVDO_OFFLINE_FIXTURES !== '1') {
+        const latest = global.view().run;
+        const changed = latest?.collectionScope?.revision !== scope.revision;
+        if (
+          (!latest ||
+            changed ||
+            (latest.status === 'completed' && latest.updatedAt + 3600000 <= Date.now())) &&
+          latest?.status !== 'canceled'
+        ) {
+          const defaults = JSON.parse(store.setting('job-collection-defaults-v1') ?? 'null');
+          const options = defaults?.options ?? { sourceIds: [...JOB_SOURCE_IDS], overrides: {} };
+          if (options.sourceIds.length) global.start(options);
+        }
+      }
+      // Explicitly started work advances even when fixture mode disables automatic startup.
+      await global.tick();
+      await companies.tick();
+    },
     async command(
       input: unknown,
       sender: { url: string; isMainFrame: boolean; ownsWindow: boolean },
@@ -177,6 +209,11 @@ export function createCareerService(
       if (!parsed.success) return CareerResultSchema.parse({ ok: false, code: 'VALIDATION_ERROR' });
       const cmd = parsed.data;
       try {
+        if (cmd.op === 'dismissCollectionScopePrompt')
+          store.setting('collection-country-prompt-dismissed', 'true');
+        if (cmd.op === 'saveCollectionScope') {
+          store.saveCollectionScope({ ...cmd.scope, origin: 'user' });
+        }
         if (cmd.op === 'collectionSettings') {
           if (
             cmd.options.sourceIds.some((id) => !(JOB_SOURCE_IDS as readonly string[]).includes(id))
@@ -302,6 +339,8 @@ export function createCareerService(
           cmd.op !== 'view' || cmd.summary === true,
         );
         if (cmd.op === 'companyPage') current.companyPage = store.global.companyPage(cmd.query);
+        if (cmd.op === 'starterDirectoryPage')
+          current.starterDirectoryPage = store.starterDirectoryPage(cmd.query);
         if (cmd.op === 'rankingJobs') {
           const choices = store.rankingJobChoices(cmd.query, cmd.offset);
           current.rankingJobs = choices.rows;

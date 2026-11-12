@@ -4,6 +4,7 @@ import { discoverEmployers, refreshEmployers } from './employers';
 import { EMPLOYERS } from '@rovdo/job-sources';
 it('revalidates expired approved feed metadata but never refreshes opted-out or blocked sources', async () => {
   const store = new CareerStore(':memory:');
+  store.saveCollectionScope({ version: 1, countries: ['US', 'CA', 'GB', 'DE'], origin: 'user' });
   let reads = 0;
   try {
     store.seedDirectory([
@@ -35,6 +36,7 @@ it('revalidates expired approved feed metadata but never refreshes opted-out or 
 });
 it('validates additional public feeds with provenance, robots and no restricted-platform or redirect bypass', async () => {
   const store = new CareerStore(':memory:');
+  store.saveCollectionScope({ version: 1, countries: ['US', 'CA', 'GB', 'DE'], origin: 'user' });
   const urls: string[] = [];
   const transport = async (url: string) => {
     urls.push(url);

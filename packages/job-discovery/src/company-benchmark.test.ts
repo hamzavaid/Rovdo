@@ -6,6 +6,7 @@ import { CareerStore } from '@rovdo/storage';
 import { GlobalDiscoveryEngine } from './global-engine';
 it('streams a bounded inventory with no total cap and reuses cached ATS responses', async () => {
   const store = new CareerStore(':memory:');
+  store.saveCollectionScope({ version: 1, countries: ['US', 'CA', 'GB', 'DE'], origin: 'user' });
   let requests = 0;
   for (let i = 0; i < 100; i++) {
     const feed = { ats: 'lever', tenant: 'fixture' + i, region: 'global' };

@@ -8,6 +8,7 @@ test('boots without ranking and keeps the main event loop responsive during job 
   const dir = test.info().outputPath('responsive-data');
   await mkdir(dir, { recursive: true });
   const store = new CareerStore(resolve(dir, 'rovdo.sqlite'));
+  store.saveCollectionScope({ version: 1, countries: ['US'], origin: 'user' });
   const source = store.globalSource('responsive', 'Fixture', 'https://careers.example');
   store.saveProfile(sampleCandidate());
   store.batch(

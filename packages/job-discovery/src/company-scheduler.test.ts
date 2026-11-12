@@ -6,6 +6,7 @@ import { randomUUID } from 'node:crypto';
 
 it('verifies a valid empty tenant even when its public page cannot establish an employer name', async () => {
   const store = new CareerStore(':memory:');
+  store.saveCollectionScope({ version: 1, countries: ['US', 'CA', 'GB', 'DE'], origin: 'user' });
   store.global.rememberCompany(
     { ats: 'lever', tenant: 'unnamed', region: 'global' },
     '',
@@ -40,6 +41,7 @@ it('verifies a valid empty tenant even when its public page cannot establish an 
 
 it('moves legacy archive cursors without losing checkpoint identity and resumes without root replay', async () => {
   const store = new CareerStore(':memory:');
+  store.saveCollectionScope({ version: 1, countries: ['US', 'CA', 'GB', 'DE'], origin: 'user' });
   const old = randomUUID();
   store.global.saveRun({
     id: old,
@@ -83,6 +85,7 @@ it('moves legacy archive cursors without losing checkpoint identity and resumes 
 
 it('runs company discovery without a search click, but yields all new archive requests to interactive work', async () => {
   const store = new CareerStore(':memory:');
+  store.saveCollectionScope({ version: 1, countries: ['US', 'CA', 'GB', 'DE'], origin: 'user' });
   const calls: string[] = [];
   const jobs = new GlobalDiscoveryEngine(store);
   const companies = new CompanyDiscoveryScheduler(store, {
@@ -122,6 +125,7 @@ it('runs company discovery without a search click, but yields all new archive re
 });
 it('honors the persistent automatic-discovery opt-out', async () => {
   const store = new CareerStore(':memory:');
+  store.saveCollectionScope({ version: 1, countries: ['US', 'CA', 'GB', 'DE'], origin: 'user' });
   store.setting('automatic-company-discovery', 'false');
   const companies = new CompanyDiscoveryScheduler(store, {
     transport: async () => {

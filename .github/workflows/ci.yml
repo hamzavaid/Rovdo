@@ -34,7 +34,10 @@ jobs:
       - run: npm test
       - name: Report reproducible matching measurements
         if: always()
-        run: node scripts/quality-summary.ts
+        shell: bash
+        run: |
+          npm run benchmark:matching
+          node scripts/quality-summary.ts
       - run: npm run build
       - name: Install Electron Linux system dependencies
         if: runner.os == 'Linux'

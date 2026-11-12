@@ -4,6 +4,7 @@ import { GlobalDiscoveryEngine } from './global-engine';
 
 it('bounds unavailable archive retries, keeps independent feeds running and reports partial completion', async () => {
   const store = new CareerStore(':memory:');
+  store.saveCollectionScope({ version: 1, countries: ['US', 'CA', 'GB', 'DE'], origin: 'user' });
   const engine = new GlobalDiscoveryEngine(store, {
     lane: 'companies',
     sleep: async () => {},

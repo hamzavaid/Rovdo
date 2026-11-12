@@ -2,6 +2,7 @@
 import type { DatabaseSync } from 'node:sqlite';
 import { createHash, randomUUID } from 'node:crypto';
 import {
+  JobSchema,
   DiscoveryRunSchema,
   DiscoveryTaskSchema,
   DiscoveryListingSchema,
@@ -9,7 +10,13 @@ import {
   CompanyBoardSchema,
   CompanyQuerySchema,
 } from '@rovdo/shared';
-import type { CompanyBoard, DiscoveryRun, DiscoveryTask, DiscoveryListing } from '@rovdo/shared';
+import type {
+  Job,
+  CompanyBoard,
+  DiscoveryRun,
+  DiscoveryTask,
+  DiscoveryListing,
+} from '@rovdo/shared';
 import { DiscoveryTelemetry } from './discovery-telemetry';
 export class DiscoveryStore extends DiscoveryTelemetry {
   constructor(private readonly db: DatabaseSync) {
@@ -641,7 +648,11 @@ export class DiscoveryStore extends DiscoveryTelemetry {
     return { responses, failures };
   }
   saveRun(input: DiscoveryRun) {
-    const run = DiscoveryRunSchema.parse(input);
+    const run = DiscoveryRunSchema.parse({
+      collectionScope: null,
+      scopeIdentity: 'historical-unscoped',
+      ...input,
+    });
     this.db
       .prepare(
         'INSERT INTO discovery_run VALUES(?,?) ON CONFLICT(id) DO UPDATE SET json=excluded.json',
@@ -651,7 +662,11 @@ export class DiscoveryStore extends DiscoveryTelemetry {
   run(id: string): DiscoveryRun {
     const r = this.db.prepare('SELECT json FROM discovery_run WHERE id=?').get(id);
     if (!r) throw new Error('RUN_NOT_FOUND');
-    return DiscoveryRunSchema.parse(JSON.parse(String(r.json)));
+    return DiscoveryRunSchema.parse({
+      collectionScope: null,
+      scopeIdentity: 'historical-unscoped',
+      ...JSON.parse(String(r.json)),
+    });
   }
   runs(offset = 0, lane?: 'jobs' | 'companies'): DiscoveryRun[] {
     return this.db
@@ -659,7 +674,13 @@ export class DiscoveryStore extends DiscoveryTelemetry {
         `SELECT json FROM discovery_run ${lane ? "WHERE COALESCE(json_extract(json,'$.lane'),'jobs')=?" : ''} ORDER BY rowid DESC LIMIT 20 OFFSET ?`,
       )
       .all(...(lane ? [lane, offset] : [offset]))
-      .map((r) => DiscoveryRunSchema.parse(JSON.parse(String(r.json))));
+      .map((r) =>
+        DiscoveryRunSchema.parse({
+          collectionScope: null,
+          scopeIdentity: 'historical-unscoped',
+          ...JSON.parse(String(r.json)),
+        }),
+      );
   }
   enqueue(input: DiscoveryTask) {
     const t = DiscoveryTaskSchema.parse(input);
@@ -719,7 +740,13 @@ export class DiscoveryStore extends DiscoveryTelemetry {
         "SELECT json FROM discovery_run WHERE json_extract(json,'$.status')='running' ORDER BY rowid",
       )
       .all()
-      .map((r) => DiscoveryRunSchema.parse(JSON.parse(String(r.json))));
+      .map((r) =>
+        DiscoveryRunSchema.parse({
+          collectionScope: null,
+          scopeIdentity: 'historical-unscoped',
+          ...JSON.parse(String(r.json)),
+        }),
+      );
   }
   recover(lane: 'jobs' | 'companies' = 'jobs') {
     for (const row of this.db
@@ -770,12 +797,15 @@ export class DiscoveryStore extends DiscoveryTelemetry {
       .all(runId, offset)
       .map((r) => DiscoveryListingSchema.parse(JSON.parse(String(r.json))));
   }
-  linkSnapshot(runId: string, sourceId: string, label: string) {
-    this.db
+  linkSnapshot(runId: string, sourceId: string, label: string, include?: (job: Job) => boolean) {
+    for (const row of this.db
       .prepare(
-        'INSERT OR IGNORE INTO discovery_job SELECT ?,job_id,? FROM job_source_snapshot WHERE source_id=?',
+        'SELECT s.job_id,j.json FROM job_source_snapshot s JOIN career_job j ON j.id=s.job_id WHERE s.source_id=?',
       )
-      .run(runId, label, sourceId);
+      .iterate(sourceId)) {
+      if (!include || include(JobSchema.parse(JSON.parse(String(row.json)))))
+        this.link(runId, String(row.job_id), label);
+    }
   }
   link(runId: string, jobId: string, sourceId: string) {
     this.db

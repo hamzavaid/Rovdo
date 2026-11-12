@@ -96,6 +96,7 @@ function raw(ats: SourceConfig['ats'], index: number) {
 describe('zero-AI 1,000-job corpus v1', () => {
   it('ingests three ATS formats, ranks stably, retains evidence and polls idempotently without a model', async () => {
     const store = new CareerStore(':memory:');
+    store.saveCollectionScope({ version: 1, countries: ['US', 'CA', 'GB', 'DE'], origin: 'user' });
     let time = Date.parse('2026-10-16T00:00:00Z');
     let calls = 0;
     const transport = async (url: string) => {
@@ -163,6 +164,7 @@ describe('zero-AI 1,000-job corpus v1', () => {
 describe('polling resilience', () => {
   it('preserves accepted jobs on 429/5xx/schema drift and distinguishes empty feeds', async () => {
     const store = new CareerStore(':memory:');
+    store.saveCollectionScope({ version: 1, countries: ['US', 'CA', 'GB', 'DE'], origin: 'user' });
     const config = source('greenhouse', 0);
     let time = 1000000000000;
     let status = 200;
@@ -211,6 +213,7 @@ describe('polling resilience', () => {
   });
   it('handles conditional 304 and rejects off-source pagination', async () => {
     const store = new CareerStore(':memory:');
+    store.saveCollectionScope({ version: 1, countries: ['US', 'CA', 'GB', 'DE'], origin: 'user' });
     const config = source('greenhouse', 0);
     let time = 1000000000000;
     let second = false;
@@ -250,6 +253,7 @@ describe('polling resilience', () => {
 describe('verified profile and eligibility', () => {
   it('preserves verified facts when importing proposals and rejects stale profile edits', () => {
     const store = new CareerStore(':memory:');
+    store.saveCollectionScope({ version: 1, countries: ['US', 'CA', 'GB', 'DE'], origin: 'user' });
     try {
       store.saveProfile(profile);
       store.proposeFacts([
@@ -265,6 +269,7 @@ describe('verified profile and eligibility', () => {
   });
   it('deduplicates canonical targets across sources without losing provenance or saved state', async () => {
     const store = new CareerStore(':memory:');
+    store.saveCollectionScope({ version: 1, countries: ['US', 'CA', 'GB', 'DE'], origin: 'user' });
     const a = source('greenhouse', 0);
     const b = { ...source('lever', 1), company: a.company };
     const fixture = raw('greenhouse', 1) as { absolute_url: string };
