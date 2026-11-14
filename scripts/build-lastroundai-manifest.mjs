@@ -39,7 +39,7 @@ const employers = source.rows.map((entry, index) => {
     !Object.hasOwn(hosts, vendor) ||
     typeof name !== 'string' || !name.trim() || name.length > 500 ||
     typeof slug !== 'string' || !/^[a-zA-Z0-9._-]{1,120}$/.test(slug) ||
-    typeof lastCrawled !== 'string' || !/^\\d{4}-\\d{2}-\\d{2}$/.test(lastCrawled)
+    typeof lastCrawled !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(lastCrawled)
   ) throw new Error('Invalid source row at index ' + index);
   const lowerSlug = slug.toLowerCase();
   const id = 'lastroundai.' + vendor + '.' + lowerSlug;
@@ -74,7 +74,7 @@ const manifest = {
   employers,
 };
 mkdirSync(dirname(output), { recursive: true });
-writeFileSync(output, JSON.stringify(manifest, null, 2) + '\\n', 'utf8');
+writeFileSync(output, JSON.stringify(manifest, null, 2) + '\n', 'utf8');
 console.log(JSON.stringify({
   output, employers: employers.length, ...counts,
   warning: 'These are board candidates, not current jobs or fresh live validations.',
