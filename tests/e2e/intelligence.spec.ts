@@ -66,9 +66,14 @@ test('reviews imported qualifications and manages persisted custom ranking profi
     await expect(page.getByLabel('Ranking name', { exact: true })).toHaveValue(
       'Technical Balanced v2_clone',
     );
+    // A late geography response must not make the ranking editor inert.
+    await expect(page.getByRole('dialog', { name: 'Choose collection countries' })).toHaveCount(0);
     await expect(page.getByLabel('confidence threshold', { exact: true })).toHaveValue('75');
     await page.getByLabel('confidence threshold', { exact: true }).fill('80');
     await page.getByLabel('Ranking name', { exact: true }).fill('My conservative backend');
+    await expect(page.getByLabel('Ranking name', { exact: true })).toHaveValue(
+      'My conservative backend',
+    );
     const skills = Number(await page.getByLabel('skills weight', { exact: true }).inputValue());
     const experience = Number(
       await page.getByLabel('experience weight', { exact: true }).inputValue(),
@@ -94,6 +99,15 @@ test('reviews imported qualifications and manages persisted custom ranking profi
     await expect(page.getByLabel('Ranking name', { exact: true })).toHaveCount(0);
     await expect(page.getByRole('heading', { name: 'Classic', exact: true })).toBeVisible();
     await expect(page.getByLabel('skills weight', { exact: true })).toBeDisabled();
+    await page
+      .getByRole('navigation', { name: 'Jobs views' })
+      .getByRole('button', { name: 'Find Jobs', exact: true })
+      .click();
+    const countries = page.getByRole('dialog', { name: 'Choose collection countries' });
+    await expect(countries).toBeVisible();
+    await countries
+      .getByRole('button', { name: 'Close qualification editor', exact: true })
+      .click();
     const providers = await page.evaluate(() => window.rovdo!.getSettings());
     expect(providers.ok && providers.settings.profiles.length).toBe(0);
   } finally {

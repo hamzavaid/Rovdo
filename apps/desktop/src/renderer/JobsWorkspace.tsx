@@ -250,14 +250,17 @@ export function JobsWorkspace({
         ))}
       </nav>
       {error && <p role="alert">{error}</p>}
-      {view && view.collectionScope === null && !view.collectionScopePromptDismissed && (
-        <ProfileDialog
-          title="Choose collection countries"
-          onClose={() => void command({ op: 'dismissCollectionScopePrompt' })}
-        >
-          <CollectionCountries busy={busy} command={command} />
-        </ProfileDialog>
-      )}
+      {page === 'find' &&
+        view &&
+        view.collectionScope === null &&
+        !view.collectionScopePromptDismissed && (
+          <ProfileDialog
+            title="Choose collection countries"
+            onClose={() => void command({ op: 'dismissCollectionScopePrompt' })}
+          >
+            <CollectionCountries busy={busy} command={command} />
+          </ProfileDialog>
+        )}
       {(page === 'find' || page === 'saved') && (
         <section className="jobs-page" aria-label={page === 'find' ? 'Find jobs' : 'Saved jobs'}>
           <div className="jobs-row">

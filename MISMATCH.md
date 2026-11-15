@@ -33,6 +33,21 @@ The scope and starter directory implementations have focused verification. The s
 - Actual: Startup uses all 9,935 supplied candidates, retains five additional legacy entries and preserves established identities for five matching boards. The source file is unchanged under `packages/job-sources/data/`. No complete reference-set membership or current live verification is claimed.
 - Resolution: The revised release has 9,940 directory entries, 9,907 recognized boards and 33 coverage gaps. Earlier manifests and installed history remain available; only exact reviewed canonical-board matches share legacy identities.
 
+## MM-004: Delayed geography prompt blocked ranking edits
+
+- Status: Resolved (2026-11-14)
+- Severity: Medium
+- Expected: An unresolved collection geography must not interrupt editing a ranking configuration or browsing other Jobs pages.
+- Actual: The country dialog mounted on every Jobs page when a delayed view response arrived. The native modal made the ranking form inert, so keyboard edits were ignored and the Save button incorrectly appeared to stay enabled for an under-allocated draft.
+- Resolution: Show the one-time prompt only on Find Jobs. Returning there still asks for unresolved geography; dismissal and saved country settings retain their existing behavior. No ranking/scoring, IPC, schema or storage contract changed.
+- Verification: The new no-dialog assertion failed before the fix. After the fix, the existing ranking flow verifies that edits persist, a 95-point allocation disables Save, keyboard reallocation restores 100 points, and returning to Find Jobs still prompts for countries. The ranking and geography Electron scenarios passed, including the full suite.
+
+## Current regression verification (2026-11-14)
+
+Windows, Node 24.11.1 and npm 11.6.2, synthetic fixtures only. The final `npm test` exited 1 with 637 passed, 16 failed and seven skipped; every failure belongs to the deferred #5 dispatcher or #7 progress tests. The final full Electron run exited 1 with 22 passed and one failed: `discovery-upgrade-responsiveness.spec.ts:136`, owned by #6/#8. All current-scope tests passed in these final runs.
+
+Formatting, lint, build and the high-severity audit gate passed. Audit reported nine moderate advisories. `npm run check` exited 2 at #7's missing `DiscoveryProgressSchema` export. The earlier corpus, inventory and CLI permission timeouts did not reproduce in the focused baseline (14 tests passed) or final unit suite. One intermediate combined Electron run timed out in the existing search scenario; that scenario passed in the final full run. These results do not establish the causes of intermittent timeouts. No assertions, timeouts, isolation, policy checks or deferred tests were weakened or removed.
+
 ## Current CI limitation
 
 The latest inspected hosted data-branch run, `43576781918`, fails Prettier on `scripts/build-lastroundai-manifest.mjs`. The generator was initially reused, formatted and verified to reproduce the supplied manifest. The user subsequently requested removal of the duplicate `data/ats` source; that folder and its now-unused generator were removed. The runtime manifest remains unchanged, with attribution beside it in `packages/job-sources/data/README.md`.
