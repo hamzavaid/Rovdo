@@ -2,7 +2,8 @@
 import { createHash } from 'node:crypto';
 import { setImmediate as yieldImmediate } from 'node:timers/promises';
 import { EMPLOYERS, feedFromUrl } from './directory';
-import { StarterDirectoryManifestSchema } from '@rovdo/shared';
+import { canonicalBoardUrl, StarterDirectoryManifestSchema } from '@rovdo/shared';
+import suppliedDirectory from '../data/Rovdo_Starter_Directory.json' with { type: 'json' };
 import type { StarterDirectoryManifest, StarterEmployer } from '@rovdo/shared';
 export interface StarterDirectorySink {
   starterDirectoryState(release: string, hash: string): { after: string; complete: boolean };
@@ -76,7 +77,7 @@ function employer(
   };
 }
 /** Reviewed factual starter subset. This release does not claim the three reference sets are complete. */
-export const STARTER_DIRECTORY: StarterDirectoryManifest = {
+export const REVIEWED_STARTER_DIRECTORY: StarterDirectoryManifest = {
   version: 1,
   releasedAt,
   employers: [
@@ -148,6 +149,38 @@ export const STARTER_DIRECTORY: StarterDirectoryManifest = {
     ),
   ],
 };
+
+/**
+ * Match only reviewed board identities, never names: subsidiaries and same-name employers
+ * remain distinct. Keep established IDs/aliases/categories for upgrades from the prior release.
+ * The supplied board candidates carry dated source provenance, not fresh verification or permission.
+ */
+const reviewedByBoard = new Map(
+  REVIEWED_STARTER_DIRECTORY.employers.flatMap((entry) =>
+    entry.boards.map((board) => [canonicalBoardUrl(board.url), entry] as const),
+  ),
+);
+const retained = new Set<string>();
+export const STARTER_DIRECTORY: StarterDirectoryManifest = StarterDirectoryManifestSchema.parse({
+  version: suppliedDirectory.version,
+  releasedAt: suppliedDirectory.releasedAt,
+  employers: [
+    ...suppliedDirectory.employers.map((entry) => {
+      const reviewed = reviewedByBoard.get(canonicalBoardUrl(entry.boards[0]!.url));
+      if (!reviewed) return entry;
+      retained.add(reviewed.id);
+      return {
+        ...entry,
+        id: reviewed.id,
+        name: reviewed.name,
+        aliases: [...new Set([...reviewed.aliases, ...entry.aliases])],
+        categories: [...reviewed.categories],
+        provenance: [...entry.provenance, ...reviewed.provenance],
+      };
+    }),
+    ...REVIEWED_STARTER_DIRECTORY.employers.filter((entry) => !retained.has(entry.id)),
+  ],
+});
 
 /** Prior release stays available; applying it cannot revoke identities from a newer release. */
 export const PRIOR_STARTER_DIRECTORY: StarterDirectoryManifest = {

@@ -35,6 +35,8 @@ export class DiscoveryStore extends DiscoveryTelemetry {
  CREATE TABLE IF NOT EXISTS company_board_state(identity TEXT PRIMARY KEY,json TEXT NOT NULL,lease_owner TEXT,lease_until INTEGER NOT NULL DEFAULT 0);
  CREATE TABLE IF NOT EXISTS company_inventory(identity TEXT PRIMARY KEY,ats TEXT NOT NULL,tenant TEXT NOT NULL,region TEXT NOT NULL,company TEXT NOT NULL,page_url TEXT NOT NULL,discovered_at INTEGER NOT NULL,observed_at INTEGER NOT NULL,validated_at INTEGER,UNIQUE(ats,tenant,region));
  CREATE INDEX IF NOT EXISTS inventory_validated ON company_inventory(validated_at,identity);
+ -- Starter installation resolves each canonical board before inserting; keep those lookups indexed.
+ CREATE INDEX IF NOT EXISTS inventory_canonical_board ON company_inventory(lower(ats)||':'||lower(tenant)||':'||lower(region),identity);
  CREATE TABLE IF NOT EXISTS discovery_run(id TEXT PRIMARY KEY,json TEXT NOT NULL);
  CREATE TABLE IF NOT EXISTS discovery_task(id TEXT PRIMARY KEY,run_id TEXT NOT NULL REFERENCES discovery_run(id),status TEXT NOT NULL,next_at INTEGER NOT NULL,priority REAL NOT NULL,json TEXT NOT NULL);
  CREATE INDEX IF NOT EXISTS discovery_ready ON discovery_task(run_id,status,next_at,priority);

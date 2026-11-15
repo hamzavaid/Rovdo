@@ -200,9 +200,16 @@ test('filters and pages cached jobs, saves searches, tracks feedback and compare
     await nav.getByRole('button', { name: 'Companies', exact: true }).click();
     const inventory = page.getByRole('region', { name: 'Verified Source Directory' });
     await expect(inventory.locator('.company-directory-card')).toHaveCount(25);
+    const firstEmployer = await inventory
+      .locator('.company-directory-card h3')
+      .first()
+      .textContent();
     await inventory.getByRole('button', { name: 'Next', exact: true }).click();
-    // Thirty-two fixture boards plus eight starter boards span pages of 25 and 15.
-    await expect(inventory.locator('.company-directory-card')).toHaveCount(15);
+    // The full starter release keeps subsequent inventory pages populated too.
+    await expect(inventory.locator('.company-directory-card')).toHaveCount(25);
+    await expect(inventory.locator('.company-directory-card h3').first()).not.toHaveText(
+      firstEmployer!,
+    );
     await expect(
       page.getByRole('heading', { name: 'Saved employer directory', exact: true }),
     ).toBeVisible();

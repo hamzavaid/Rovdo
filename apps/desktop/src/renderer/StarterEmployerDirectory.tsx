@@ -34,8 +34,9 @@ export function StarterEmployerDirectory({ initial }: { initial: Page | undefine
     <section className="surface-card" aria-labelledby="starter-directory-title">
       <h2 id="starter-directory-title">Starter employers</h2>
       <p>
-        Reviewed employer metadata. The current starter subset does not include the full Fortune
-        500, Nasdaq-100 and Forbes Global 2000 union.
+        Employer board candidates from the August 2026 LastRound AI directory, with retained
+        reviewed company metadata. This directory does not claim reference-list membership or
+        current job availability.
       </p>
       <p>
         Directory inclusion, intended adapter, collection permission, and last successful live
@@ -66,7 +67,7 @@ export function StarterEmployerDirectory({ initial }: { initial: Page | undefine
             </p>
           ))}
           <p className="help-text">
-            Metadata reviewed: {dateLabel(Date.parse(e.provenance[0]!.checkedAt))}
+            Source checked: {dateLabel(Date.parse(e.provenance[0]!.checkedAt))}
           </p>
         </article>
       ))}

@@ -109,8 +109,8 @@ test('Search All Saved Companies collects fixture feeds without employer identif
       page.getByRole('heading', { name: 'Verified Source Directory', exact: true }),
     ).toBeVisible();
     const inventory = page.getByRole('region', { name: 'Verified Source Directory', exact: true });
-    // The reviewed starter release contains eight ATS boards and two explicit coverage gaps.
-    await expect(inventory.locator('.company-directory-card:visible')).toHaveCount(8);
+    // The supplied starter release fills a page; collection status is independent of inclusion.
+    await expect(inventory.locator('.company-directory-card:visible')).toHaveCount(25);
     const entry = inventory.locator('.company-directory-card:visible').first();
     const heading = entry.locator('h3'),
       toggle = entry.getByRole('button', { name: 'Disable', exact: true });
