@@ -1,9 +1,52 @@
 # Implementation mismatches
 
 Verification status: Partial
-Last reviewed: 2026-11-14
+Last reviewed: 2026-11-15
 
 The scope and starter directory implementations have focused verification. The supplied directory replaces the reference-set union requirement for the current #3 task. This is not an exhaustive implementation or security audit. Historical delivery reports remain dated evidence.
+
+## Workable adapter slice for #4 (2026-11-15)
+
+Workable now collects its documented public GET feed through the existing bounded,
+unauthenticated transport. Source/job/board/manifest schemas, registry defaults,
+installer recognition, archive host scopes, saved polling, global collection and
+source controls accept the new family. Shortcodes and fixed public job links retain
+stable identity; descriptions, multiple locations and remote restrictions survive
+normalization. Empty boards, malformed siblings, conditional refresh, cancellation,
+robots denial and historical removal grace have fixture coverage. No generic POST,
+IPC capability, database layout, dependency or existing directory release changed.
+
+The dated coverage review found 9,907 recognized routes among 9,940 startup entries.
+The supplied directory has no Workable or Workday entries, so no installed-directory
+coverage gain is claimed. Reference-list membership and most industry classifications
+were not supplied. Workday and the two custom-site gaps remain unsupported; this
+slice does not claim exhaustive major-employer coverage or authorized Workday access.
+
+Windows, Node 24.11.1 and npm 11.6.2: behavioral adapter and saved-board-URL regressions
+failed before their fixes. Before committing, an isolated staged snapshot excluding
+the separate Jobs-refresh performance changes passed all nine Workable tests. The
+broader suite figures below were measured in the shared working tree, which also
+contained those performance changes. The focused regression command passed 58 tests with three
+live-source skips. The final `npm test` exited 1 with 649 passes, 16 existing #5/#7
+dispatcher/progress failures and eight skips; all nine new Workable tests passed.
+`npm run check` exited 2 at the existing missing `DiscoveryProgressSchema` export,
+after formatting and lint passed. `npm run build` and
+`npm audit --audit-level=high` exited 0; audit reported nine moderate advisories.
+
+The full `npm run test:e2e` exited 1 with 21 passes, three failures and one opt-in
+skip. The existing cached-card responsiveness failure remains at the 1,000 ms
+assertion before active collection. An old source-picker assertion expected eleven
+sources; it now requires twelve and explicitly checks Workable selection. The other
+failure was the existing cached-search scenario's 30-second timeout. A subsequent
+targeted run of global discovery, cached search and Workable acceptance exited 0
+with all four scenarios passing, including registration, scoped collection, restart
+persistence and Workable company filtering. This is not a single green full-suite
+result; the timeout's cause remains unestablished.
+
+No deadline, isolation or policy gate was weakened. These are Windows fixture
+results; live protocol checks establish only dated feasibility, not ongoing board
+availability or other-platform certification. The coverage matrix, source decision,
+contract review and detailed command evidence remain in private local documentation.
 
 ## MM-001: Conflicting Jobs navigation, ranking and pagination instructions
 

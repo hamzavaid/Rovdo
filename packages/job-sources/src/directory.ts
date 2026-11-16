@@ -85,9 +85,17 @@ export function feedFromUrl(value: string): Pick<SourceConfig, 'ats' | 'tenant' 
     'jobs.ashbyhq.com': 'ashby',
     'careers.smartrecruiters.com': 'smartrecruiters',
     'jobs.smartrecruiters.com': 'smartrecruiters',
+    'apply.workable.com': 'workable',
   };
   const ats = hosts[u.hostname];
   const tenant = u.pathname.split('/')[1];
+  // Workable's account-less /j shortlinks and API routes never identify an employer board.
+  if (
+    ats === 'workable' &&
+    (!/^\/[a-zA-Z0-9_-]+(?:\/j\/[a-zA-Z0-9_-]+)?\/?$/.test(u.pathname) ||
+      ['j', 'api'].includes(tenant!))
+  )
+    return null;
   return ats && tenant && /^[a-zA-Z0-9_-]{1,120}$/.test(tenant)
     ? { ats, tenant, region: u.hostname === 'jobs.eu.lever.co' ? 'eu' : 'global' }
     : null;

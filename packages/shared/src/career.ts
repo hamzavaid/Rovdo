@@ -82,7 +82,14 @@ export const CandidateProfileSchema = z
   .refine((v) => new Set(v.facts.map((f) => f.id)).size === v.facts.length);
 export type CandidateProfile = z.infer<typeof CandidateProfileSchema>;
 export type ProfileFact = z.infer<typeof ProfileFactSchema>;
-export const AtsKindSchema = z.enum(['greenhouse', 'lever', 'ashby', 'smartrecruiters', 'jsonld']);
+export const AtsKindSchema = z.enum([
+  'greenhouse',
+  'lever',
+  'ashby',
+  'smartrecruiters',
+  'workable',
+  'jsonld',
+]);
 export const EmployerSchema = z
   .strictObject({
     id: z.string().max(200),
@@ -194,6 +201,7 @@ export const JobSchema = z.strictObject({
     'lever',
     'ashby',
     'smartrecruiters',
+    'workable',
     'jsonld',
     'public-api',
     'github-list',

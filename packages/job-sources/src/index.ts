@@ -140,6 +140,10 @@ export function sourceEndpoint(s: SourceConfig): string {
     return `https://${s.region === 'eu' ? 'api.eu.lever.co' : 'api.lever.co'}/v0/postings/${s.tenant}?mode=json&limit=100`;
   if (s.ats === 'smartrecruiters')
     return `https://api.smartrecruiters.com/v1/companies/${s.tenant}/postings?limit=20&offset=0`;
+  // Documented /api/accounts/{tenant}?details=true redirects to this exact public GET.
+  // Use its reviewed destination directly; the public transport still never follows redirects.
+  if (s.ats === 'workable')
+    return `https://apply.workable.com/api/v1/widget/accounts/${s.tenant}?details=true`;
   if (s.ats === 'jsonld') {
     if (!s.pageUrl || !permittedPage(s.pageUrl) || !s.directoryId)
       throw new Error('PAGE_NOT_APPROVED');
@@ -193,6 +197,7 @@ export class AtsAdapter implements JobSourceAdapter {
     SourceConfigSchema.parse(source);
   }
   async fetchPage(state: SourceState, signal: AbortSignal): Promise<JobPage> {
+    signal.throwIfAborted();
     const url = new URL(sourceEndpoint(this.source));
     const light = this.source.ats === 'greenhouse' && this.options.lightweight === true;
     if (light) url.searchParams.delete('content');
@@ -213,14 +218,18 @@ export class AtsAdapter implements JobSourceAdapter {
       if (state.etag) headers['if-none-match'] = state.etag;
       if (state.lastModified) headers['if-modified-since'] = state.lastModified;
     }
-    if (this.source.ats === 'jsonld') {
+    if (this.source.ats === 'jsonld' || this.source.ats === 'workable') {
       const robots = await this.read(new URL('/robots.txt', url).href, { signal });
       if (
         robots.status !== 404 &&
         (robots.status !== 200 ||
           !robotsAllow(robots.body.toString('utf8'), url.pathname + url.search))
       )
-        throw new SourceError(robots.status, 0, 'ROBOTS_BLOCKED');
+        throw new SourceError(
+          robots.status,
+          retryDelay(robots.headers['retry-after']),
+          'ROBOTS_BLOCKED',
+        );
     }
     const response = await this.read(url.href, { headers, signal });
     if (response.status === 304)
@@ -545,6 +554,64 @@ export class AtsAdapter implements JobSourceAdapter {
         mode = r.location?.remote ? 'remote' : 'unknown';
         posted = timestamp(r.releasedDate);
         commitment = r.typeOfEmployment?.label ?? '';
+      } else if (s.ats === 'workable') {
+        const place = z.looseObject({
+          country: text.optional(),
+          countryCode: z
+            .string()
+            .regex(/^[A-Z]{2}$/)
+            .optional(),
+          city: text.optional(),
+          region: text.optional(),
+          hidden: z.boolean().optional(),
+        });
+        const r = z
+          .looseObject({
+            shortcode: z.string().regex(/^[a-zA-Z0-9_-]{1,120}$/),
+            title: text,
+            url: text,
+            description: text,
+            employment_type: text.optional(),
+            telecommuting: z.boolean().optional(),
+            published_on: text.optional(),
+            country: text.optional(),
+            city: text.optional(),
+            state: text.optional(),
+            locations: z.array(place).max(100).optional(),
+          })
+          .parse(raw);
+        const link = new URL(r.url);
+        if (
+          link.origin !== 'https://apply.workable.com' ||
+          link.username ||
+          link.password ||
+          ![`/j/${r.shortcode}`, `/${s.tenant}/j/${r.shortcode}`].includes(
+            link.pathname.replace(/\/$/, ''),
+          )
+        )
+          throw new Error('INVALID_JOB_URL');
+        title = r.title;
+        sourceId = r.shortcode;
+        url = `https://apply.workable.com/j/${r.shortcode}`;
+        description = plain(r.description);
+        if (!description.trim()) throw new Error('INCOMPLETE_JOB');
+        const places = r.locations?.filter((p) => !p.hidden) ?? [];
+        extraCountries = places.flatMap((p) => (p.countryCode ? [p.countryCode] : []));
+        country = extraCountries[0] ?? r.country ?? '';
+        // Retain every published location. Telecommuting does not mean worldwide eligibility.
+        location = [
+          ...new Set(
+            [
+              [r.city, r.state, r.country].filter(Boolean).join(', '),
+              ...places.map((p) =>
+                [p.city, p.region, p.country ?? p.countryCode].filter(Boolean).join(', '),
+              ),
+            ].filter(Boolean),
+          ),
+        ].join('; ');
+        mode = r.telecommuting === true ? 'remote' : 'unknown';
+        commitment = r.employment_type ?? '';
+        posted = timestamp(r.published_on);
       } else if (s.ats === 'jsonld') {
         const r = z
           .looseObject({
@@ -766,7 +833,12 @@ export class AtsAdapter implements JobSourceAdapter {
               rawSha256: hash,
               fields: {
                 title: s.ats === 'lever' ? 'text' : 'title',
-                description: s.ats === 'greenhouse' ? 'content' : 'descriptionPlain',
+                description:
+                  s.ats === 'greenhouse'
+                    ? 'content'
+                    : s.ats === 'workable'
+                      ? 'description'
+                      : 'descriptionPlain',
                 eligibility: 'explicit description excerpts only',
               },
             },

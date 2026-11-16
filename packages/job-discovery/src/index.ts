@@ -238,7 +238,9 @@ export class DiscoveryEngine {
         }
         if (complete) {
           if (state.rejected === 0) this.store.setting('saved-scope:' + id, String(scope.revision));
-          if (['greenhouse', 'lever', 'ashby', 'smartrecruiters'].includes(config.ats)) {
+          if (
+            ['greenhouse', 'lever', 'ashby', 'smartrecruiters', 'workable'].includes(config.ats)
+          ) {
             const feed = { ats: config.ats, tenant: config.tenant, region: config.region };
             const pageUrl =
               config.pageUrl ??
@@ -250,7 +252,9 @@ export class DiscoveryEngine {
                     d.tenant.toLowerCase() === config.tenant.toLowerCase() &&
                     d.region === config.region,
                 )?.pageUrl ??
-              sourceEndpoint(config);
+              (config.ats === 'workable'
+                ? `https://apply.workable.com/${config.tenant}`
+                : sourceEndpoint(config));
             this.store.global.rememberCompany(feed, config.company, pageUrl, this.now());
             this.store.global.validateCompany(feed, this.now(), {
               complete: state.rejected === 0,

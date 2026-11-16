@@ -4,8 +4,8 @@ import { DISCOVERY_SOURCES, GLOBAL_DEFAULT_SOURCES } from '@rovdo/job-sources';
 import { migrateDiscoveryOptions } from '@rovdo/shared';
 import { GlobalDiscoveryEngine } from './global-engine';
 
-it('keeps exactly eleven job adapters and excludes archive finders from foreground work', async () => {
-  expect(DISCOVERY_SOURCES).toHaveLength(11);
+it('keeps exactly twelve job adapters and excludes archive finders from foreground work', async () => {
+  expect(DISCOVERY_SOURCES).toHaveLength(12);
   expect(GLOBAL_DEFAULT_SOURCES).not.toContain('wayback');
   expect(GLOBAL_DEFAULT_SOURCES).not.toContain('common-crawl');
   const store = new CareerStore(':memory:');
@@ -34,6 +34,6 @@ it('migrates archive-only and mixed selections without reviving explicitly empty
   ).toEqual(['lever']);
   expect(
     migrateDiscoveryOptions({ sourceIds: ['wayback', 'common-crawl'], overrides: {} }).sourceIds,
-  ).toHaveLength(11);
+  ).toHaveLength(12);
   expect(migrateDiscoveryOptions({ sourceIds: [], overrides: {} }).sourceIds).toEqual([]);
 });

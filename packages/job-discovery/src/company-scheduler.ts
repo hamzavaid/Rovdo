@@ -18,7 +18,15 @@ export class CompanyDiscoveryScheduler {
     const running = this.store.global.runningRuns().find((r) => r.lane === 'companies');
     if (running) return running.id;
     const id = this.engine.start({
-      sourceIds: ['greenhouse', 'lever', 'ashby', 'smartrecruiters', 'wayback', 'common-crawl'],
+      sourceIds: [
+        'greenhouse',
+        'lever',
+        'ashby',
+        'smartrecruiters',
+        'workable',
+        'wayback',
+        'common-crawl',
+      ],
       overrides: {},
     });
     this.store.setting('company-discovery-next', String(Date.now() + 7 * 86400000));

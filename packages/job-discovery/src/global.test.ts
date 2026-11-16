@@ -4,7 +4,11 @@ import { discoveryQueries } from './queries';
 import { sampleCandidate } from '../../../tests/fixtures/ranking-v2';
 import { JobSearchSchema } from '@rovdo/shared';
 it('catalogs only supported useful sources', () => {
-  expect(BOARD_REGISTRY).toHaveLength(11);
+  expect(BOARD_REGISTRY).toHaveLength(12);
+  expect(BOARD_REGISTRY.find((s) => s.id === 'workable')).toMatchObject({
+    adapter: 'ats',
+    status: 'ready',
+  });
   expect(BOARD_REGISTRY.every((s) => s.status === 'ready')).toBe(true);
   expect(BOARD_REGISTRY.some((s) => s.name === 'LinkedIn Jobs')).toBe(false);
 });

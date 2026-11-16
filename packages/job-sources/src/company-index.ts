@@ -12,6 +12,7 @@ const patterns = [
   'jobs.ashbyhq.com/*',
   'careers.smartrecruiters.com/*',
   'jobs.smartrecruiters.com/*',
+  'apply.workable.com/*',
 ];
 // Tenant prefixes partition a potentially enormous host scan. Walk every allowed
 // first character; these are resumable batches, not a cap on employers or jobs.

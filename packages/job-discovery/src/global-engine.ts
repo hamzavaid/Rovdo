@@ -139,7 +139,7 @@ export class GlobalDiscoveryEngine {
     if (
       this.lane === 'jobs' &&
       options.sourceIds.some((id) =>
-        ['greenhouse', 'lever', 'ashby', 'smartrecruiters'].includes(id),
+        ['greenhouse', 'lever', 'ashby', 'smartrecruiters', 'workable'].includes(id),
       )
     ) {
       const savedAfter = this.seedSavedCompanies(run, '');
@@ -295,7 +295,9 @@ export class GlobalDiscoveryEngine {
             ? 'job-boards.greenhouse.io'
             : config.ats === 'ashby'
               ? 'jobs.ashbyhq.com'
-              : 'careers.smartrecruiters.com';
+              : config.ats === 'workable'
+                ? 'apply.workable.com'
+                : 'careers.smartrecruiters.com';
       const pageUrl = config.pageUrl ?? `https://${host}/${config.tenant}`;
       const feed = { ats: config.ats, tenant: config.tenant, region: config.region };
       this.store.global.rememberCompany(feed, config.company, pageUrl, state.lastSuccessAt);
@@ -1143,7 +1145,7 @@ export class GlobalDiscoveryEngine {
   ) {
     const feed = z
       .object({
-        ats: z.enum(['greenhouse', 'lever', 'ashby', 'smartrecruiters']),
+        ats: z.enum(['greenhouse', 'lever', 'ashby', 'smartrecruiters', 'workable']),
         tenant: z.string().regex(/^[a-zA-Z0-9_-]{1,120}$/),
         region: z.enum(['global', 'eu']),
       })

@@ -21,7 +21,10 @@ export const BOARD_REGISTRY = boards.map((board) =>
     adapter:
       adapters[board.name] ?? (board.url.startsWith('https://github.com/') ? 'github-list' : 'ats'),
     status: 'ready',
-    policyUrl: board.url,
+    policyUrl:
+      board.name === 'Workable'
+        ? 'https://help.workable.com/hc/en-us/articles/115012771647-Using-the-Workable-API-to-create-a-careers-page'
+        : board.url,
     limitation:
       'Public source. Source policies, availability, TTLs and collection health apply; employer postings are verified separately.',
   }),

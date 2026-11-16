@@ -61,7 +61,7 @@ export function StarterEmployerDirectory({ initial }: { initial: Page | undefine
           {e.boards.map((b) => (
             <p key={b.url} className="company-source-url">
               {b.url} | Intended adapter: {b.adapter} |{' '}
-              {['greenhouse', 'lever', 'ashby', 'smartrecruiters'].includes(b.adapter)
+              {['greenhouse', 'lever', 'ashby', 'smartrecruiters', 'workable'].includes(b.adapter)
                 ? 'Live status in board inventory'
                 : 'Coverage gap: no automatic collector for this board'}
             </p>

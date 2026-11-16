@@ -13,6 +13,7 @@ const hosts = new Set([
   'jobs.ashbyhq.com',
   'careers.smartrecruiters.com',
   'jobs.smartrecruiters.com',
+  'apply.workable.com',
 ]);
 type Entry = { key: string; part: string; offset: number; length: number; next: number };
 export async function readCommonCrawlIndex(

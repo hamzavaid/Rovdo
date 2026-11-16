@@ -468,7 +468,7 @@ export function CompaniesWorkspace({
                 setQuery({ ...query, provider: e.target.value as typeof query.provider, offset: 0 })
               }
             >
-              {['all', 'greenhouse', 'lever', 'ashby', 'smartrecruiters'].map((v) => (
+              {['all', 'greenhouse', 'lever', 'ashby', 'smartrecruiters', 'workable'].map((v) => (
                 <option key={v}>{v}</option>
               ))}
             </select>

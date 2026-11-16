@@ -33,7 +33,7 @@ export function JobCard({
     m.job.activeStatus === 'open' &&
     (m.job.discovery
       ? m.job.discovery.kind === 'employer' && m.job.discovery.availability === 'verified'
-      : ['greenhouse', 'lever', 'ashby', 'smartrecruiters'].includes(m.job.source) &&
+      : ['greenhouse', 'lever', 'ashby', 'smartrecruiters', 'workable'].includes(m.job.source) &&
         m.job.provenance.length > 0);
   const checked =
     m.job.discovery?.checkedAt ??

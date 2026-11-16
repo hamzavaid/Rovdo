@@ -11,7 +11,7 @@ import type {
 import type { z } from 'zod';
 type View = z.infer<typeof DiscoveryViewSchema>;
 const archiveSources = new Set(['wayback', 'common-crawl']);
-const atsSources = new Set(['greenhouse', 'lever', 'ashby', 'smartrecruiters']);
+const atsSources = new Set(['greenhouse', 'lever', 'ashby', 'smartrecruiters', 'workable']);
 function sourceReason(code: string | null): string {
   if (!code) return 'None';
   if (/^HTTP_5\d\d$/.test(code))

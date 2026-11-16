@@ -46,7 +46,7 @@ export function ManualJobSource({
           <label>
             ATS
             <select value={ats} onChange={(e) => setAts(e.target.value as SourceConfig['ats'])}>
-              {['greenhouse', 'lever', 'ashby', 'smartrecruiters'].map((v) => (
+              {['greenhouse', 'lever', 'ashby', 'smartrecruiters', 'workable'].map((v) => (
                 <option key={v}>{v}</option>
               ))}
             </select>

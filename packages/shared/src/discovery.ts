@@ -41,6 +41,7 @@ export function canonicalBoardUrl(raw: string): string {
       'jobs.eu.lever.co',
       'jobs.ashbyhq.com',
       'careers.smartrecruiters.com',
+      'apply.workable.com',
     ].includes(url.hostname)
   ) {
     // These providers route every tenant path to the same case-insensitive board identity.
@@ -75,6 +76,7 @@ export const StarterEmployerSchema = z.strictObject({
           'lever',
           'ashby',
           'smartrecruiters',
+          'workable',
           'jsonld',
           'workday',
           'unsupported',
@@ -120,6 +122,7 @@ export const JOB_SOURCE_IDS = [
   'lever',
   'ashby',
   'smartrecruiters',
+  'workable',
   'remotive',
   'himalayas',
   'we-work-remotely',
@@ -132,7 +135,7 @@ export const BOARD_FINDER_IDS = ['wayback', 'common-crawl'] as const;
 export const CompanyBoardSchema = z.strictObject({
   identity: z.string(),
   intervalMs: z.number().int().min(60000).max(2592000000).default(3600000),
-  ats: z.enum(['greenhouse', 'lever', 'ashby', 'smartrecruiters']),
+  ats: z.enum(['greenhouse', 'lever', 'ashby', 'smartrecruiters', 'workable']),
   tenant: z.string(),
   region: z.enum(['global', 'eu']),
   company: z.string(),
@@ -191,7 +194,9 @@ export const RequestRecordSchema = z.strictObject({
 });
 export const CompanyQuerySchema = z.strictObject({
   query: z.string().max(200).default(''),
-  provider: z.enum(['all', 'greenhouse', 'lever', 'ashby', 'smartrecruiters']).default('all'),
+  provider: z
+    .enum(['all', 'greenhouse', 'lever', 'ashby', 'smartrecruiters', 'workable'])
+    .default('all'),
   status: z.enum(['all', 'enabled', 'disabled', 'due', 'pending']).default('all'),
   offset: z.number().int().nonnegative().default(0),
   limit: z.union([z.literal(10), z.literal(25), z.literal(50)]).default(10),

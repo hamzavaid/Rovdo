@@ -79,9 +79,10 @@ test('globally discovers an unsaved employer, separates scopes, exports and pers
     ).toHaveCount(1);
     await page.getByRole('button', { name: 'Scope & Collection', exact: true }).click();
     await page.getByRole('button', { name: '+ Select sources', exact: true }).click();
-    await expect(page.locator('.discovery-source')).toHaveCount(11);
+    await expect(page.locator('.discovery-source')).toHaveCount(12);
     await page.getByRole('button', { name: 'Select all', exact: true }).click();
-    await expect(page.locator('.discovery-source')).toHaveCount(11);
+    await expect(page.locator('.discovery-source')).toHaveCount(12);
+    await expect(page.getByRole('checkbox', { name: 'Workable', exact: true })).toBeChecked();
     expect(
       await page
         .locator('.discovery-source')
